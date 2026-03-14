@@ -1,142 +1,204 @@
+export interface User {
+  id: string
+  name: string
+  role: 'Admin' | 'User'
+  canViewFinance: boolean
+}
 export interface Client {
   id: string
   name: string
   document: string
+  type: 'PF' | 'PJ'
   email: string
   phone: string
-  status: 'Ativo' | 'Inativo'
+  address: string
+  birthday: string
+  responsibleId: string
+  status: 'Ativo' | 'Baixado'
+  isSpecial: boolean
 }
-
 export interface Case {
   id: string
   clientId: string
   number: string
-  title: string
-  status: 'Análise' | 'Petição Inicial' | 'Em Andamento' | 'Sentença'
+  position: string
+  adverseParty: string
+  type: string
+  status: string
+  court: string
+  comarca: string
+  state: string
+  system: string
+  value: number
+  startDate: string
+  responsibleId: string
   updatedAt: string
 }
-
 export interface Task {
   id: string
   title: string
+  description: string
   dueDate: string
-  completed: boolean
+  status: string
+  priority: string
+  responsibleId: string
+  relatedProcessId?: string
 }
-
-export interface Activity {
+export interface Appointment {
   id: string
-  text: string
+  title: string
   date: string
-  type: 'process' | 'client' | 'task'
+  type: string
+  responsibleId: string
 }
-
-export interface RevenueData {
-  month: string
-  value: number
+export interface Transaction {
+  id: string
+  description: string
+  amount: number
+  type: 'income' | 'expense'
+  category: string
+  status: 'Pendente' | 'Pago' | 'Atrasado'
+  date: string
+}
+export interface Log {
+  id: string
+  action: string
+  entity: string
+  user: string
+  date: string
+  details: string
+}
+export interface Petition {
+  id: string
+  title: string
+  content: string
+  category: string
 }
 
 export interface LegalState {
+  currentUser: User
+  users: User[]
   clients: Client[]
   cases: Case[]
   tasks: Task[]
-  activities: Activity[]
-  revenue: RevenueData[]
+  appointments: Appointment[]
+  transactions: Transaction[]
+  logs: Log[]
+  petitions: Petition[]
+  settings: { showFinanceDashboard: boolean; themeColor: string; logoUrl: string }
 }
 
 export const initialData: LegalState = {
+  currentUser: { id: 'u1', name: 'Advogado Sênior', role: 'Admin', canViewFinance: true },
+  users: [
+    { id: 'u1', name: 'Advogado Sênior', role: 'Admin', canViewFinance: true },
+    { id: 'u2', name: 'Estagiário', role: 'User', canViewFinance: false },
+  ],
   clients: [
     {
-      id: '1',
+      id: 'c1',
       name: 'Empresa Alpha Ltda',
       document: '12.345.678/0001-90',
+      type: 'PJ',
       email: 'contato@alpha.com',
-      phone: '(11) 98765-4321',
+      phone: '11987654321',
+      address: 'Rua A, 100',
+      birthday: '',
+      responsibleId: 'u1',
       status: 'Ativo',
+      isSpecial: true,
     },
     {
-      id: '2',
-      name: 'João Carlos Santos',
+      id: 'c2',
+      name: 'João Carlos',
       document: '123.456.789-00',
-      email: 'joao.carlos@email.com',
-      phone: '(21) 99999-8888',
+      type: 'PF',
+      email: 'joao@email.com',
+      phone: '21999998888',
+      address: 'Rua B, 20',
+      birthday: '1980-05-10',
+      responsibleId: 'u2',
       status: 'Ativo',
-    },
-    {
-      id: '3',
-      name: 'Maria Fernandes',
-      document: '987.654.321-11',
-      email: 'maria.f@email.com',
-      phone: '(31) 97777-6666',
-      status: 'Inativo',
+      isSpecial: false,
     },
   ],
   cases: [
     {
-      id: '101',
-      clientId: '1',
+      id: 'p1',
+      clientId: 'c1',
       number: '0001234-56.2023.8.26.0100',
-      title: 'Ação de Cobrança',
-      status: 'Em Andamento',
+      position: 'Autor',
+      adverseParty: 'Beta S/A',
+      type: 'Cível',
+      status: 'Em andamento',
+      court: '1ª Vara',
+      comarca: 'São Paulo',
+      state: 'SP',
+      system: 'PJE',
+      value: 50000,
+      startDate: '2023-01-10',
+      responsibleId: 'u1',
       updatedAt: '2023-10-15',
-    },
-    {
-      id: '102',
-      clientId: '2',
-      number: '0009876-54.2023.8.26.0200',
-      title: 'Revisão Contratual',
-      status: 'Análise',
-      updatedAt: '2023-10-20',
-    },
-    {
-      id: '103',
-      clientId: '1',
-      number: '0005555-33.2022.8.26.0100',
-      title: 'Defesa Trabalhista',
-      status: 'Sentença',
-      updatedAt: '2023-09-10',
-    },
-    {
-      id: '104',
-      clientId: '3',
-      number: '0004444-22.2023.8.26.0300',
-      title: 'Indenização por Danos Morais',
-      status: 'Petição Inicial',
-      updatedAt: '2023-10-25',
     },
   ],
   tasks: [
     {
       id: 't1',
-      title: 'Revisar petição inicial do João Carlos',
-      dueDate: 'Hoje',
-      completed: false,
+      title: 'Protocolar Petição',
+      description: 'Urgente',
+      dueDate: new Date().toISOString().split('T')[0],
+      status: 'Aguarda protocolo',
+      priority: 'Urgente',
+      responsibleId: 'u1',
+      relatedProcessId: 'p1',
     },
-    { id: 't2', title: 'Reunião com a Empresa Alpha', dueDate: 'Amanhã', completed: false },
-    { id: 't3', title: 'Analisar documentos da Maria', dueDate: 'Quinta-feira', completed: true },
-    { id: 't4', title: 'Protocolar defesa trabalhista', dueDate: 'Hoje', completed: false },
-  ],
-  activities: [
-    { id: 'a1', text: 'Publicação no processo 0001234-56', date: 'Há 2 horas', type: 'process' },
     {
-      id: 'a2',
-      text: 'Novo cliente cadastrado: João Carlos Santos',
-      date: 'Há 5 horas',
-      type: 'client',
+      id: 't2',
+      title: 'Revisar doc',
+      description: 'Revisar',
+      dueDate: '2024-12-01',
+      status: 'Pendente',
+      priority: 'Média',
+      responsibleId: 'u2',
     },
-    { id: 'a3', text: 'Tarefa concluída: Analisar documentos', date: 'Ontem', type: 'task' },
+  ],
+  appointments: [
     {
-      id: 'a4',
-      text: 'Audiência agendada para processo 0005555-33',
-      date: 'Ontem',
-      type: 'process',
+      id: 'a1',
+      title: 'Audiência Inicial',
+      date: new Date().toISOString(),
+      type: 'Audiência',
+      responsibleId: 'u1',
     },
   ],
-  revenue: [
-    { month: 'Jan', value: 12000 },
-    { month: 'Fev', value: 15000 },
-    { month: 'Mar', value: 14000 },
-    { month: 'Abr', value: 18000 },
-    { month: 'Mai', value: 22000 },
-    { month: 'Jun', value: 25000 },
+  transactions: [
+    {
+      id: 'tr1',
+      description: 'Honorários Iniciais',
+      amount: 5000,
+      type: 'income',
+      category: 'Honorários',
+      status: 'Pago',
+      date: '2023-10-01',
+    },
   ],
+  logs: [
+    {
+      id: 'l1',
+      action: 'Login',
+      entity: 'Auth',
+      user: 'Advogado Sênior',
+      date: new Date().toISOString(),
+      details: 'Acesso ao sistema',
+    },
+  ],
+  petitions: [
+    {
+      id: 'pe1',
+      title: 'Petição Inicial Padrão',
+      content: 'Excelentíssimo Senhor Juiz...',
+      category: 'Cível',
+    },
+  ],
+  settings: { showFinanceDashboard: true, themeColor: 'blue', logoUrl: '' },
 }

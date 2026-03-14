@@ -6,7 +6,10 @@ import {
   Briefcase,
   Calendar as CalendarIcon,
   CheckSquare,
+  DollarSign,
+  FileText,
   Settings,
+  History,
 } from 'lucide-react'
 import {
   Sidebar,
@@ -22,11 +25,14 @@ import {
 import { cn } from '@/lib/utils'
 
 const navigation = [
-  { name: 'Painel', href: '/', icon: LayoutDashboard },
+  { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Clientes', href: '/clientes', icon: Users },
   { name: 'Processos', href: '/processos', icon: Briefcase },
   { name: 'Agenda', href: '/agenda', icon: CalendarIcon },
   { name: 'Tarefas', href: '/tarefas', icon: CheckSquare },
+  { name: 'Financeiro', href: '/financeiro', icon: DollarSign },
+  { name: 'Petições', href: '/peticoes', icon: FileText },
+  { name: 'Logs de Auditoria', href: '/logs', icon: History },
   { name: 'Configurações', href: '/configuracoes', icon: Settings },
 ]
 
@@ -42,11 +48,11 @@ export default function AppSidebar() {
         </div>
         <span
           className={cn(
-            'font-bold text-lg text-sidebar-foreground truncate transition-opacity duration-200',
+            'font-bold text-xl text-sidebar-foreground truncate transition-opacity duration-200 tracking-tight',
             state === 'collapsed' ? 'opacity-0 hidden' : 'opacity-100',
           )}
         >
-          Legal Desk
+          SBJur
         </span>
       </SidebarHeader>
       <SidebarContent>

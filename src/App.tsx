@@ -7,8 +7,12 @@ import Index from './pages/Index'
 import Clients from './pages/Clients'
 import ClientDetail from './pages/ClientDetail'
 import Cases from './pages/Cases'
+import CaseDetail from './pages/CaseDetail'
 import Agenda from './pages/Agenda'
 import Tasks from './pages/Tasks'
+import Finance from './pages/Finance'
+import Petitions from './pages/Petitions'
+import Logs from './pages/Logs'
 import Settings from './pages/Settings'
 import NotFound from './pages/NotFound'
 import { LegalStoreProvider } from './stores/useLegalStore'
@@ -25,8 +29,12 @@ const App = () => (
             <Route path="/clientes" element={<Clients />} />
             <Route path="/clientes/:id" element={<ClientDetail />} />
             <Route path="/processos" element={<Cases />} />
+            <Route path="/processos/:id" element={<CaseDetail />} />
             <Route path="/agenda" element={<Agenda />} />
             <Route path="/tarefas" element={<Tasks />} />
+            <Route path="/financeiro" element={<Finance />} />
+            <Route path="/peticoes" element={<Petitions />} />
+            <Route path="/logs" element={<Logs />} />
             <Route path="/configuracoes" element={<Settings />} />
           </Route>
           <Route path="*" element={<NotFound />} />

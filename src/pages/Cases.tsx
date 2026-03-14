@@ -1,155 +1,238 @@
 import { useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
-import { Search, Plus, LayoutList, Columns } from 'lucide-react'
+import { Search, Plus, Filter } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import useLegalStore from '@/stores/useLegalStore'
-
-const KANBAN_STAGES = ['Análise', 'Petição Inicial', 'Em Andamento', 'Sentença']
+import { Link } from 'react-router-dom'
+import { toast } from '@/hooks/use-toast'
 
 export default function Cases() {
-  const { state } = useLegalStore()
-  const [searchTerm, setSearchTerm] = useState('')
+  const { state, addCase } = useLegalStore()
+  const [search, setSearch] = useState('')
+  const [open, setOpen] = useState(false)
+  const [sortBy, setSortBy] = useState('recent') // recent, urgent
 
-  const filteredCases = state.cases.filter(
-    (c) =>
-      c.number.includes(searchTerm) || c.title.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
+  const [fd, setFd] = useState({
+    clientId: '',
+    number: '',
+    position: 'Autor',
+    adverseParty: '',
+    type: 'Cível',
+    status: 'Em andamento',
+    court: '',
+    comarca: '',
+    state: 'SP',
+    system: 'PJE',
+    value: 0,
+    responsibleId: state.currentUser.id,
+  })
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'Análise':
-        return 'bg-slate-500'
-      case 'Petição Inicial':
-        return 'bg-amber-500'
-      case 'Em Andamento':
-        return 'bg-blue-500'
-      case 'Sentença':
-        return 'bg-emerald-500'
-      default:
-        return 'bg-gray-500'
-    }
+  const filtered = state.cases
+    .filter(
+      (c) =>
+        c.number.includes(search) || c.adverseParty.toLowerCase().includes(search.toLowerCase()),
+    )
+    .sort((a, b) => {
+      if (sortBy === 'urgent')
+        return new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime() // oldest updated first
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    })
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (state.cases.some((c) => c.number === fd.number))
+      return toast({ title: 'Erro', description: 'Número já cadastrado', variant: 'destructive' })
+    addCase({ ...fd, startDate: new Date().toISOString().split('T')[0] })
+    setOpen(false)
   }
 
   return (
-    <div className="space-y-6 h-full flex flex-col">
+    <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-800 dark:text-slate-100">
-            Processos
-          </h1>
-          <p className="text-muted-foreground mt-1">Acompanhamento e gestão de casos.</p>
+          <h1 className="text-3xl font-bold tracking-tight">Processos</h1>
+          <p className="text-muted-foreground">
+            Acompanhamento e gestão de casos judiciais e extrajudiciais.
+          </p>
         </div>
-        <Button>
-          <Plus className="mr-2 h-4 w-4" /> Novo Processo
-        </Button>
-      </div>
-
-      <Tabs defaultValue="kanban" className="flex-1 flex flex-col">
-        <div className="flex justify-between items-center mb-4">
-          <div className="relative w-full max-w-sm">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              type="search"
-              placeholder="Buscar número ou título..."
-              className="pl-9 bg-white"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-          <TabsList>
-            <TabsTrigger value="kanban">
-              <Columns className="h-4 w-4 mr-2" /> Kanban
-            </TabsTrigger>
-            <TabsTrigger value="list">
-              <LayoutList className="h-4 w-4 mr-2" /> Lista
-            </TabsTrigger>
-          </TabsList>
-        </div>
-
-        <TabsContent value="kanban" className="flex-1 mt-0">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 h-full">
-            {KANBAN_STAGES.map((stage) => (
-              <div
-                key={stage}
-                className="bg-slate-100 dark:bg-slate-800/50 rounded-lg p-4 flex flex-col min-h-[500px]"
-              >
-                <h3 className="font-semibold text-slate-700 dark:text-slate-200 mb-4 flex items-center justify-between">
-                  {stage}
-                  <Badge variant="secondary">
-                    {filteredCases.filter((c) => c.status === stage).length}
-                  </Badge>
-                </h3>
-                <div className="space-y-3 flex-1">
-                  {filteredCases
-                    .filter((c) => c.status === stage)
-                    .map((c) => {
-                      const client = state.clients.find((cl) => cl.id === c.clientId)
-                      return (
-                        <Card
-                          key={c.id}
-                          className="cursor-pointer hover:border-primary/50 transition-colors shadow-sm"
-                        >
-                          <CardContent className="p-4">
-                            <p className="text-xs text-muted-foreground mb-1">{c.number}</p>
-                            <p className="font-medium text-sm leading-tight mb-2">{c.title}</p>
-                            <p className="text-xs text-slate-500 mb-3">
-                              {client?.name || 'Cliente Desconhecido'}
-                            </p>
-                            <div className="flex justify-between items-center mt-auto">
-                              <span className="text-[10px] text-muted-foreground">
-                                Atualizado: {c.updatedAt}
-                              </span>
-                              <div className={`h-2 w-2 rounded-full ${getStatusColor(c.status)}`} />
-                            </div>
-                          </CardContent>
-                        </Card>
-                      )
-                    })}
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button>
+              <Plus className="mr-2 h-4 w-4" /> Novo Processo
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-2xl">
+            <form onSubmit={handleSubmit} className="grid gap-4 py-4">
+              <DialogHeader>
+                <DialogTitle>Cadastrar Processo</DialogTitle>
+              </DialogHeader>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2 space-y-2">
+                  <Label>Número CNJ *</Label>
+                  <Input
+                    required
+                    value={fd.number}
+                    onChange={(e) => setFd({ ...fd, number: e.target.value })}
+                    placeholder="0000000-00.0000.0.00.0000"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Cliente *</Label>
+                  <Select
+                    value={fd.clientId}
+                    onValueChange={(v) => setFd({ ...fd, clientId: v })}
+                    required
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {state.clients.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Posição do Cliente</Label>
+                  <Input
+                    value={fd.position}
+                    onChange={(e) => setFd({ ...fd, position: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Parte Adversa</Label>
+                  <Input
+                    value={fd.adverseParty}
+                    onChange={(e) => setFd({ ...fd, adverseParty: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Sistema (PJE, e-SAJ)</Label>
+                  <Input
+                    value={fd.system}
+                    onChange={(e) => setFd({ ...fd, system: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Vara</Label>
+                  <Input
+                    value={fd.court}
+                    onChange={(e) => setFd({ ...fd, court: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Comarca / UF</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={fd.comarca}
+                      onChange={(e) => setFd({ ...fd, comarca: e.target.value })}
+                      className="flex-1"
+                    />
+                    <Input
+                      value={fd.state}
+                      onChange={(e) => setFd({ ...fd, state: e.target.value })}
+                      className="w-16"
+                    />
+                  </div>
                 </div>
               </div>
-            ))}
-          </div>
-        </TabsContent>
+              <DialogFooter>
+                <Button type="submit">Salvar e Criar Tarefa Inicial</Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
 
-        <TabsContent value="list" className="mt-0">
-          <Card className="shadow-sm">
-            <CardContent className="p-0">
-              <div className="divide-y">
-                {filteredCases.map((c) => {
-                  const client = state.clients.find((cl) => cl.id === c.clientId)
-                  return (
-                    <div
-                      key={c.id}
-                      className="p-4 hover:bg-slate-50 flex items-center justify-between"
+      <div className="flex gap-4 items-center">
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            type="search"
+            placeholder="Buscar número ou parte adversa..."
+            className="pl-9"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <Select value={sortBy} onValueChange={setSortBy}>
+          <SelectTrigger className="w-[180px]">
+            <Filter className="w-4 h-4 mr-2" /> <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="recent">Última Movimentação</SelectItem>
+            <SelectItem value="urgent">Sem Movimentação (Urgente)</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="grid gap-4">
+        {filtered.map((c) => {
+          const client = state.clients.find((cl) => cl.id === c.clientId)
+          const daysSinceUpdate = Math.floor(
+            (new Date().getTime() - new Date(c.updatedAt).getTime()) / (1000 * 3600 * 24),
+          )
+          return (
+            <Card key={c.id} className="shadow-sm hover:border-primary/50 transition-all">
+              <CardContent className="p-4 flex flex-col md:flex-row justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Link
+                      to={`/processos/${c.id}`}
+                      className="text-lg font-bold text-primary hover:underline"
                     >
-                      <div>
-                        <p className="font-medium text-primary">{c.number}</p>
-                        <p className="text-sm font-medium">{c.title}</p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Cliente: {client?.name} • Atualizado em {c.updatedAt}
-                        </p>
-                      </div>
-                      <Badge
-                        className={`${getStatusColor(c.status)} text-white hover:${getStatusColor(c.status)} border-transparent`}
-                      >
-                        {c.status}
+                      {c.number}
+                    </Link>
+                    <Badge variant={c.status === 'Em andamento' ? 'default' : 'secondary'}>
+                      {c.status}
+                    </Badge>
+                    {daysSinceUpdate > 30 && (
+                      <Badge variant="destructive" className="animate-pulse">
+                        Sem mov. há {daysSinceUpdate} dias
                       </Badge>
-                    </div>
-                  )
-                })}
-                {filteredCases.length === 0 && (
-                  <div className="p-8 text-center text-muted-foreground">
-                    Nenhum processo encontrado.
+                    )}
                   </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+                  <p className="text-sm font-medium">
+                    {client?.name} ({c.position}) x {c.adverseParty}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {c.system} • {c.court} • {c.comarca}/{c.state} • Tipo: {c.type}
+                  </p>
+                </div>
+                <div className="text-right flex flex-col justify-between">
+                  <p className="text-xs text-muted-foreground">
+                    Atualizado em: {new Date(c.updatedAt).toLocaleDateString('pt-BR')}
+                  </p>
+                  <Button variant="outline" size="sm" asChild className="mt-2">
+                    <Link to={`/processos/${c.id}`}>Abrir Processo</Link>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )
+        })}
+      </div>
     </div>
   )
 }

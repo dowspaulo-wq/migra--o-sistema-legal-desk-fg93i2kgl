@@ -1,57 +1,185 @@
+import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Calendar } from '@/components/ui/calendar'
-import { useState } from 'react'
-import { ptBR } from 'date-fns/locale'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Plus, Video, MapPin } from 'lucide-react'
+import useLegalStore from '@/stores/useLegalStore'
 
 export default function Agenda() {
+  const { state, addAppointment } = useLegalStore()
   const [date, setDate] = useState<Date | undefined>(new Date())
+  const [open, setOpen] = useState(false)
+  const [fd, setFd] = useState({
+    title: '',
+    date: new Date().toISOString().split('T')[0],
+    time: '10:00',
+    type: 'Audiência',
+    responsibleId: state.currentUser.id,
+  })
+
+  const selectedDateStr = date?.toDateString()
+  const dayAppointments = state.appointments
+    .filter((a) => new Date(a.date).toDateString() === selectedDateStr)
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const fullDate = new Date(`${fd.date}T${fd.time}:00`).toISOString()
+    addAppointment({
+      title: fd.title,
+      date: fullDate,
+      type: fd.type,
+      responsibleId: fd.responsibleId,
+    })
+    setOpen(false)
+  }
+
+  const getTypeStyle = (type: string) => {
+    switch (type) {
+      case 'Audiência':
+        return 'border-red-500 bg-red-50'
+      case 'Reunião':
+        return 'border-blue-500 bg-blue-50'
+      case 'Prazo':
+        return 'border-orange-500 bg-orange-50'
+      default:
+        return 'border-slate-500 bg-slate-50'
+    }
+  }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight text-slate-800 dark:text-slate-100">
-          Agenda
-        </h1>
-        <p className="text-muted-foreground mt-1">Controle de prazos e audiências.</p>
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Agenda Compartilhada</h1>
+          <p className="text-muted-foreground">Audiências, prazos e reuniões.</p>
+        </div>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button>
+              <Plus className="mr-2 h-4 w-4" /> Novo Compromisso
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <form onSubmit={handleSubmit} className="space-y-4 py-4">
+              <DialogHeader>
+                <DialogTitle>Agendar Compromisso</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-2">
+                <Label>Título</Label>
+                <Input
+                  required
+                  value={fd.title}
+                  onChange={(e) => setFd({ ...fd, title: e.target.value })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Data</Label>
+                  <Input
+                    type="date"
+                    required
+                    value={fd.date}
+                    onChange={(e) => setFd({ ...fd, date: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Hora</Label>
+                  <Input
+                    type="time"
+                    required
+                    value={fd.time}
+                    onChange={(e) => setFd({ ...fd, time: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Tipo</Label>
+                <Select value={fd.type} onValueChange={(v) => setFd({ ...fd, type: v })}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Audiência">Audiência</SelectItem>
+                    <SelectItem value="Reunião">Reunião</SelectItem>
+                    <SelectItem value="Prazo">Prazo</SelectItem>
+                    <SelectItem value="Diligência">Diligência</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="text-xs text-muted-foreground bg-blue-50 p-2 rounded">
+                Nota: Agendar "Audiência" criará automaticamente uma tarefa de preparação.
+              </p>
+              <DialogFooter>
+                <Button type="submit">Salvar na Agenda</Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-3">
-        <Card className="shadow-sm md:col-span-1 h-fit">
-          <CardContent className="p-4 flex justify-center">
-            <Calendar mode="single" selected={date} onSelect={setDate} className="rounded-md" />
-          </CardContent>
+      <div className="grid md:grid-cols-3 gap-6">
+        <Card className="h-fit flex justify-center p-2 shadow-sm">
+          <Calendar
+            mode="single"
+            selected={date}
+            onSelect={setDate}
+            className="w-full max-w-sm rounded-md"
+          />
         </Card>
-
-        <Card className="shadow-sm md:col-span-2">
+        <Card className="md:col-span-2 shadow-sm">
           <CardHeader>
-            <CardTitle>Compromissos para {date?.toLocaleDateString('pt-BR') || 'Hoje'}</CardTitle>
+            <CardTitle>Compromissos - {date?.toLocaleDateString('pt-BR')}</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex border-l-4 border-amber-500 pl-4 py-2 bg-slate-50">
-                <div className="w-16 font-medium text-slate-600">10:00</div>
-                <div>
-                  <p className="font-bold text-slate-800">Audiência de Conciliação</p>
-                  <p className="text-sm text-muted-foreground">
-                    Processo 0005555-33 - Cliente: Empresa Alpha
-                  </p>
-                </div>
-              </div>
-              <div className="flex border-l-4 border-blue-500 pl-4 py-2 bg-slate-50">
-                <div className="w-16 font-medium text-slate-600">14:30</div>
-                <div>
-                  <p className="font-bold text-slate-800">Reunião com Cliente</p>
-                  <p className="text-sm text-muted-foreground">João Carlos Santos</p>
-                </div>
-              </div>
-              <div className="flex border-l-4 border-emerald-500 pl-4 py-2 bg-slate-50">
-                <div className="w-16 font-medium text-slate-600">16:00</div>
-                <div>
-                  <p className="font-bold text-slate-800">Prazo Petição</p>
-                  <p className="text-sm text-muted-foreground">Processo 0004444-22</p>
-                </div>
-              </div>
-            </div>
+          <CardContent className="space-y-3">
+            {dayAppointments.length > 0 ? (
+              dayAppointments.map((a) => {
+                const resp = state.users.find((u) => u.id === a.responsibleId)?.name
+                return (
+                  <div
+                    key={a.id}
+                    className={`flex border-l-4 p-3 rounded-r-lg ${getTypeStyle(a.type)}`}
+                  >
+                    <div className="w-16 font-bold text-slate-700">
+                      {new Date(a.date).toLocaleTimeString('pt-BR', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-bold text-slate-800">{a.title}</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Tipo: {a.type} • Resp: {resp}
+                      </p>
+                    </div>
+                    {a.type === 'Reunião' && (
+                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full">
+                        <Video className="h-4 w-4 text-blue-500" />
+                      </Button>
+                    )}
+                  </div>
+                )
+              })
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">Agenda livre neste dia.</div>
+            )}
           </CardContent>
         </Card>
       </div>

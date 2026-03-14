@@ -1,27 +1,71 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Briefcase, Users, CheckSquare, DollarSign } from 'lucide-react'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Briefcase, Users, CheckSquare, DollarSign, AlertTriangle, Calendar } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
-import { ChartContainer } from '@/components/ui/chart'
-import { Line, LineChart, ResponsiveContainer, Tooltip } from 'recharts'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Calendar } from '@/components/ui/calendar'
+import { Link } from 'react-router-dom'
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
+import { Badge } from '@/components/ui/badge'
+
+const COLORS = [
+  'hsl(var(--chart-1))',
+  'hsl(var(--chart-2))',
+  'hsl(var(--chart-3))',
+  'hsl(var(--chart-4))',
+  'hsl(var(--chart-5))',
+]
 
 export default function Index() {
-  const { state, updateTask } = useLegalStore()
-  const activeCases = state.cases.filter((c) => c.status !== 'Concluído').length
-  const newClients = state.clients.length
-  const pendingTasks = state.tasks.filter((t) => !t.completed).length
+  const { state } = useLegalStore()
+
+  const pendingProtocol = state.tasks.filter((t) => t.status === 'Aguarda protocolo')
+  const myTasks = state.tasks.filter(
+    (t) => t.responsibleId === state.currentUser.id && t.status !== 'Concluída',
+  )
+
+  const processStatusData = Object.entries(
+    state.cases.reduce(
+      (acc, c) => {
+        acc[c.status] = (acc[c.status] || 0) + 1
+        return acc
+      },
+      {} as Record<string, number>,
+    ),
+  ).map(([name, value]) => ({ name, value }))
+
+  const totalIncome = state.transactions
+    .filter((t) => t.type === 'income' && t.status === 'Pago')
+    .reduce((sum, t) => sum + t.amount, 0)
+  const todayAppts = state.appointments.filter(
+    (a) => new Date(a.date).toDateString() === new Date().toDateString(),
+  )
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight text-slate-800 dark:text-slate-100">
-          Painel Geral
-        </h1>
-        <p className="text-muted-foreground mt-1">
-          Bem-vindo ao Legal Desk. Aqui está o resumo do seu escritório.
-        </p>
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-slate-800 dark:text-slate-100">
+            Painel SBJur
+          </h1>
+          <p className="text-muted-foreground mt-1">Visão geral do escritório.</p>
+        </div>
       </div>
+
+      {pendingProtocol.length > 0 && (
+        <Alert
+          variant="destructive"
+          className="animate-fade-in border-destructive/50 bg-destructive/5"
+        >
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Atenção - Protocolos Pendentes</AlertTitle>
+          <AlertDescription>
+            Existem {pendingProtocol.length} tarefas aguardando protocolo urgente.{' '}
+            <Link to="/tarefas" className="underline font-bold">
+              Ver tarefas
+            </Link>
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card className="shadow-sm">
@@ -30,114 +74,130 @@ export default function Index() {
             <Briefcase className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{activeCases}</div>
-            <p className="text-xs text-muted-foreground">+2 desde o último mês</p>
+            <div className="text-2xl font-bold">{state.cases.length}</div>
           </CardContent>
         </Card>
         <Card className="shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Novos Clientes</CardTitle>
+            <CardTitle className="text-sm font-medium">Clientes Cadastrados</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{newClients}</div>
-            <p className="text-xs text-muted-foreground">Neste mês</p>
+            <div className="text-2xl font-bold">{state.clients.length}</div>
           </CardContent>
         </Card>
         <Card className="shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Tarefas Pendentes</CardTitle>
+            <CardTitle className="text-sm font-medium">Minhas Tarefas Pendentes</CardTitle>
             <CheckSquare className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{pendingTasks}</div>
-            <p className="text-xs text-muted-foreground">Requerem atenção</p>
+            <div className="text-2xl font-bold">{myTasks.length}</div>
+            <Link
+              to={`/tarefas?resp=${state.currentUser.id}`}
+              className="text-xs text-primary hover:underline"
+            >
+              Ver lista filtrada
+            </Link>
           </CardContent>
         </Card>
-        <Card className="shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Faturamento</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
+        {state.currentUser.canViewFinance && state.settings.showFinanceDashboard && (
+          <Card className="shadow-sm">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Receita Mês (Paga)</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">R$ {totalIncome.toLocaleString('pt-BR')}</div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <Card className="shadow-sm lg:col-span-1">
+          <CardHeader>
+            <CardTitle className="text-sm">Status dos Processos</CardTitle>
           </CardHeader>
-          <CardContent className="pb-2">
-            <div className="text-2xl font-bold">R$ 25.000</div>
-            <ChartContainer
-              config={{ value: { color: 'hsl(var(--primary))' } }}
-              className="h-10 mt-2 w-full"
-            >
+          <CardContent className="flex justify-center h-64">
+            <ChartContainer config={{}} className="h-full w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={state.revenue}>
-                  <Line
-                    type="monotone"
+                <PieChart>
+                  <Pie
+                    data={processStatusData}
                     dataKey="value"
-                    stroke="var(--color-value)"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                  <Tooltip
-                    content={({ active, payload }) => {
-                      if (active && payload && payload.length) {
-                        return (
-                          <div className="bg-white border p-1 rounded shadow text-xs">
-                            R$ {payload[0].value}
-                          </div>
-                        )
-                      }
-                      return null
-                    }}
-                  />
-                </LineChart>
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={5}
+                  >
+                    {processStatusData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
               </ResponsiveContainer>
             </ChartContainer>
           </CardContent>
         </Card>
-      </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-        <Card className="col-span-4 shadow-sm">
+        <Card className="shadow-sm lg:col-span-1">
           <CardHeader>
-            <CardTitle>Atividades Recentes</CardTitle>
+            <CardTitle className="text-sm">Compromissos de Hoje</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {state.activities.map((activity) => (
-                <div
-                  key={activity.id}
-                  className="flex items-start gap-4 border-b pb-3 last:border-0 last:pb-0"
-                >
-                  <div className="mt-1 h-2 w-2 rounded-full bg-primary shrink-0" />
-                  <div className="flex-1 space-y-1">
-                    <p className="text-sm font-medium leading-none">{activity.text}</p>
-                    <p className="text-xs text-muted-foreground">{activity.date}</p>
+              {todayAppts.length > 0 ? (
+                todayAppts.map((a) => (
+                  <div key={a.id} className="flex gap-3 items-center border-b pb-2 last:border-0">
+                    <Calendar className="h-5 w-5 text-primary" />
+                    <div>
+                      <p className="text-sm font-medium leading-none">{a.title}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(a.date).toLocaleTimeString('pt-BR', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}{' '}
+                        - {a.type}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  Nenhum compromisso para hoje.
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
 
-        <Card className="col-span-3 shadow-sm">
+        <Card className="shadow-sm lg:col-span-1">
           <CardHeader>
-            <CardTitle>Tarefas Rápidas</CardTitle>
+            <CardTitle className="text-sm">Processos Recentes</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {state.tasks.slice(0, 5).map((task) => (
-                <div key={task.id} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={task.id}
-                    checked={task.completed}
-                    onCheckedChange={(c) => updateTask(task.id, !!c)}
-                  />
-                  <div className="grid gap-1.5 leading-none">
-                    <label
-                      htmlFor={task.id}
-                      className={`text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 ${task.completed ? 'line-through text-muted-foreground' : ''}`}
+              {state.cases.slice(0, 5).map((c) => (
+                <div
+                  key={c.id}
+                  className="flex justify-between items-start border-b pb-2 last:border-0"
+                >
+                  <div>
+                    <Link
+                      to={`/processos/${c.id}`}
+                      className="text-sm font-medium hover:underline text-primary"
                     >
-                      {task.title}
-                    </label>
-                    <p className="text-xs text-muted-foreground">Vencimento: {task.dueDate}</p>
+                      {c.number}
+                    </Link>
+                    <p className="text-xs text-muted-foreground">{c.type}</p>
                   </div>
+                  <Badge variant="outline" className="text-[10px]">
+                    {c.status}
+                  </Badge>
                 </div>
               ))}
             </div>

@@ -1,4 +1,4 @@
-import { Bell, Search, User } from 'lucide-react'
+import { Bell, Search, AlertCircle } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
@@ -15,7 +15,7 @@ import useLegalStore from '@/stores/useLegalStore'
 
 export default function Header() {
   const { state } = useLegalStore()
-  const unreadTasks = state.tasks.filter((t) => !t.completed).length
+  const pendingProtocol = state.tasks.filter((t) => t.status === 'Aguarda protocolo').length
 
   return (
     <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b bg-white px-4 shadow-sm md:px-6">
@@ -25,40 +25,45 @@ export default function Header() {
           <Search className="absolute left-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             type="search"
-            placeholder="Buscar clientes ou processos..."
+            placeholder="Busca global SBJur..."
             className="w-full bg-slate-50 pl-9 border-none focus-visible:ring-1"
           />
         </div>
       </div>
       <div className="flex items-center gap-4">
+        {pendingProtocol > 0 && (
+          <div className="hidden md:flex items-center text-xs font-semibold text-destructive bg-destructive/10 px-3 py-1.5 rounded-full animate-pulse">
+            <AlertCircle className="h-4 w-4 mr-1" /> {pendingProtocol} Protocolos Pendentes
+          </div>
+        )}
         <Button variant="ghost" size="icon" className="relative text-slate-500 hover:text-primary">
           <Bell className="h-5 w-5" />
-          {unreadTasks > 0 && (
-            <span className="absolute right-2 top-2 flex h-2 w-2 rounded-full bg-destructive" />
-          )}
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="relative h-8 w-8 rounded-full">
               <Avatar className="h-8 w-8">
                 <AvatarImage
-                  src="https://img.usecurling.com/ppl/thumbnail?gender=male&seed=42"
+                  src={`https://img.usecurling.com/ppl/thumbnail?gender=male&seed=${state.currentUser.id}`}
                   alt="User"
                 />
-                <AvatarFallback>AD</AvatarFallback>
+                <AvatarFallback>
+                  {state.currentUser.name.substring(0, 2).toUpperCase()}
+                </AvatarFallback>
               </Avatar>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-56" align="end" forceMount>
             <DropdownMenuLabel className="font-normal">
               <div className="flex flex-col space-y-1">
-                <p className="text-sm font-medium leading-none">Advogado Sênior</p>
-                <p className="text-xs leading-none text-muted-foreground">contato@escritorio.com</p>
+                <p className="text-sm font-medium leading-none">{state.currentUser.name}</p>
+                <p className="text-xs leading-none text-muted-foreground">
+                  {state.currentUser.role}
+                </p>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem>Perfil</DropdownMenuItem>
-            <DropdownMenuItem>Configurações</DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem className="text-destructive">Sair</DropdownMenuItem>
           </DropdownMenuContent>
