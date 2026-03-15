@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Table,
@@ -9,17 +10,26 @@ import {
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Plus, ArrowUpRight, ArrowDownRight } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { Navigate } from 'react-router-dom'
 
 export default function Finance() {
   const { state } = useLegalStore()
+  const [filterStatus, setFilterStatus] = useState('Todos')
 
-  // Granular permission check
-  if (!state.currentUser.canViewFinance) {
-    return <Navigate to="/" replace />
-  }
+  if (!state.currentUser.canViewFinance) return <Navigate to="/" replace />
+
+  const filtered = state.transactions.filter(
+    (t) => filterStatus === 'Todos' || t.status === filterStatus,
+  )
 
   const income = state.transactions
     .filter((t) => t.type === 'income')
@@ -44,7 +54,7 @@ export default function Finance() {
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="bg-green-50 border-green-200">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-green-800">Entradas</CardTitle>
+            <CardTitle className="text-sm font-medium text-green-800">Entradas Totais</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-700 flex items-center">
@@ -54,7 +64,7 @@ export default function Finance() {
         </Card>
         <Card className="bg-red-50 border-red-200">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-red-800">Saídas</CardTitle>
+            <CardTitle className="text-sm font-medium text-red-800">Saídas Totais</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-red-700 flex items-center">
@@ -73,8 +83,19 @@ export default function Finance() {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Lançamentos Recentes</CardTitle>
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardTitle>Lançamentos</CardTitle>
+          <Select value={filterStatus} onValueChange={setFilterStatus}>
+            <SelectTrigger className="w-[180px] bg-white">
+              <SelectValue placeholder="Filtrar Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="Todos">Todos os Status</SelectItem>
+              <SelectItem value="Pago">Pago</SelectItem>
+              <SelectItem value="Pendente">Pendente</SelectItem>
+              <SelectItem value="Atrasado">Atrasado</SelectItem>
+            </SelectContent>
+          </Select>
         </CardHeader>
         <CardContent>
           <Table>
@@ -88,7 +109,7 @@ export default function Finance() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {state.transactions.map((t) => (
+              {filtered.map((t) => (
                 <TableRow key={t.id}>
                   <TableCell>{new Date(t.date).toLocaleDateString('pt-BR')}</TableCell>
                   <TableCell className="font-medium">{t.description}</TableCell>
@@ -113,6 +134,13 @@ export default function Finance() {
                   </TableCell>
                 </TableRow>
               ))}
+              {filtered.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center py-8">
+                    Nenhum lançamento encontrado.
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </CardContent>

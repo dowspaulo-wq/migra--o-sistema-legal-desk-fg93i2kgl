@@ -28,7 +28,7 @@ export default function Cases() {
   const { state, addCase } = useLegalStore()
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState(false)
-  const [sortBy, setSortBy] = useState('recent') // recent, urgent
+  const [sortBy, setSortBy] = useState('recent')
 
   const [fd, setFd] = useState({
     clientId: '',
@@ -52,7 +52,7 @@ export default function Cases() {
     )
     .sort((a, b) => {
       if (sortBy === 'urgent')
-        return new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime() // oldest updated first
+        return new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime()
       return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
     })
 
@@ -182,7 +182,7 @@ export default function Cases() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="recent">Última Movimentação</SelectItem>
-            <SelectItem value="urgent">Sem Movimentação (Urgente)</SelectItem>
+            <SelectItem value="urgent">Sem Movimentação</SelectItem>
           </SelectContent>
         </Select>
       </div>

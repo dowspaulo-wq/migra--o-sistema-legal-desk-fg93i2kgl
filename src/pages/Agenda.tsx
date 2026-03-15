@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Plus, Video, MapPin } from 'lucide-react'
+import { Plus, Video, Gift } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 
 export default function Agenda() {
@@ -38,31 +38,30 @@ export default function Agenda() {
   const dayAppointments = state.appointments
     .filter((a) => new Date(a.date).toDateString() === selectedDateStr)
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+  const birthdays = state.clients.filter(
+    (c) =>
+      c.birthday &&
+      new Date(c.birthday).getDate() === date?.getDate() &&
+      new Date(c.birthday).getMonth() === date?.getMonth(),
+  )
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    const fullDate = new Date(`${fd.date}T${fd.time}:00`).toISOString()
     addAppointment({
       title: fd.title,
-      date: fullDate,
+      date: new Date(`${fd.date}T${fd.time}:00`).toISOString(),
       type: fd.type,
       responsibleId: fd.responsibleId,
     })
     setOpen(false)
   }
 
-  const getTypeStyle = (type: string) => {
-    switch (type) {
-      case 'Audiência':
-        return 'border-red-500 bg-red-50'
-      case 'Reunião':
-        return 'border-blue-500 bg-blue-50'
-      case 'Prazo':
-        return 'border-orange-500 bg-orange-50'
-      default:
-        return 'border-slate-500 bg-slate-50'
-    }
-  }
+  const getTypeStyle = (type: string) =>
+    type === 'Audiência'
+      ? 'border-red-500 bg-red-50'
+      : type === 'Reunião'
+        ? 'border-blue-500 bg-blue-50'
+        : 'border-orange-500 bg-orange-50'
 
   return (
     <div className="space-y-6">
@@ -120,7 +119,6 @@ export default function Agenda() {
                     <SelectItem value="Audiência">Audiência</SelectItem>
                     <SelectItem value="Reunião">Reunião</SelectItem>
                     <SelectItem value="Prazo">Prazo</SelectItem>
-                    <SelectItem value="Diligência">Diligência</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -149,37 +147,55 @@ export default function Agenda() {
             <CardTitle>Compromissos - {date?.toLocaleDateString('pt-BR')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {dayAppointments.length > 0 ? (
-              dayAppointments.map((a) => {
-                const resp = state.users.find((u) => u.id === a.responsibleId)?.name
-                return (
-                  <div
-                    key={a.id}
-                    className={`flex border-l-4 p-3 rounded-r-lg ${getTypeStyle(a.type)}`}
-                  >
-                    <div className="w-16 font-bold text-slate-700">
-                      {new Date(a.date).toLocaleTimeString('pt-BR', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
+            {birthdays.map((c) => (
+              <div
+                key={`b-${c.id}`}
+                className="flex border-l-4 p-3 rounded-r-lg border-yellow-500 bg-yellow-50 mb-3"
+              >
+                <div className="w-16 flex justify-center items-center">
+                  <Gift className="h-6 w-6 text-yellow-600" />
+                </div>
+                <div className="flex-1">
+                  <p className="font-bold text-yellow-800">Aniversário do Cliente: {c.name}</p>
+                  <p className="text-xs text-yellow-700 mt-1">
+                    Ótima oportunidade para enviar uma mensagem!
+                  </p>
+                </div>
+              </div>
+            ))}
+            {dayAppointments.length > 0
+              ? dayAppointments.map((a) => {
+                  const resp = state.users.find((u) => u.id === a.responsibleId)?.name
+                  return (
+                    <div
+                      key={a.id}
+                      className={`flex border-l-4 p-3 rounded-r-lg ${getTypeStyle(a.type)}`}
+                    >
+                      <div className="w-16 font-bold text-slate-700">
+                        {new Date(a.date).toLocaleTimeString('pt-BR', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-bold text-slate-800">{a.title}</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Tipo: {a.type} • Resp: {resp}
+                        </p>
+                      </div>
+                      {a.type === 'Reunião' && (
+                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full">
+                          <Video className="h-4 w-4 text-blue-500" />
+                        </Button>
+                      )}
                     </div>
-                    <div className="flex-1">
-                      <p className="font-bold text-slate-800">{a.title}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Tipo: {a.type} • Resp: {resp}
-                      </p>
-                    </div>
-                    {a.type === 'Reunião' && (
-                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full">
-                        <Video className="h-4 w-4 text-blue-500" />
-                      </Button>
-                    )}
+                  )
+                })
+              : !birthdays.length && (
+                  <div className="text-center py-8 text-muted-foreground">
+                    Agenda livre neste dia.
                   </div>
-                )
-              })
-            ) : (
-              <div className="text-center py-8 text-muted-foreground">Agenda livre neste dia.</div>
-            )}
+                )}
           </CardContent>
         </Card>
       </div>

@@ -34,11 +34,13 @@ import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 
 export default function Clients() {
-  const { state, addClient, setState } = useLegalStore()
+  const { state, addClient, updateItem } = useLegalStore()
   const [searchTerm, setSearchTerm] = useState('')
   const [open, setOpen] = useState(false)
   const [bulkOpen, setBulkOpen] = useState(false)
   const [bulkText, setBulkText] = useState('')
+  const [page, setPage] = useState(1)
+  const itemsPerPage = 10
 
   const [fd, setFd] = useState({
     name: '',
@@ -55,6 +57,8 @@ export default function Clients() {
     (c) =>
       c.name.toLowerCase().includes(searchTerm.toLowerCase()) || c.document.includes(searchTerm),
   )
+  const paginated = filtered.slice((page - 1) * itemsPerPage, page * itemsPerPage)
+  const totalPages = Math.ceil(filtered.length / itemsPerPage)
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -102,10 +106,8 @@ export default function Clients() {
   }
 
   const toggleSpecial = (id: string) => {
-    setState((prev) => ({
-      ...prev,
-      clients: prev.clients.map((c) => (c.id === id ? { ...c, isSpecial: !c.isSpecial } : c)),
-    }))
+    const c = state.clients.find((x) => x.id === id)
+    if (c) updateItem('clients', id, { isSpecial: !c.isSpecial })
   }
 
   return (
@@ -218,7 +220,7 @@ export default function Clients() {
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               type="search"
-              placeholder="Buscar por nome ou CPF/CNPJ..."
+              placeholder="Buscar por nome ou documento..."
               className="pl-9"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -238,7 +240,7 @@ export default function Clients() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((client) => (
+              {paginated.map((client) => (
                 <TableRow key={client.id}>
                   <TableCell>
                     <button onClick={() => toggleSpecial(client.id)} className="focus:outline-none">
@@ -262,9 +264,9 @@ export default function Clients() {
                           href={`https://wa.me/${client.phone.replace(/\D/g, '')}`}
                           target="_blank"
                           rel="noreferrer"
-                          className="text-green-500 hover:text-green-600"
+                          className="text-green-500 hover:text-green-600 transition-colors"
                         >
-                          <MessageCircle className="h-4 w-4" />
+                          <MessageCircle className="h-5 w-5" />
                         </a>
                       )}
                     </div>
@@ -283,7 +285,7 @@ export default function Clients() {
                   </TableCell>
                 </TableRow>
               ))}
-              {filtered.length === 0 && (
+              {paginated.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center py-8">
                     Nenhum cliente encontrado.
@@ -292,6 +294,29 @@ export default function Clients() {
               )}
             </TableBody>
           </Table>
+          <div className="flex items-center justify-between mt-4 text-sm text-muted-foreground border-t pt-4">
+            <div>
+              Exibindo {paginated.length} de {filtered.length} clientes
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page === 1}
+                onClick={() => setPage(page - 1)}
+              >
+                Anterior
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page === totalPages || totalPages === 0}
+                onClick={() => setPage(page + 1)}
+              >
+                Próximo
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>

@@ -1,4 +1,4 @@
-import { Bell, Search, AlertCircle } from 'lucide-react'
+import { Bell, Search, AlertCircle, LogOut } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
@@ -12,9 +12,12 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import useLegalStore from '@/stores/useLegalStore'
+import { useAuth } from '@/hooks/use-auth'
+import { Link } from 'react-router-dom'
 
 export default function Header() {
   const { state } = useLegalStore()
+  const { signOut } = useAuth()
   const pendingProtocol = state.tasks.filter((t) => t.status === 'Aguarda protocolo').length
 
   return (
@@ -32,16 +35,23 @@ export default function Header() {
       </div>
       <div className="flex items-center gap-4">
         {pendingProtocol > 0 && (
-          <div className="hidden md:flex items-center text-xs font-semibold text-destructive bg-destructive/10 px-3 py-1.5 rounded-full animate-pulse">
+          <Link
+            to="/tarefas?status=Aguarda+protocolo"
+            className="hidden md:flex items-center text-xs font-semibold text-destructive bg-destructive/10 px-3 py-1.5 rounded-full animate-pulse hover:bg-destructive/20 transition-colors"
+          >
             <AlertCircle className="h-4 w-4 mr-1" /> {pendingProtocol} Protocolos Pendentes
-          </div>
+          </Link>
         )}
         <Button variant="ghost" size="icon" className="relative text-slate-500 hover:text-primary">
           <Bell className="h-5 w-5" />
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="relative h-8 w-8 rounded-full">
+            <Button
+              variant="ghost"
+              className="relative h-8 w-8 rounded-full border-2"
+              style={{ borderColor: state.currentUser.color }}
+            >
               <Avatar className="h-8 w-8">
                 <AvatarImage
                   src={`https://img.usecurling.com/ppl/thumbnail?gender=male&seed=${state.currentUser.id}`}
@@ -63,9 +73,13 @@ export default function Header() {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>Perfil</DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link to="/configuracoes">Perfil & Ajustes</Link>
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-destructive">Sair</DropdownMenuItem>
+            <DropdownMenuItem className="text-destructive cursor-pointer" onClick={signOut}>
+              <LogOut className="mr-2 h-4 w-4" /> Sair
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

@@ -33,6 +33,20 @@ export default function Index() {
     ),
   ).map(([name, value]) => ({ name, value }))
 
+  const clientsPerUser = state.users
+    .map((u) => ({
+      name: u.name,
+      value: state.clients.filter((c) => c.responsibleId === u.id).length,
+    }))
+    .filter((x) => x.value > 0)
+
+  const casesPerUser = state.users
+    .map((u) => ({
+      name: u.name,
+      value: state.cases.filter((c) => c.responsibleId === u.id).length,
+    }))
+    .filter((x) => x.value > 0)
+
   const totalIncome = state.transactions
     .filter((t) => t.type === 'income' && t.status === 'Pago')
     .reduce((sum, t) => sum + t.amount, 0)
@@ -60,7 +74,7 @@ export default function Index() {
           <AlertTitle>Atenção - Protocolos Pendentes</AlertTitle>
           <AlertDescription>
             Existem {pendingProtocol.length} tarefas aguardando protocolo urgente.{' '}
-            <Link to="/tarefas" className="underline font-bold">
+            <Link to="/tarefas?status=Aguarda+protocolo" className="underline font-bold">
               Ver tarefas
             </Link>
           </AlertDescription>
@@ -94,7 +108,7 @@ export default function Index() {
           <CardContent>
             <div className="text-2xl font-bold">{myTasks.length}</div>
             <Link
-              to={`/tarefas?resp=${state.currentUser.id}`}
+              to={`/tarefas?resp=${state.currentUser.id}&status=Pendente`}
               className="text-xs text-primary hover:underline"
             >
               Ver lista filtrada
@@ -104,22 +118,24 @@ export default function Index() {
         {state.currentUser.canViewFinance && state.settings.showFinanceDashboard && (
           <Card className="shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Receita Mês (Paga)</CardTitle>
+              <CardTitle className="text-sm font-medium">Receita Global (Paga)</CardTitle>
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">R$ {totalIncome.toLocaleString('pt-BR')}</div>
+              <div className="text-2xl font-bold text-green-600">
+                R$ {totalIncome.toLocaleString('pt-BR')}
+              </div>
             </CardContent>
           </Card>
         )}
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <Card className="shadow-sm lg:col-span-1">
+        <Card className="shadow-sm">
           <CardHeader>
             <CardTitle className="text-sm">Status dos Processos</CardTitle>
           </CardHeader>
-          <CardContent className="flex justify-center h-64">
+          <CardContent className="h-48 flex justify-center">
             <ChartContainer config={{}} className="h-full w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -129,12 +145,12 @@ export default function Index() {
                     nameKey="name"
                     cx="50%"
                     cy="50%"
-                    innerRadius={60}
-                    outerRadius={80}
+                    innerRadius={40}
+                    outerRadius={60}
                     paddingAngle={5}
                   >
-                    {processStatusData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    {processStatusData.map((e, i) => (
+                      <Cell key={`c-${i}`} fill={COLORS[i % COLORS.length]} />
                     ))}
                   </Pie>
                   <Tooltip />
@@ -144,9 +160,98 @@ export default function Index() {
           </CardContent>
         </Card>
 
+        <Card className="shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-sm">Clientes por Colaborador</CardTitle>
+          </CardHeader>
+          <CardContent className="h-48 flex justify-center">
+            <ChartContainer config={{}} className="h-full w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={clientsPerUser}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={40}
+                    outerRadius={60}
+                    paddingAngle={5}
+                  >
+                    {clientsPerUser.map((e, i) => (
+                      <Cell key={`c-${i}`} fill={COLORS[(i + 2) % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </ChartContainer>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-sm">Processos por Colaborador</CardTitle>
+          </CardHeader>
+          <CardContent className="h-48 flex justify-center">
+            <ChartContainer config={{}} className="h-full w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={casesPerUser}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={40}
+                    outerRadius={60}
+                    paddingAngle={5}
+                  >
+                    {casesPerUser.map((e, i) => (
+                      <Cell key={`c-${i}`} fill={COLORS[(i + 4) % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </ChartContainer>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-sm lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-sm">Processos Recentes</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {state.cases.slice(0, 5).map((c) => (
+                <div
+                  key={c.id}
+                  className="flex justify-between items-start border-b pb-2 last:border-0"
+                >
+                  <div>
+                    <Link
+                      to={`/processos/${c.id}`}
+                      className="text-sm font-medium hover:underline text-primary"
+                    >
+                      {c.number}
+                    </Link>
+                    <p className="text-xs text-muted-foreground">
+                      {c.type} • Resp: {state.users.find((u) => u.id === c.responsibleId)?.name}
+                    </p>
+                  </div>
+                  <Badge variant="outline" className="text-[10px]">
+                    {c.status}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
         <Card className="shadow-sm lg:col-span-1">
           <CardHeader>
-            <CardTitle className="text-sm">Compromissos de Hoje</CardTitle>
+            <CardTitle className="text-sm">Compromissos Hoje</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
@@ -167,39 +272,8 @@ export default function Index() {
                   </div>
                 ))
               ) : (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  Nenhum compromisso para hoje.
-                </p>
+                <p className="text-sm text-muted-foreground text-center py-4">Agenda livre.</p>
               )}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-sm lg:col-span-1">
-          <CardHeader>
-            <CardTitle className="text-sm">Processos Recentes</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {state.cases.slice(0, 5).map((c) => (
-                <div
-                  key={c.id}
-                  className="flex justify-between items-start border-b pb-2 last:border-0"
-                >
-                  <div>
-                    <Link
-                      to={`/processos/${c.id}`}
-                      className="text-sm font-medium hover:underline text-primary"
-                    >
-                      {c.number}
-                    </Link>
-                    <p className="text-xs text-muted-foreground">{c.type}</p>
-                  </div>
-                  <Badge variant="outline" className="text-[10px]">
-                    {c.status}
-                  </Badge>
-                </div>
-              ))}
             </div>
           </CardContent>
         </Card>

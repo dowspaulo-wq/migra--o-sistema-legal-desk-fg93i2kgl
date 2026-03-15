@@ -7,7 +7,7 @@ import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 
 export default function Settings() {
-  const { state, setState, addLog } = useLegalStore()
+  const { state, updateItem, addLog } = useLegalStore()
 
   const handleBackup = (format: string) => {
     addLog('Exportar', 'Backup', `Backup gerado em formato ${format}`)
@@ -18,10 +18,8 @@ export default function Settings() {
   }
 
   const toggleFinanceVis = () => {
-    setState((prev) => ({
-      ...prev,
-      settings: { ...prev.settings, showFinanceDashboard: !prev.settings.showFinanceDashboard },
-    }))
+    const newVal = !state.settings.showFinanceDashboard
+    updateItem('settings', state.settings.id, { showFinanceDashboard: newVal })
     addLog('Editar', 'Configurações', 'Visibilidade do dashboard financeiro alterada.')
   }
 

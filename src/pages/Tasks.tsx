@@ -1,11 +1,10 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Calendar } from '@/components/ui/calendar'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { LayoutList, CalendarDays, Plus, Search } from 'lucide-react'
+import { LayoutList, CalendarDays, Plus, Trash } from 'lucide-react'
 import {
   Select,
   SelectContent,
@@ -14,47 +13,49 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import useLegalStore from '@/stores/useLegalStore'
+import { toast } from '@/hooks/use-toast'
 
 export default function Tasks() {
-  const { state, setState, addTask } = useLegalStore()
+  const { state, updateItem, deleteItem } = useLegalStore()
+  const urlParams = new URLSearchParams(window.location.search)
+
   const [view, setView] = useState('list')
-  const [filterResp, setFilterResp] = useState('all')
+  const [filterResp, setFilterResp] = useState(urlParams.get('resp') || 'all')
+  const [filterStatus, setFilterStatus] = useState(urlParams.get('status') || 'all')
   const [date, setDate] = useState<Date | undefined>(new Date())
 
-  const urlParams = new URLSearchParams(window.location.search)
-  const respParam = urlParams.get('resp')
-  if (respParam && filterResp === 'all') setFilterResp(respParam)
-
-  const getPriorityColor = (p: string) => {
-    switch (p) {
-      case 'Urgente':
-        return 'bg-red-500 text-white'
-      case 'Alta':
-        return 'bg-orange-400 text-white'
-      case 'Média':
-        return 'bg-blue-400 text-white'
-      default:
-        return 'bg-slate-300 text-slate-800'
-    }
-  }
-
-  const getStatusColor = (s: string) => {
-    if (s === 'Concluída') return 'border-green-500 text-green-700 bg-green-50'
-    if (s === 'Aguarda protocolo') return 'border-red-500 text-red-700 bg-red-50 animate-pulse'
-    return 'border-slate-300'
-  }
+  const getPriorityColor = (p: string) =>
+    p === 'Urgente'
+      ? 'bg-red-500 text-white'
+      : p === 'Alta'
+        ? 'bg-orange-400 text-white'
+        : 'bg-blue-400 text-white'
+  const getStatusColor = (s: string) =>
+    s === 'Concluída'
+      ? 'border-green-500 text-green-700 bg-green-50'
+      : s === 'Aguarda protocolo'
+        ? 'border-red-500 text-red-700 bg-red-50 animate-pulse'
+        : 'border-slate-300'
 
   const filteredTasks = state.tasks.filter(
-    (t) => filterResp === 'all' || t.responsibleId === filterResp,
+    (t) =>
+      (filterResp === 'all' || t.responsibleId === filterResp) &&
+      (filterStatus === 'all' || t.status === filterStatus),
   )
 
   const toggleTaskStatus = (id: string) => {
-    setState((prev) => ({
-      ...prev,
-      tasks: prev.tasks.map((t) =>
-        t.id === id ? { ...t, status: t.status === 'Concluída' ? 'Pendente' : 'Concluída' } : t,
-      ),
-    }))
+    const t = state.tasks.find((x) => x.id === id)
+    if (t) updateItem('tasks', id, { status: t.status === 'Concluída' ? 'Pendente' : 'Concluída' })
+  }
+
+  const handleDeleteTask = (id: string) => {
+    if (state.currentUser.role !== 'Admin')
+      return toast({
+        title: 'Acesso Negado',
+        description: 'Apenas admins podem excluir.',
+        variant: 'destructive',
+      })
+    deleteItem('tasks', id)
   }
 
   return (
@@ -69,9 +70,9 @@ export default function Tasks() {
         </Button>
       </div>
 
-      <div className="flex gap-4 items-center bg-slate-50 p-2 rounded-lg border">
+      <div className="flex flex-wrap gap-4 items-center bg-slate-50 p-2 rounded-lg border">
         <Select value={filterResp} onValueChange={setFilterResp}>
-          <SelectTrigger className="w-[200px] bg-white">
+          <SelectTrigger className="w-[180px] bg-white">
             <SelectValue placeholder="Responsável" />
           </SelectTrigger>
           <SelectContent>
@@ -81,6 +82,17 @@ export default function Tasks() {
                 {u.name}
               </SelectItem>
             ))}
+          </SelectContent>
+        </Select>
+        <Select value={filterStatus} onValueChange={setFilterStatus}>
+          <SelectTrigger className="w-[180px] bg-white">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos Status</SelectItem>
+            <SelectItem value="Pendente">Pendente</SelectItem>
+            <SelectItem value="Aguarda protocolo">Aguarda protocolo</SelectItem>
+            <SelectItem value="Concluída">Concluída</SelectItem>
           </SelectContent>
         </Select>
         <Tabs value={view} onValueChange={setView} className="ml-auto">
@@ -98,7 +110,7 @@ export default function Tasks() {
       {view === 'list' ? (
         <div className="grid gap-3">
           {filteredTasks.map((t) => {
-            const resp = state.users.find((u) => u.id === t.responsibleId)?.name
+            const resp = state.users.find((u) => u.id === t.responsibleId)
             return (
               <Card
                 key={t.id}
@@ -108,7 +120,7 @@ export default function Tasks() {
                   <div className="flex items-center gap-4">
                     <input
                       type="checkbox"
-                      className="h-5 w-5 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer"
+                      className="h-5 w-5 rounded border-slate-300 text-primary cursor-pointer"
                       checked={t.status === 'Concluída'}
                       onChange={() => toggleTaskStatus(t.id)}
                     />
@@ -143,21 +155,70 @@ export default function Tasks() {
                       </div>
                     </div>
                   </div>
-                  <div className="text-xs text-right text-muted-foreground">Resp: {resp}</div>
+                  <div className="flex items-center gap-4">
+                    <div className="text-xs text-right text-muted-foreground">
+                      Resp: {resp?.name}
+                    </div>
+                    {state.currentUser.role === 'Admin' && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                        onClick={() => handleDeleteTask(t.id)}
+                      >
+                        <Trash className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             )
           })}
+          {filteredTasks.length === 0 && (
+            <p className="text-center py-8 text-muted-foreground">
+              Nenhuma tarefa encontrada para os filtros aplicados.
+            </p>
+          )}
         </div>
       ) : (
-        <Card className="p-4 flex justify-center">
-          <Calendar
-            mode="single"
-            selected={date}
-            onSelect={setDate}
-            className="rounded-md border shadow"
-          />
-        </Card>
+        <div className="flex flex-col md:flex-row gap-6">
+          <Card className="p-4 flex-shrink-0 h-fit flex justify-center">
+            <Calendar
+              mode="single"
+              selected={date}
+              onSelect={setDate}
+              className="rounded-md border shadow"
+            />
+          </Card>
+          <Card className="flex-1 p-4 space-y-3 bg-slate-50">
+            <h3 className="font-bold border-b pb-2 text-slate-700">
+              Tarefas do Dia - {date?.toLocaleDateString('pt-BR')}
+            </h3>
+            {filteredTasks
+              .filter((t) => t.dueDate === date?.toISOString().split('T')[0])
+              .map((t) => {
+                const resp = state.users.find((u) => u.id === t.responsibleId)
+                return (
+                  <div
+                    key={t.id}
+                    className="p-3 border rounded-md bg-white shadow-sm flex justify-between items-center"
+                    style={{ borderLeftColor: resp?.color || '#ccc', borderLeftWidth: 4 }}
+                  >
+                    <div>
+                      <p className="font-semibold text-sm">{t.title}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Resp: {resp?.name} • Status: {t.status}
+                      </p>
+                    </div>
+                  </div>
+                )
+              })}
+            {filteredTasks.filter((t) => t.dueDate === date?.toISOString().split('T')[0]).length ===
+              0 && (
+              <p className="text-sm text-muted-foreground">Nenhuma tarefa no dia selecionado.</p>
+            )}
+          </Card>
+        </div>
       )}
     </div>
   )

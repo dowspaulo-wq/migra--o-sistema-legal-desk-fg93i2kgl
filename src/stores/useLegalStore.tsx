@@ -6,22 +6,15 @@ import React, {
   ReactNode,
   useCallback,
 } from 'react'
-import {
-  LegalState,
-  initialData,
-  Client,
-  Case,
-  Task,
-  Log,
-  Transaction,
-  Appointment,
-  Petition,
-} from '../lib/mockData'
+import { LegalState, initialData, Client, Case, Task, Appointment } from '../lib/mockData'
 import { toast } from '@/hooks/use-toast'
+import { supabase } from '@/lib/supabase/client'
+import { useAuth } from '@/hooks/use-auth'
 
 interface LegalContextType {
   state: LegalState
-  setState: React.Dispatch<React.SetStateAction<LegalState>>
+  updateItem: (table: string, id: string, changes: any) => void
+  deleteItem: (table: string, id: string) => void
   addLog: (action: string, entity: string, details: string) => void
   addClient: (client: Omit<Client, 'id'>) => void
   addCase: (newCase: Omit<Case, 'id' | 'updatedAt'>) => void
@@ -32,38 +25,100 @@ interface LegalContextType {
 const LegalContext = createContext<LegalContextType | undefined>(undefined)
 
 export function LegalStoreProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<LegalState>(() => {
-    try {
-      const saved = localStorage.getItem('sbjurData')
-      return saved ? { ...initialData, ...JSON.parse(saved) } : initialData
-    } catch (e) {
-      return initialData
-    }
-  })
+  const { user } = useAuth()
+  const [state, setState] = useState<LegalState>(initialData)
 
   useEffect(() => {
-    localStorage.setItem('sbjurData', JSON.stringify(state))
-  }, [state])
+    if (!user) return
+    const load = async () => {
+      const tables = [
+        'profiles',
+        'clients',
+        'cases',
+        'tasks',
+        'appointments',
+        'transactions',
+        'logs',
+        'petitions',
+        'settings',
+      ]
+      const results = await Promise.all(tables.map((t) => supabase.from(t).select('*')))
+      const currentUser = results[0].data?.find((p) => p.id === user.id) || initialData.currentUser
+
+      setState({
+        currentUser,
+        users: results[0].data || [],
+        clients: (results[1].data || []).sort(
+          (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+        ),
+        cases: (results[2].data || []).sort(
+          (a: any, b: any) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+        ),
+        tasks: (results[3].data || []).sort(
+          (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+        ),
+        appointments: (results[4].data || []).sort(
+          (a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+        ),
+        transactions: (results[5].data || []).sort(
+          (a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+        ),
+        logs: (results[6].data || []).sort(
+          (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+        ),
+        petitions: results[7].data || [],
+        settings: results[8].data?.[0] || initialData.settings,
+      })
+    }
+    load()
+  }, [user])
 
   const addLog = useCallback(
-    (action: string, entity: string, details: string) => {
-      const newLog: Log = {
-        id: Math.random().toString(36).substring(7),
+    async (action: string, entity: string, details: string) => {
+      const newLog = {
         action,
         entity,
         user: state.currentUser.name,
         date: new Date().toISOString(),
         details,
       }
-      setState((prev) => ({ ...prev, logs: [newLog, ...prev.logs].slice(0, 100) }))
+      const { data } = await supabase.from('logs').insert(newLog).select().single()
+      if (data) setState((prev) => ({ ...prev, logs: [data, ...prev.logs].slice(0, 100) }))
     },
     [state.currentUser.name],
   )
 
+  const updateItem = useCallback(async (table: string, id: string, changes: any) => {
+    if (table === 'settings') {
+      setState((prev) => ({ ...prev, settings: { ...prev.settings, ...changes } }))
+    } else {
+      setState((prev) => ({
+        ...prev,
+        [table]: (prev[table as keyof LegalState] as any[]).map((item) =>
+          item.id === id ? { ...item, ...changes } : item,
+        ),
+      }))
+    }
+    await supabase.from(table).update(changes).eq('id', id)
+  }, [])
+
+  const deleteItem = useCallback(
+    async (table: string, id: string) => {
+      setState((prev) => ({
+        ...prev,
+        [table]: (prev[table as keyof LegalState] as any[]).filter((item) => item.id !== id),
+      }))
+      await supabase.from(table).delete().eq('id', id)
+      addLog('Excluir', table, `Registro ${id} removido`)
+    },
+    [addLog],
+  )
+
   const addClient = useCallback(
-    (client: Omit<Client, 'id'>) => {
-      const newClient = { ...client, id: Math.random().toString(36).substring(7) }
-      setState((prev) => ({ ...prev, clients: [newClient, ...prev.clients] }))
+    async (client: Omit<Client, 'id'>) => {
+      const { data, error } = await supabase.from('clients').insert(client).select().single()
+      if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
+      setState((prev) => ({ ...prev, clients: [data, ...prev.clients] }))
       addLog('Criar', 'Cliente', `Cliente ${client.name} adicionado`)
       toast({ title: 'Cliente adicionado' })
     },
@@ -71,32 +126,32 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
   )
 
   const addTask = useCallback(
-    (task: Omit<Task, 'id'>) => {
-      const newTask = { ...task, id: Math.random().toString(36).substring(7) }
-      setState((prev) => ({ ...prev, tasks: [newTask, ...prev.tasks] }))
-      addLog('Criar', 'Tarefa', `Tarefa ${task.title} adicionada`)
+    async (task: Omit<Task, 'id'>) => {
+      const { data } = await supabase.from('tasks').insert(task).select().single()
+      if (data) {
+        setState((prev) => ({ ...prev, tasks: [data, ...prev.tasks] }))
+        addLog('Criar', 'Tarefa', `Tarefa ${task.title} adicionada`)
+      }
     },
     [addLog],
   )
 
   const addCase = useCallback(
-    (newCase: Omit<Case, 'id' | 'updatedAt'>) => {
-      const fullCase: Case = {
-        ...newCase,
-        id: Math.random().toString(36).substring(7),
-        updatedAt: new Date().toISOString().split('T')[0],
-      }
-      setState((prev) => ({ ...prev, cases: [fullCase, ...prev.cases] }))
-      addLog('Criar', 'Processo', `Processo ${fullCase.number} adicionado`)
-      // Auto-create task
+    async (newCase: Omit<Case, 'id' | 'updatedAt'>) => {
+      const fullCase = { ...newCase, updatedAt: new Date().toISOString().split('T')[0] }
+      const { data, error } = await supabase.from('cases').insert(fullCase).select().single()
+      if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
+
+      setState((prev) => ({ ...prev, cases: [data, ...prev.cases] }))
+      addLog('Criar', 'Processo', `Processo ${data.number} adicionado`)
       addTask({
         title: 'Movimentação Processual - Novo Registro',
         description: 'Verificar andamento inicial',
         dueDate: new Date().toISOString().split('T')[0],
         status: 'Pendente',
         priority: 'Alta',
-        responsibleId: fullCase.responsibleId,
-        relatedProcessId: fullCase.id,
+        responsibleId: data.responsibleId,
+        relatedProcessId: data.id,
       })
       toast({ title: 'Processo adicionado' })
     },
@@ -104,9 +159,10 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
   )
 
   const addAppointment = useCallback(
-    (app: Omit<Appointment, 'id'>) => {
-      const newApp = { ...app, id: Math.random().toString(36).substring(7) }
-      setState((prev) => ({ ...prev, appointments: [newApp, ...prev.appointments] }))
+    async (app: Omit<Appointment, 'id'>) => {
+      const { data, error } = await supabase.from('appointments').insert(app).select().single()
+      if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
+      setState((prev) => ({ ...prev, appointments: [data, ...prev.appointments] }))
       addLog('Criar', 'Agenda', `Compromisso ${app.title} adicionado`)
       if (app.type === 'Audiência') {
         addTask({
@@ -125,7 +181,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
 
   return (
     <LegalContext.Provider
-      value={{ state, setState, addLog, addClient, addCase, addTask, addAppointment }}
+      value={{ state, updateItem, deleteItem, addLog, addClient, addCase, addTask, addAppointment }}
     >
       {children}
     </LegalContext.Provider>

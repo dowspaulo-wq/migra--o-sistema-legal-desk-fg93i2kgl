@@ -7,12 +7,10 @@ import { FileText, Save } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 
 export default function Petitions() {
-  const { state, setState, addLog } = useLegalStore()
+  const { state, updateItem, addLog } = useLegalStore()
   const [activeId, setActiveId] = useState<string | null>(null)
   const [content, setContent] = useState('')
   const [title, setTitle] = useState('')
-
-  const activeDoc = state.petitions.find((p) => p.id === activeId)
 
   const loadDoc = (id: string) => {
     const doc = state.petitions.find((p) => p.id === id)
@@ -25,10 +23,7 @@ export default function Petitions() {
 
   const saveDoc = () => {
     if (!activeId) return
-    setState((prev) => ({
-      ...prev,
-      petitions: prev.petitions.map((p) => (p.id === activeId ? { ...p, title, content } : p)),
-    }))
+    updateItem('petitions', activeId, { title, content })
     addLog('Editar', 'Petição', `Petição ${title} atualizada`)
   }
 
@@ -72,7 +67,6 @@ export default function Petitions() {
                 </Button>
               </CardHeader>
               <CardContent className="p-0 flex-1 relative">
-                {/* Mocking a Rich Text Editor with a simple Textarea for this demo to save lines/complexity */}
                 <Textarea
                   value={content}
                   onChange={(e) => setContent(e.target.value)}

@@ -16,13 +16,13 @@ export default function CaseDetail() {
 
   if (!c) return <div className="p-8 text-center">Processo não encontrado.</div>
 
-  // Time in progress calc
   const start = new Date(c.startDate)
   const now = new Date()
-  const diffTime = Math.abs(now.getTime() - start.getTime())
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+  let diffDays = Math.ceil(Math.abs(now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
   const years = Math.floor(diffDays / 365)
-  const months = Math.floor((diffDays % 365) / 30)
+  diffDays -= years * 365
+  const months = Math.floor(diffDays / 30)
+  const days = diffDays % 30
 
   return (
     <div className="space-y-6">
@@ -36,7 +36,7 @@ export default function CaseDetail() {
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-primary">{c.number}</h1>
           <p className="text-muted-foreground flex items-center gap-2 mt-1">
             <Badge variant="outline">{c.status}</Badge> • Sistema: {c.system} • Tempo: {years}a{' '}
-            {months}m
+            {months}m {days}d
           </p>
         </div>
       </div>
@@ -128,7 +128,7 @@ export default function CaseDetail() {
         <TabsContent value="subs" className="mt-4">
           <Card className="shadow-sm">
             <CardContent className="py-8 text-center text-muted-foreground">
-              Funcionalidade de Sub-processos / Recursos em desenvolvimento.
+              Funcionalidade em desenvolvimento.
             </CardContent>
           </Card>
         </TabsContent>
@@ -146,7 +146,7 @@ export default function CaseDetail() {
                   Valor da Causa: R$ {c.value.toLocaleString('pt-BR')}
                 </div>
                 <p className="text-sm text-muted-foreground text-center py-4 border-t">
-                  Visualização restrita apenas a usuários autorizados.
+                  Visualização restrita.
                 </p>
               </CardContent>
             </Card>
