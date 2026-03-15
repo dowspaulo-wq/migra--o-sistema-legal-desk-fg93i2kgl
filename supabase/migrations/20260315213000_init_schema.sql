@@ -105,7 +105,7 @@ CREATE TABLE IF NOT EXISTS public.settings (
 
 -- Trigger to sync auth.users with profiles
 CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS trigger AS $
+RETURNS trigger AS $$
 BEGIN
   INSERT INTO public.profiles (id, name, role, "canViewFinance", color)
   VALUES (
@@ -117,7 +117,7 @@ BEGIN
   );
   RETURN NEW;
 END;
-$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
@@ -130,7 +130,7 @@ SELECT gen_random_uuid(), true, 'blue'
 WHERE NOT EXISTS (SELECT 1 FROM public.settings);
 
 -- Seed Initial Users and Mock Data for End-to-End Testing
-DO $
+DO $$
 DECLARE
   admin_id uuid := gen_random_uuid();
   user_id uuid := gen_random_uuid();
@@ -191,5 +191,4 @@ BEGIN
     INSERT INTO public.petitions (title, content, category)
     VALUES ('Petição Inicial Padrão', 'Excelentíssimo Senhor Juiz...', 'Cível');
   END IF;
-END $;
-
+END $$;
