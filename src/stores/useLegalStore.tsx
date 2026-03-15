@@ -6,7 +6,7 @@ import React, {
   ReactNode,
   useCallback,
 } from 'react'
-import { LegalState, initialData, Client, Case, Task, Appointment } from '../lib/mockData'
+import { LegalState, initialData, Client, Case, Task, Appointment, User } from '../lib/mockData'
 import { toast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/hooks/use-auth'
@@ -20,6 +20,7 @@ interface LegalContextType {
   addCase: (newCase: Omit<Case, 'id' | 'updatedAt'>) => void
   addTask: (task: Omit<Task, 'id'>) => void
   addAppointment: (app: Omit<Appointment, 'id'>) => void
+  updateUser: (id: string, changes: Partial<User>) => void
 }
 
 const LegalContext = createContext<LegalContextType | undefined>(undefined)
@@ -41,6 +42,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         'logs',
         'petitions',
         'settings',
+        'whatsapp_messages',
       ]
       const results = await Promise.all(tables.map((t) => supabase.from(t).select('*')))
       const currentUser = results[0].data?.find((p) => p.id === user.id) || initialData.currentUser
@@ -68,6 +70,9 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         ),
         petitions: results[7].data || [],
         settings: results[8].data?.[0] || initialData.settings,
+        whatsappMessages: (results[9].data || []).sort(
+          (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+        ),
       })
     }
     load()
@@ -141,21 +146,11 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       const fullCase = { ...newCase, updatedAt: new Date().toISOString().split('T')[0] }
       const { data, error } = await supabase.from('cases').insert(fullCase).select().single()
       if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
-
       setState((prev) => ({ ...prev, cases: [data, ...prev.cases] }))
       addLog('Criar', 'Processo', `Processo ${data.number} adicionado`)
-      addTask({
-        title: 'Movimentação Processual - Novo Registro',
-        description: 'Verificar andamento inicial',
-        dueDate: new Date().toISOString().split('T')[0],
-        status: 'Pendente',
-        priority: 'Alta',
-        responsibleId: data.responsibleId,
-        relatedProcessId: data.id,
-      })
       toast({ title: 'Processo adicionado' })
     },
-    [addLog, addTask],
+    [addLog],
   )
 
   const addAppointment = useCallback(
@@ -164,24 +159,36 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
       setState((prev) => ({ ...prev, appointments: [data, ...prev.appointments] }))
       addLog('Criar', 'Agenda', `Compromisso ${app.title} adicionado`)
-      if (app.type === 'Audiência') {
-        addTask({
-          title: `Prep para Audiência: ${app.title}`,
-          description: 'Preparação automática',
-          dueDate: app.date.split('T')[0],
-          status: 'Pendente',
-          priority: 'Urgente',
-          responsibleId: app.responsibleId,
-        })
-      }
       toast({ title: 'Agenda atualizada' })
     },
-    [addLog, addTask],
+    [addLog],
+  )
+
+  const updateUser = useCallback(
+    async (id: string, changes: Partial<User>) => {
+      setState((prev) => ({
+        ...prev,
+        users: prev.users.map((u) => (u.id === id ? { ...u, ...changes } : u)),
+      }))
+      await supabase.from('profiles').update(changes).eq('id', id)
+      addLog('Editar', 'Usuário', `Permissões de ${id} atualizadas`)
+    },
+    [addLog],
   )
 
   return (
     <LegalContext.Provider
-      value={{ state, updateItem, deleteItem, addLog, addClient, addCase, addTask, addAppointment }}
+      value={{
+        state,
+        updateItem,
+        deleteItem,
+        addLog,
+        addClient,
+        addCase,
+        addTask,
+        addAppointment,
+        updateUser,
+      }}
     >
       {children}
     </LegalContext.Provider>

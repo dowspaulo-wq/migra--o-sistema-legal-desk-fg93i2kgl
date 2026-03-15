@@ -12,6 +12,7 @@ import Agenda from './pages/Agenda'
 import Tasks from './pages/Tasks'
 import Finance from './pages/Finance'
 import Petitions from './pages/Petitions'
+import WhatsApp from './pages/WhatsApp'
 import Logs from './pages/Logs'
 import Settings from './pages/Settings'
 import NotFound from './pages/NotFound'
@@ -38,6 +39,7 @@ const App = () => (
               <Route path="/tarefas" element={<Tasks />} />
               <Route path="/financeiro" element={<Finance />} />
               <Route path="/peticoes" element={<Petitions />} />
+              <Route path="/whatsapp" element={<WhatsApp />} />
               <Route path="/logs" element={<Logs />} />
               <Route path="/configuracoes" element={<Settings />} />
             </Route>

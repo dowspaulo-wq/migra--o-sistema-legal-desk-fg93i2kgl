@@ -1,14 +1,24 @@
+import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ArrowLeft, Clock, Scale, Users, DollarSign, CheckSquare } from 'lucide-react'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { ArrowLeft, Scale, Users, CheckSquare, FileText, Download } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
+import { toast } from '@/hooks/use-toast'
 
 export default function CaseDetail() {
   const { id } = useParams<{ id: string }>()
   const { state } = useLegalStore()
+  const [selectedTpl, setSelectedTpl] = useState<string>('')
 
   const c = state.cases.find((x) => x.id === id)
   const client = state.clients.find((cl) => cl.id === c?.clientId)
@@ -16,13 +26,34 @@ export default function CaseDetail() {
 
   if (!c) return <div className="p-8 text-center">Processo não encontrado.</div>
 
-  const start = new Date(c.startDate)
-  const now = new Date()
-  let diffDays = Math.ceil(Math.abs(now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
-  const years = Math.floor(diffDays / 365)
-  diffDays -= years * 365
-  const months = Math.floor(diffDays / 30)
-  const days = diffDays % 30
+  const generateDoc = () => {
+    if (!selectedTpl)
+      return toast({
+        title: 'Atenção',
+        description: 'Selecione um modelo de petição primeiro.',
+        variant: 'destructive',
+      })
+    const tpl = state.petitions.find((p) => p.id === selectedTpl)
+    if (!tpl) return
+
+    let html = tpl.content
+      .replace(/{{client_name}}/g, client?.name || '')
+      .replace(/{{client_document}}/g, client?.document || '')
+      .replace(/{{process_number}}/g, c.number)
+      .replace(/{{adverse_party}}/g, c.adverseParty || '')
+      .replace(/{{court}}/g, c.court || '')
+      .replace(/{{comarca}}/g, c.comarca || '')
+
+    const docContent = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>${tpl.title}</title></head><body>${html}</body></html>`
+    const blob = new Blob(['\ufeff', docContent], { type: 'application/msword' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${tpl.title.replace(/\s+/g, '_')}_${c.number}.doc`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast({ title: 'Sucesso', description: 'Documento gerado e baixado.' })
+  }
 
   return (
     <div className="space-y-6">
@@ -34,21 +65,17 @@ export default function CaseDetail() {
         </Button>
         <div>
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-primary">{c.number}</h1>
-          <p className="text-muted-foreground flex items-center gap-2 mt-1">
-            <Badge variant="outline">{c.status}</Badge> • Sistema: {c.system} • Tempo: {years}a{' '}
-            {months}m {days}d
+          <p className="text-muted-foreground mt-1">
+            <Badge variant="outline">{c.status}</Badge> • Sistema: {c.system}
           </p>
         </div>
       </div>
 
       <Tabs defaultValue="info" className="w-full">
-        <TabsList className="grid w-full grid-cols-4 max-w-2xl">
+        <TabsList className="grid w-full grid-cols-3 max-w-xl">
           <TabsTrigger value="info">Informações</TabsTrigger>
           <TabsTrigger value="tasks">Tarefas</TabsTrigger>
-          <TabsTrigger value="subs">Sub-processos</TabsTrigger>
-          {state.currentUser.canViewFinance && (
-            <TabsTrigger value="finance">Honorários</TabsTrigger>
-          )}
+          <TabsTrigger value="docs">Documentos (Automação)</TabsTrigger>
         </TabsList>
 
         <TabsContent value="info" className="mt-4 grid gap-6 md:grid-cols-2">
@@ -97,11 +124,10 @@ export default function CaseDetail() {
 
         <TabsContent value="tasks" className="mt-4">
           <Card className="shadow-sm">
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <CheckSquare className="h-5 w-5" /> Tarefas Vinculadas
+                <CheckSquare className="h-5 w-5" /> Tarefas
               </CardTitle>
-              <Button size="sm">Nova Tarefa</Button>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
@@ -117,41 +143,44 @@ export default function CaseDetail() {
                     <Badge variant="outline">{t.status}</Badge>
                   </div>
                 ))}
-                {tasks.length === 0 && (
-                  <p className="text-sm text-muted-foreground">Nenhuma tarefa vinculada.</p>
-                )}
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="subs" className="mt-4">
-          <Card className="shadow-sm">
-            <CardContent className="py-8 text-center text-muted-foreground">
-              Funcionalidade em desenvolvimento.
+        <TabsContent value="docs" className="mt-4">
+          <Card className="shadow-sm border-blue-200 bg-blue-50/30">
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2 text-blue-800">
+                <FileText className="h-5 w-5" /> Automação de Petições
+              </CardTitle>
+              <CardDescription>
+                Gere documentos com variáveis preenchidas automaticamente baseadas nos dados deste
+                processo.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 max-w-md">
+              <div className="space-y-2">
+                <Label>Selecionar Modelo</Label>
+                <Select value={selectedTpl} onValueChange={setSelectedTpl}>
+                  <SelectTrigger className="bg-white">
+                    <SelectValue placeholder="Escolha um modelo..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {state.petitions.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button onClick={generateDoc} className="w-full" disabled={!selectedTpl}>
+                <Download className="mr-2 h-4 w-4" /> Gerar Documento (.doc)
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
-
-        {state.currentUser.canViewFinance && (
-          <TabsContent value="finance" className="mt-4">
-            <Card className="shadow-sm border-green-200">
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2 text-green-700">
-                  <DollarSign className="h-5 w-5" /> Financeiro do Processo
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-xl font-bold mb-4">
-                  Valor da Causa: R$ {c.value.toLocaleString('pt-BR')}
-                </div>
-                <p className="text-sm text-muted-foreground text-center py-4 border-t">
-                  Visualização restrita.
-                </p>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        )}
       </Tabs>
     </div>
   )

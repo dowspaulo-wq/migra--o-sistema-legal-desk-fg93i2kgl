@@ -85,6 +85,14 @@ export interface Settings {
   themeColor: string
   logoUrl: string
 }
+export interface WhatsAppMessage {
+  id: string
+  phone: string
+  contact_name: string
+  message: string
+  direction: 'inbound' | 'outbound'
+  created_at: string
+}
 
 export interface LegalState {
   currentUser: User
@@ -97,6 +105,7 @@ export interface LegalState {
   logs: Log[]
   petitions: Petition[]
   settings: Settings
+  whatsappMessages: WhatsAppMessage[]
 }
 
 export const initialData: LegalState = {
@@ -109,5 +118,6 @@ export const initialData: LegalState = {
   transactions: [],
   logs: [],
   petitions: [],
+  whatsappMessages: [],
   settings: { id: '', showFinanceDashboard: true, themeColor: 'blue', logoUrl: '' },
 }
