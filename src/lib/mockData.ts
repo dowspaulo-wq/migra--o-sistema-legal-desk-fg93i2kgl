@@ -18,6 +18,7 @@ export interface Client {
   status: 'Ativo' | 'Baixado'
   isSpecial: boolean
   observacoes: string
+  captacao?: string
 }
 export interface Case {
   id: string
@@ -100,6 +101,7 @@ export interface Settings {
   appointmentTypes: string[]
   taskStatuses: string[]
   taskTypes: string[]
+  captacaoOptions: string[]
 }
 export interface WhatsAppMessage {
   id: string
@@ -145,5 +147,6 @@ export const initialData: LegalState = {
     appointmentTypes: ['Reunião', 'Feriado', 'Outro'],
     taskStatuses: ['pendente', 'em andamento', 'Concluída'],
     taskTypes: ['Cartórios', 'Petições', 'Recorrer', 'Redigir inicial', 'interna e adm'],
+    captacaoOptions: ['Douglas', 'Eduardo', 'Luisito', 'MB', 'Zeno'],
   },
 }

@@ -206,6 +206,11 @@ export default function Settings() {
             items={s.taskStatuses || []}
             onSave={(items) => updateItem('settings', s.id, { taskStatuses: items })}
           />
+          <EditableList
+            title="Fontes de Captação"
+            items={s.captacaoOptions || []}
+            onSave={(items) => updateItem('settings', s.id, { captacaoOptions: items })}
+          />
         </TabsContent>
 
         <TabsContent value="users">

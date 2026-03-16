@@ -43,10 +43,14 @@ export default function Clients() {
   const [statusFilter, setStatusFilter] = useState('Todos')
   const [typeFilter, setTypeFilter] = useState('Todos')
   const [respFilter, setRespFilter] = useState('Todos')
+  const [captacaoFilter, setCaptacaoFilter] = useState('Todos')
   const [open, setOpen] = useState(false)
   const [editingClient, setEditingClient] = useState<any>(null)
 
   const sortedUsers = [...state.users].sort((a, b) => a.name.localeCompare(b.name))
+  const sortedCaptacao = [...(state.settings?.captacaoOptions || [])].sort((a, b) =>
+    a.localeCompare(b),
+  )
 
   const filtered = state.clients.filter((c) => {
     const matchSearch =
@@ -54,7 +58,8 @@ export default function Clients() {
     const matchStatus = statusFilter === 'Todos' || c.status === statusFilter
     const matchType = typeFilter === 'Todos' || c.type === typeFilter
     const matchResp = respFilter === 'Todos' || c.responsibleId === respFilter
-    return matchSearch && matchStatus && matchType && matchResp
+    const matchCaptacao = captacaoFilter === 'Todos' || c.captacao === captacaoFilter
+    return matchSearch && matchStatus && matchType && matchResp && matchCaptacao
   })
 
   const handleOpen = (client?: any) => {
@@ -91,6 +96,7 @@ export default function Clients() {
         client={editingClient}
         onSave={handleSave}
         users={state.users}
+        settings={state.settings}
       />
 
       <Card className="shadow-sm">
@@ -153,6 +159,22 @@ export default function Clients() {
                     </SelectContent>
                   </Select>
                 </div>
+                <div className="space-y-2">
+                  <Label className="text-xs">Captação</Label>
+                  <Select value={captacaoFilter} onValueChange={setCaptacaoFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Captação" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Todos">Todos</SelectItem>
+                      {sortedCaptacao.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {c}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -161,6 +183,7 @@ export default function Clients() {
                     setStatusFilter('Todos')
                     setTypeFilter('Todos')
                     setRespFilter('Todos')
+                    setCaptacaoFilter('Todos')
                   }}
                 >
                   Limpar Filtros
@@ -189,6 +212,7 @@ export default function Clients() {
                     <TableHead>CPF/CNPJ</TableHead>
                     <TableHead>Contato</TableHead>
                     <TableHead>Responsável</TableHead>
+                    <TableHead>Captação</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
@@ -225,6 +249,7 @@ export default function Clients() {
                       <TableCell>
                         {state.users.find((u) => u.id === c.responsibleId)?.name}
                       </TableCell>
+                      <TableCell>{c.captacao || '—'}</TableCell>
                       <TableCell>
                         <Badge variant={c.status === 'Ativo' ? 'default' : 'secondary'}>
                           {c.status}
@@ -293,6 +318,9 @@ export default function Clients() {
                           <span className="font-medium">
                             {state.users.find((u) => u.id === c.responsibleId)?.name}
                           </span>
+                        </p>
+                        <p>
+                          Captação: <span className="font-medium">{c.captacao || '—'}</span>
                         </p>
                         <p className="flex items-center gap-2">
                           Tel: {c.phone}{' '}

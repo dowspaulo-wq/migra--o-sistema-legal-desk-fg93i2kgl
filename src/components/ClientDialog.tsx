@@ -19,8 +19,11 @@ import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 
-export function ClientDialog({ open, onOpenChange, client, onSave, users }: any) {
+export function ClientDialog({ open, onOpenChange, client, onSave, users, settings }: any) {
   const sortedUsers = [...users].sort((a: any, b: any) => a.name.localeCompare(b.name))
+  const sortedCaptacao = [...(settings?.captacaoOptions || [])].sort((a: string, b: string) =>
+    a.localeCompare(b),
+  )
 
   const initial = client || {
     name: '',
@@ -34,6 +37,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users }: any)
     isSpecial: false,
     observacoes: '',
     responsibleId: sortedUsers[0]?.id,
+    captacao: '',
   }
   const [fd, setFd] = useState(initial)
 
@@ -124,7 +128,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users }: any)
               <Label>WhatsApp</Label>
               <Input value={fd.phone} onChange={(e) => setFd({ ...fd, phone: e.target.value })} />
             </div>
-            <div className="space-y-2 col-span-2">
+            <div className="space-y-2">
               <Label>Responsável</Label>
               <Select
                 value={fd.responsibleId}
@@ -137,6 +141,21 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users }: any)
                   {sortedUsers.map((u: any) => (
                     <SelectItem key={u.id} value={u.id}>
                       {u.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Captação</Label>
+              <Select value={fd.captacao} onValueChange={(v) => setFd({ ...fd, captacao: v })}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {sortedCaptacao.map((c: string) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
                     </SelectItem>
                   ))}
                 </SelectContent>
