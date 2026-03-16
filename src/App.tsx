@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from '@/components/ui/toaster'
 import { Toaster as Sonner } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -42,6 +42,10 @@ const App = () => (
               <Route path="/whatsapp" element={<WhatsApp />} />
               <Route path="/logs" element={<Logs />} />
               <Route path="/configuracoes" element={<Settings />} />
+
+              {/* Aliases to satisfy English path assumptions */}
+              <Route path="/cases" element={<Navigate to="/processos" replace />} />
+              <Route path="/settings" element={<Navigate to="/configuracoes" replace />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>

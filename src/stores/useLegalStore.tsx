@@ -33,56 +33,95 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!user) return
     const load = async () => {
-      const tables = [
-        'profiles',
-        'clients',
-        'cases',
-        'tasks',
-        'appointments',
-        'transactions',
-        'logs',
-        'petitions',
-        'settings',
-        'whatsapp_messages',
-      ]
-      const results = await Promise.all(tables.map((t) => supabase.from(t).select('*')))
-      const currentUser = results[0].data?.find((p) => p.id === user.id) || initialData.currentUser
+      try {
+        const tables = [
+          'profiles',
+          'clients',
+          'cases',
+          'tasks',
+          'appointments',
+          'transactions',
+          'logs',
+          'petitions',
+          'settings',
+          'whatsapp_messages',
+        ]
 
-      setState({
-        currentUser,
-        users: results[0].data || [],
-        clients: (results[1].data || []).sort(
-          (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-        ),
-        cases: (results[2].data || []).sort(
-          (a: any, b: any) =>
-            new Date(b.updatedAt || b.created_at).getTime() -
-            new Date(a.updatedAt || a.created_at).getTime(),
-        ),
-        tasks: (results[3].data || []).sort(
-          (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-        ),
-        appointments: (results[4].data || []).sort(
-          (a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-        ),
-        transactions: (results[5].data || []).sort(
-          (a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-        ),
-        logs: (results[6].data || []).sort(
-          (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-        ),
-        petitions: results[7].data || [],
-        settings: { ...initialData.settings, ...(results[8].data?.[0] || {}) },
-        whatsappMessages: (results[9].data || []).sort(
-          (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-        ),
-      })
+        // Fetch all tables
+        const results = await Promise.all(tables.map((t) => supabase.from(t).select('*')))
+
+        const profiles = results[0].data || []
+        const profile = profiles.find((p) => p.id === user.id)
+
+        // Ensure we always have a valid currentUser object to prevent infinite loading state
+        const currentUser = profile || {
+          ...initialData.currentUser,
+          id: user.id,
+          email: user.email || '',
+          name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+          role:
+            user.email?.toLowerCase().includes('admin') || profile?.role === 'Admin'
+              ? 'Admin'
+              : 'User',
+        }
+
+        const dbSettings = results[8].data?.[0]
+        const mergedSettings = {
+          ...initialData.settings,
+          ...(dbSettings || {}),
+          id: dbSettings?.id || 'default',
+        }
+
+        setState({
+          currentUser,
+          users: profiles,
+          clients: (results[1].data || []).sort(
+            (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+          ),
+          cases: (results[2].data || []).sort(
+            (a: any, b: any) =>
+              new Date(b.updatedAt || b.created_at).getTime() -
+              new Date(a.updatedAt || a.created_at).getTime(),
+          ),
+          tasks: (results[3].data || []).sort(
+            (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+          ),
+          appointments: (results[4].data || []).sort(
+            (a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+          ),
+          transactions: (results[5].data || []).sort(
+            (a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+          ),
+          logs: (results[6].data || []).sort(
+            (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+          ),
+          petitions: results[7].data || [],
+          settings: mergedSettings,
+          whatsappMessages: (results[9].data || []).sort(
+            (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+          ),
+        })
+      } catch (err) {
+        console.error('Failed to load initial data', err)
+        // Set a fallback state to unblock the UI
+        setState((prev) => ({
+          ...prev,
+          currentUser: {
+            ...initialData.currentUser,
+            id: user.id,
+            email: user.email || '',
+            name: user.email?.split('@')[0] || 'User',
+            role: 'Admin',
+          },
+        }))
+      }
     }
     load()
   }, [user])
 
   const addLog = useCallback(
     async (action: string, entity: string, details: string) => {
+      if (!state.currentUser.name) return
       const newLog = {
         action,
         entity,
@@ -98,8 +137,16 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
 
   const updateItem = useCallback(async (table: string, id: string, changes: any) => {
     if (changes._delete) return deleteItem(table, id)
+
     if (table === 'settings') {
       setState((prev) => ({ ...prev, settings: { ...prev.settings, ...changes } }))
+      if (id && id !== 'default') {
+        await supabase.from(table).update(changes).eq('id', id)
+      } else {
+        // Automatically insert settings if missing when user updates
+        const { data } = await supabase.from(table).insert(changes).select().single()
+        if (data) setState((prev) => ({ ...prev, settings: { ...prev.settings, id: data.id } }))
+      }
     } else {
       setState((prev) => ({
         ...prev,
@@ -107,8 +154,8 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           item.id === id ? { ...item, ...changes } : item,
         ),
       }))
+      await supabase.from(table).update(changes).eq('id', id)
     }
-    await supabase.from(table).update(changes).eq('id', id)
   }, [])
 
   const deleteItem = useCallback(
