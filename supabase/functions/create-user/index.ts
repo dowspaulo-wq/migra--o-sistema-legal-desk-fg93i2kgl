@@ -1,5 +1,5 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
 
 Deno.serve(async (req: Request) => {
@@ -8,40 +8,18 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error('Missing Supabase environment variables')
+    }
+
     const supabase = createClient(supabaseUrl, supabaseKey)
+    const { email, password, name, role } = await req.json()
 
-    const authHeader = req.headers.get('Authorization')
-    if (!authHeader) {
-      throw new Error('No authorization header')
-    }
-
-    const token = authHeader.replace('Bearer ', '')
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser(token)
-
-    if (userError || !user) {
-      throw new Error('Unauthorized')
-    }
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-
-    if (profile?.role !== 'Admin') {
-      throw new Error('Forbidden: Admins only')
-    }
-
-    const body = await req.json()
-    const { email, password, name, role, canViewFinance, color } = body
-
-    if (!email || !password || !name) {
-      throw new Error('Missing required fields')
+    if (!email || !password) {
+      throw new Error('Email and password are required')
     }
 
     const { data, error } = await supabase.auth.admin.createUser({
@@ -49,16 +27,16 @@ Deno.serve(async (req: Request) => {
       password,
       email_confirm: true,
       user_metadata: {
-        name,
-        role,
-        canViewFinance,
-        color,
+        name: name || email.split('@')[0],
+        role: role || 'user',
       },
     })
 
-    if (error) throw error
+    if (error) {
+      throw error
+    }
 
-    return new Response(JSON.stringify({ data }), {
+    return new Response(JSON.stringify({ user: data.user }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
     })
