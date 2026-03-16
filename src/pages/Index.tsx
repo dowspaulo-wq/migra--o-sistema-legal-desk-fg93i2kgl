@@ -18,10 +18,14 @@ const COLORS = [
   'hsl(var(--chart-3)/0.7)',
 ]
 
+const renderLabel = ({ name, value, percent }: any) => {
+  return `${name}: ${value} (${(percent * 100).toFixed(0)}%)`
+}
+
 export default function Index() {
   const { state } = useLegalStore()
 
-  const pendingProtocol = state.tasks.filter((t) => t.status === 'Aguarda protocolo')
+  const pendingProtocol = state.tasks.filter((t) => t.status === 'Aguarda protocol')
   const myTasks = state.tasks.filter(
     (t) => t.responsibleId === state.currentUser.id && t.status !== 'Concluída',
   )
@@ -151,7 +155,7 @@ export default function Index() {
           <CardHeader>
             <CardTitle className="text-sm">Status dos Processos</CardTitle>
           </CardHeader>
-          <CardContent className="h-48 flex justify-center">
+          <CardContent className="h-56 flex justify-center">
             <ChartContainer config={{}} className="h-full w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -164,12 +168,18 @@ export default function Index() {
                     innerRadius={40}
                     outerRadius={60}
                     paddingAngle={5}
+                    label={renderLabel}
                   >
                     {processStatusData.map((e, i) => (
                       <Cell key={`c-${i}`} fill={COLORS[i % COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip />
+                  <Tooltip
+                    formatter={(value, name, props) => [
+                      `${value} (${((props as any).percent * 100).toFixed(1)}%)`,
+                      name,
+                    ]}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             </ChartContainer>
@@ -180,7 +190,7 @@ export default function Index() {
           <CardHeader>
             <CardTitle className="text-sm">Clientes por Colaborador</CardTitle>
           </CardHeader>
-          <CardContent className="h-48 flex justify-center">
+          <CardContent className="h-56 flex justify-center">
             <ChartContainer config={{}} className="h-full w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -193,12 +203,18 @@ export default function Index() {
                     innerRadius={40}
                     outerRadius={60}
                     paddingAngle={5}
+                    label={renderLabel}
                   >
                     {clientsPerUser.map((e, i) => (
                       <Cell key={`c-${i}`} fill={COLORS[(i + 2) % COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip />
+                  <Tooltip
+                    formatter={(value, name, props) => [
+                      `${value} (${((props as any).percent * 100).toFixed(1)}%)`,
+                      name,
+                    ]}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             </ChartContainer>
@@ -209,7 +225,7 @@ export default function Index() {
           <CardHeader>
             <CardTitle className="text-sm">Processos por Colaborador</CardTitle>
           </CardHeader>
-          <CardContent className="h-48 flex justify-center">
+          <CardContent className="h-56 flex justify-center">
             <ChartContainer config={{}} className="h-full w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -222,12 +238,18 @@ export default function Index() {
                     innerRadius={40}
                     outerRadius={60}
                     paddingAngle={5}
+                    label={renderLabel}
                   >
                     {casesPerUser.map((e, i) => (
                       <Cell key={`c-${i}`} fill={COLORS[(i + 4) % COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip />
+                  <Tooltip
+                    formatter={(value, name, props) => [
+                      `${value} (${((props as any).percent * 100).toFixed(1)}%)`,
+                      name,
+                    ]}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             </ChartContainer>
@@ -238,7 +260,7 @@ export default function Index() {
           <CardHeader>
             <CardTitle className="text-sm">Clientes por Captação</CardTitle>
           </CardHeader>
-          <CardContent className="h-48 flex justify-center">
+          <CardContent className="h-56 flex justify-center">
             <ChartContainer config={{}} className="h-full w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -251,12 +273,18 @@ export default function Index() {
                     innerRadius={40}
                     outerRadius={60}
                     paddingAngle={5}
+                    label={renderLabel}
                   >
                     {captacaoChartData.map((e, i) => (
                       <Cell key={`c-${i}`} fill={COLORS[(i + 3) % COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip />
+                  <Tooltip
+                    formatter={(value, name, props) => [
+                      `${value} (${((props as any).percent * 100).toFixed(1)}%)`,
+                      name,
+                    ]}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             </ChartContainer>

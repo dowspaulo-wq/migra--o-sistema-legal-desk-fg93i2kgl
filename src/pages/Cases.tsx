@@ -33,7 +33,14 @@ export default function Cases() {
 
   const sortedUsers = [...state.users].sort((a, b) => a.name.localeCompare(b.name))
   const sortedClients = [...state.clients].sort((a, b) => a.name.localeCompare(b.name))
-  const sortedTypes = [...(state.settings.caseTypes || [])].sort((a, b) => a.localeCompare(b))
+
+  const caseTypesSettings = state.settings.caseTypes || []
+  const sortedTypes = [...caseTypesSettings].sort((a: any, b: any) => {
+    const labelA = typeof a === 'string' ? a : a.label
+    const labelB = typeof b === 'string' ? b : b.label
+    return labelA.localeCompare(labelB)
+  })
+
   const sortedStatuses = [...(state.settings.caseStatuses || [])].sort((a, b) => a.localeCompare(b))
 
   const filtered = state.cases.filter((c) => {
@@ -41,10 +48,16 @@ export default function Cases() {
       c.number.toLowerCase().includes(search.toLowerCase()) ||
       (c.adverseParty || '').toLowerCase().includes(search.toLowerCase()) ||
       (c.court || '').toLowerCase().includes(search.toLowerCase())
-    const mStatus = statusFilter === 'Todos' || c.status === statusFilter
-    const mType = typeFilter === 'Todos' || c.type === typeFilter
-    const mResp = respFilter === 'Todos' || c.responsibleId === respFilter
-    const mClient = clientFilter === 'Todos' || c.clientId === clientFilter
+    const mStatus =
+      statusFilter === 'Todos' || (statusFilter === 'Vazio' ? !c.status : c.status === statusFilter)
+    const mType =
+      typeFilter === 'Todos' || (typeFilter === 'Vazio' ? !c.type : c.type === typeFilter)
+    const mResp =
+      respFilter === 'Todos' ||
+      (respFilter === 'Vazio' ? !c.responsibleId : c.responsibleId === respFilter)
+    const mClient =
+      clientFilter === 'Todos' ||
+      (clientFilter === 'Vazio' ? !c.clientId : c.clientId === clientFilter)
     const mMin = minVal === '' || c.value >= Number(minVal)
     const mMax = maxVal === '' || c.value <= Number(maxVal)
     return mSearch && mStatus && mType && mResp && mClient && mMin && mMax
@@ -68,6 +81,13 @@ export default function Cases() {
 
   const getDays = (start: string) =>
     start ? Math.floor((new Date().getTime() - new Date(start).getTime()) / (1000 * 3600 * 24)) : 0
+
+  const getTypeColor = (type: string) => {
+    const t = caseTypesSettings.find(
+      (x: any) => (typeof x === 'string' ? x : x.label) === type,
+    ) as any
+    return typeof t === 'object' ? t.color : '#94a3b8'
+  }
 
   return (
     <div className="space-y-6">
@@ -117,6 +137,7 @@ export default function Cases() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Todos">Todos</SelectItem>
+                      <SelectItem value="Vazio">Não Informado (Vazio)</SelectItem>
                       {sortedStatuses.map((s) => (
                         <SelectItem key={s} value={s}>
                           {s}
@@ -133,11 +154,15 @@ export default function Cases() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Todos">Todos</SelectItem>
-                      {sortedTypes.map((t) => (
-                        <SelectItem key={t} value={t}>
-                          {t}
-                        </SelectItem>
-                      ))}
+                      <SelectItem value="Vazio">Não Informado (Vazio)</SelectItem>
+                      {sortedTypes.map((t: any) => {
+                        const label = typeof t === 'string' ? t : t.label
+                        return (
+                          <SelectItem key={label} value={label}>
+                            {label}
+                          </SelectItem>
+                        )
+                      })}
                     </SelectContent>
                   </Select>
                 </div>
@@ -149,6 +174,7 @@ export default function Cases() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Todos">Todos</SelectItem>
+                      <SelectItem value="Vazio">Não Atribuído (Vazio)</SelectItem>
                       {sortedUsers.map((u) => (
                         <SelectItem key={u.id} value={u.id}>
                           {u.name}
@@ -165,6 +191,7 @@ export default function Cases() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Todos">Todos</SelectItem>
+                      <SelectItem value="Vazio">Sem Cliente (Vazio)</SelectItem>
                       {sortedClients.map((c) => (
                         <SelectItem key={c.id} value={c.id}>
                           {c.name}
@@ -231,7 +258,7 @@ export default function Cases() {
                     className="border p-4 rounded-lg flex flex-col md:flex-row justify-between gap-4 hover:border-primary/50 transition-colors bg-card"
                   >
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 mb-1">
                         <Link
                           to={`/processos/${c.id}`}
                           className="text-lg font-bold text-primary hover:underline"
@@ -242,19 +269,33 @@ export default function Cases() {
                           <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
                         )}{' '}
                         <Badge variant="outline">{c.status}</Badge>
+                        <Badge
+                          style={{ backgroundColor: getTypeColor(c.type) }}
+                          className="text-white border-0 hover:opacity-90"
+                        >
+                          {c.type}
+                        </Badge>
                       </div>
                       <p className="text-sm font-medium mt-1">
-                        {client?.name}{' '}
+                        {client?.name || '—'}{' '}
                         <span className="text-muted-foreground text-xs">({c.position})</span> x{' '}
                         {c.adverseParty}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        Vara: {c.court} • Tipo: {c.type} • Tramitando há {getDays(c.startDate)} dias
+                        Vara: {c.court} • Tramitando há {getDays(c.startDate)} dias
                       </p>
                       {c.alerts && (
-                        <p className="text-xs mt-2 p-1 bg-red-50 text-red-700 rounded border border-red-100 inline-block">
-                          {c.alerts}
-                        </p>
+                        <div className="flex gap-1 flex-wrap mt-2">
+                          {c.alerts.split(',').map((a) => (
+                            <Badge
+                              key={a}
+                              variant="secondary"
+                              className="text-[10px] bg-red-50 text-red-700 border-red-200"
+                            >
+                              {a}
+                            </Badge>
+                          ))}
+                        </div>
                       )}
                     </div>
                     <div className="flex items-center gap-2">
@@ -285,9 +326,14 @@ export default function Cases() {
               {filtered.map((c) => {
                 const client = state.clients.find((cl) => cl.id === c.clientId)
                 const resp = state.users.find((u) => u.id === c.responsibleId)
+                const typeColor = getTypeColor(c.type)
+
                 return (
                   <Card key={c.id} className="relative overflow-hidden group">
-                    <div className="absolute top-0 left-0 w-full h-1 bg-primary" />
+                    <div
+                      className="absolute top-0 left-0 w-full h-1"
+                      style={{ backgroundColor: typeColor }}
+                    />
                     <CardContent className="p-4 pt-5 space-y-3">
                       <div className="flex justify-between items-start">
                         <Link
@@ -300,16 +346,25 @@ export default function Cases() {
                           <Star className="h-4 w-4 fill-yellow-400 text-yellow-400 shrink-0" />
                         )}
                       </div>
-                      <Badge>{c.status}</Badge>
+                      <div className="flex gap-2 flex-wrap">
+                        <Badge>{c.status}</Badge>
+                        <Badge
+                          style={{ backgroundColor: typeColor }}
+                          className="text-white border-0 hover:opacity-90"
+                        >
+                          {c.type}
+                        </Badge>
+                      </div>
                       <div className="text-sm space-y-1">
                         <p>
-                          <span className="text-muted-foreground">Cliente:</span> {client?.name}
+                          <span className="text-muted-foreground">Cliente:</span>{' '}
+                          {client?.name || '—'}
                         </p>
                         <p>
                           <span className="text-muted-foreground">Adversa:</span> {c.adverseParty}
                         </p>
                         <p>
-                          <span className="text-muted-foreground">Resp:</span> {resp?.name}
+                          <span className="text-muted-foreground">Resp:</span> {resp?.name || '—'}
                         </p>
                         <p>
                           <span className="text-muted-foreground">Duração:</span>{' '}
@@ -317,8 +372,16 @@ export default function Cases() {
                         </p>
                       </div>
                       {c.alerts && (
-                        <div className="text-xs p-1.5 bg-red-50 text-red-700 rounded border border-red-100">
-                          {c.alerts}
+                        <div className="flex gap-1 flex-wrap pt-1">
+                          {c.alerts.split(',').map((a) => (
+                            <Badge
+                              key={a}
+                              variant="secondary"
+                              className="text-[10px] bg-red-50 text-red-700 border-red-200"
+                            >
+                              {a}
+                            </Badge>
+                          ))}
                         </div>
                       )}
                     </CardContent>

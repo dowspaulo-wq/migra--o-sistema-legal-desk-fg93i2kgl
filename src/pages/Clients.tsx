@@ -63,8 +63,12 @@ export default function Clients() {
       c.name.toLowerCase().includes(searchTerm.toLowerCase()) || c.document.includes(searchTerm)
     const matchStatus = statusFilter === 'Todos' || c.status === statusFilter
     const matchType = typeFilter === 'Todos' || c.type === typeFilter
-    const matchResp = respFilter === 'Todos' || c.responsibleId === respFilter
-    const matchCaptacao = captacaoFilter === 'Todos' || c.captacao === captacaoFilter
+    const matchResp =
+      respFilter === 'Todos' ||
+      (respFilter === 'Vazio' ? !c.responsibleId : c.responsibleId === respFilter)
+    const matchCaptacao =
+      captacaoFilter === 'Todos' ||
+      (captacaoFilter === 'Vazio' ? !c.captacao : c.captacao === captacaoFilter)
     return matchSearch && matchStatus && matchType && matchResp && matchCaptacao
   })
 
@@ -186,6 +190,7 @@ export default function Clients() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Todos">Todos</SelectItem>
+                      <SelectItem value="Vazio">Não Atribuído (Vazio)</SelectItem>
                       {sortedUsers.map((u) => (
                         <SelectItem key={u.id} value={u.id}>
                           {u.name}
@@ -202,6 +207,7 @@ export default function Clients() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Todos">Todos</SelectItem>
+                      <SelectItem value="Vazio">Não Informado (Vazio)</SelectItem>
                       {sortedCaptacao.map((c) => (
                         <SelectItem key={c} value={c}>
                           {c}
@@ -378,7 +384,7 @@ export default function Clients() {
                         )}
                       </TableCell>
                       <TableCell>
-                        {state.users.find((u) => u.id === c.responsibleId)?.name}
+                        {state.users.find((u) => u.id === c.responsibleId)?.name || '—'}
                       </TableCell>
                       <TableCell>{c.captacao || '—'}</TableCell>
                       <TableCell>
@@ -447,7 +453,7 @@ export default function Clients() {
                         <p>
                           Resp:{' '}
                           <span className="font-medium">
-                            {state.users.find((u) => u.id === c.responsibleId)?.name}
+                            {state.users.find((u) => u.id === c.responsibleId)?.name || '—'}
                           </span>
                         </p>
                         <p>

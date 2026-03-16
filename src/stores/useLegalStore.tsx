@@ -154,6 +154,8 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     setState((prev) => ({
       ...prev,
       users: prev.users.map((u) => (u.id === id ? { ...u, ...changes } : u)),
+      currentUser:
+        prev.currentUser.id === id ? { ...prev.currentUser, ...changes } : prev.currentUser,
     }))
     await supabase.from('profiles').update(changes).eq('id', id)
   }, [])

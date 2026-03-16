@@ -39,7 +39,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
     status: 'Ativo',
     isSpecial: false,
     observacoes: '',
-    responsibleId: sortedUsers[0]?.id,
+    responsibleId: sortedUsers[0]?.id || '',
     captacao: '',
   }
   const [fd, setFd] = useState(initial)
@@ -50,6 +50,16 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (!fd.birthday || !fd.email || !fd.phone || !fd.responsibleId || !fd.captacao) {
+      toast({
+        title: 'Campos Obrigatórios',
+        description:
+          'Nascimento, E-mail, WhatsApp, Responsável e Captação são de preenchimento obrigatório.',
+        variant: 'destructive',
+      })
+      return
+    }
 
     const isDupName = state.clients.some(
       (c) => c.name.toLowerCase() === fd.name.toLowerCase() && c.id !== client?.id,
@@ -115,9 +125,10 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Nascimento</Label>
+              <Label>Nascimento *</Label>
               <Input
                 type="date"
+                required
                 value={fd.birthday}
                 onChange={(e) => setFd({ ...fd, birthday: e.target.value })}
               />
@@ -135,25 +146,30 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>E-mail</Label>
+              <Label>E-mail *</Label>
               <Input
                 type="email"
+                required
                 value={fd.email}
                 onChange={(e) => setFd({ ...fd, email: e.target.value })}
               />
             </div>
             <div className="space-y-2">
-              <Label>WhatsApp</Label>
-              <Input value={fd.phone} onChange={(e) => setFd({ ...fd, phone: e.target.value })} />
+              <Label>WhatsApp *</Label>
+              <Input
+                required
+                value={fd.phone}
+                onChange={(e) => setFd({ ...fd, phone: e.target.value })}
+              />
             </div>
             <div className="space-y-2">
-              <Label>Responsável</Label>
+              <Label>Responsável *</Label>
               <Select
                 value={fd.responsibleId}
                 onValueChange={(v) => setFd({ ...fd, responsibleId: v })}
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Selecione..." />
                 </SelectTrigger>
                 <SelectContent>
                   {sortedUsers.map((u: any) => (
@@ -165,7 +181,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Captação</Label>
+              <Label>Captação *</Label>
               <Select value={fd.captacao} onValueChange={(v) => setFd({ ...fd, captacao: v })}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione..." />

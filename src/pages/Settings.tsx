@@ -105,6 +105,68 @@ function EditableList({
   )
 }
 
+function EditableColorList({ title, items, onSave }: any) {
+  const [val, setVal] = useState('')
+  const [color, setColor] = useState('#3b82f6')
+  const normalized = items.map((i: any) =>
+    typeof i === 'string' ? { label: i, color: '#3b82f6' } : i,
+  )
+
+  const add = () => {
+    if (val && !normalized.some((i: any) => i.label === val)) {
+      const newItems = [...normalized, { label: val, color }].sort((a, b) =>
+        a.label.localeCompare(b.label),
+      )
+      onSave(newItems)
+      setVal('')
+    }
+  }
+  const remove = (label: string) => onSave(normalized.filter((i: any) => i.label !== label))
+
+  return (
+    <Card className="shadow-sm">
+      <CardHeader className="py-4">
+        <CardTitle className="text-sm">{title}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex gap-2">
+          <Input
+            value={val}
+            onChange={(e) => setVal(e.target.value)}
+            placeholder="Nova opção..."
+            className="flex-1 h-9"
+            onKeyDown={(e) => e.key === 'Enter' && add()}
+          />
+          <Input
+            type="color"
+            value={color}
+            onChange={(e) => setColor(e.target.value)}
+            className="w-12 h-9 p-0.5 cursor-pointer border-0 rounded bg-transparent"
+          />
+          <Button size="sm" onClick={add} className="h-9">
+            <Plus className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {normalized.map((i: any) => (
+            <div
+              key={i.label}
+              className="flex items-center gap-2 px-2 py-1 rounded text-sm border text-white font-medium"
+              style={{ backgroundColor: i.color, borderColor: i.color }}
+            >
+              <span>{i.label}</span>
+              <Trash2
+                className="h-3 w-3 cursor-pointer opacity-70 hover:opacity-100 transition-opacity"
+                onClick={() => remove(i.label)}
+              />
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function Settings() {
   const { state, updateItem, updateUser, addLog, addUser } = useLegalStore()
   const [isCreateOpen, setIsCreateOpen] = useState(false)
@@ -186,10 +248,10 @@ export default function Settings() {
             items={s.caseStatuses || []}
             onSave={(items) => updateItem('settings', s.id, { caseStatuses: items })}
           />
-          <EditableList
-            title="Tipos de Processos"
+          <EditableColorList
+            title="Tipos de Processos (Com Cores)"
             items={s.caseTypes || []}
-            onSave={(items) => updateItem('settings', s.id, { caseTypes: items })}
+            onSave={(items: any[]) => updateItem('settings', s.id, { caseTypes: items })}
           />
           <EditableList
             title="Tipos de Compromissos"
@@ -303,7 +365,11 @@ export default function Settings() {
                               <FormLabel>Cor</FormLabel>
                               <FormControl>
                                 <div className="flex items-center gap-2">
-                                  <Input type="color" className="h-10 w-14 p-1" {...field} />
+                                  <Input
+                                    type="color"
+                                    className="h-10 w-14 p-1 cursor-pointer"
+                                    {...field}
+                                  />
                                 </div>
                               </FormControl>
                               <FormMessage />

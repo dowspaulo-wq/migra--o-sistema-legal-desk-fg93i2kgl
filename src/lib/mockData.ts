@@ -4,6 +4,7 @@ export interface User {
   role: 'Admin' | 'User'
   canViewFinance: boolean
   color: string
+  avatar_url?: string
 }
 export interface Client {
   id: string
@@ -91,13 +92,17 @@ export interface Petition {
   content: string
   category: string
 }
+export interface CaseType {
+  label: string
+  color: string
+}
 export interface Settings {
   id: string
   showFinanceDashboard: boolean
   themeColor: string
   logoUrl: string
   caseStatuses: string[]
-  caseTypes: string[]
+  caseTypes: (string | CaseType)[]
   appointmentTypes: string[]
   taskStatuses: string[]
   taskTypes: string[]
@@ -143,7 +148,11 @@ export const initialData: LegalState = {
     themeColor: 'blue',
     logoUrl: '',
     caseStatuses: ['Em andamento', 'Pendente', 'Concluído'],
-    caseTypes: ['Cível', 'Trabalhista', 'Família'],
+    caseTypes: [
+      { label: 'Cível', color: '#3b82f6' },
+      { label: 'Trabalhista', color: '#ef4444' },
+      { label: 'Família', color: '#8b5cf6' },
+    ],
     appointmentTypes: ['Reunião', 'Feriado', 'Outro'],
     taskStatuses: ['pendente', 'em andamento', 'Concluída'],
     taskTypes: ['Cartórios', 'Petições', 'Recorrer', 'Redigir inicial', 'interna e adm'],

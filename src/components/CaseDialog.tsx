@@ -18,16 +18,34 @@ import {
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { Checkbox } from '@/components/ui/checkbox'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
+
+const PREDEFINED_ALERTS = [
+  '💣 Liminar contrária',
+  '☘️ Liminar em nosso favor',
+  '💩 Ônus da prova contrário',
+  '🕵️ Ônus da prova em nosso favor',
+  '🎤 Sustentação oral',
+  '❌ JG indeferida ou não solicitada',
+  '✅ JG deferida',
+  '⚠️ Revelia',
+  '⏰ Perda de prazo',
+]
 
 export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, settings }: any) {
   const { state } = useLegalStore()
   const sortedUsers = [...users].sort((a: any, b: any) => a.name.localeCompare(b.name))
   const sortedClients = [...clients].sort((a: any, b: any) => a.name.localeCompare(b.name))
-  const sortedTypes = [...(settings.caseTypes || [])].sort((a: string, b: string) =>
-    a.localeCompare(b),
-  )
+
+  const caseTypesSettings = settings.caseTypes || []
+  const sortedTypes = [...caseTypesSettings].sort((a: any, b: any) => {
+    const labelA = typeof a === 'string' ? a : a.label
+    const labelB = typeof b === 'string' ? b : b.label
+    return labelA.localeCompare(labelB)
+  })
+
   const sortedStatuses = [...(settings.caseStatuses || [])].sort((a: string, b: string) =>
     a.localeCompare(b),
   )
@@ -37,20 +55,25 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
     clientId: '',
     position: 'Autor',
     adverseParty: '',
-    type: sortedTypes[0] || 'Cível',
+    type:
+      (sortedTypes[0] &&
+        (typeof sortedTypes[0] === 'string' ? sortedTypes[0] : sortedTypes[0].label)) ||
+      'Cível',
     status: sortedStatuses[0] || 'Em andamento',
     court: '',
     comarca: '',
     state: 'SP',
     value: 0,
     startDate: new Date().toISOString().split('T')[0],
-    responsibleId: sortedUsers[0]?.id,
+    responsibleId: sortedUsers[0]?.id || '',
     isSpecial: false,
     description: '',
     internalNotes: '',
     alerts: '',
   }
   const [fd, setFd] = useState(initial)
+
+  const selectedAlerts = fd.alerts ? fd.alerts.split(',').filter(Boolean) : []
 
   useEffect(() => {
     setFd(data || initial)
@@ -71,6 +94,13 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
 
     onSave(fd)
     onOpenChange(false)
+  }
+
+  const toggleAlert = (alert: string, checked: boolean) => {
+    const newAlerts = checked
+      ? [...selectedAlerts, alert]
+      : selectedAlerts.filter((a: string) => a !== alert)
+    setFd({ ...fd, alerts: newAlerts.join(',') })
   }
 
   return (
@@ -124,11 +154,14 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {sortedTypes.map((t: string) => (
-                    <SelectItem key={t} value={t}>
-                      {t}
-                    </SelectItem>
-                  ))}
+                  {sortedTypes.map((t: any) => {
+                    const label = typeof t === 'string' ? t : t.label
+                    return (
+                      <SelectItem key={label} value={label}>
+                        {label}
+                      </SelectItem>
+                    )
+                  })}
                 </SelectContent>
               </Select>
             </div>
@@ -219,14 +252,25 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
                 onChange={(e) => setFd({ ...fd, startDate: e.target.value })}
               />
             </div>
+
             <div className="col-span-full space-y-2">
-              <Label>Alertas (Suporta Emojis)</Label>
-              <Input
-                value={fd.alerts}
-                onChange={(e) => setFd({ ...fd, alerts: e.target.value })}
-                placeholder="Ex: 🚨 Prazo fatal em 2 dias!"
-              />
+              <Label>Alertas do Processo</Label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 border p-4 rounded-lg bg-slate-50">
+                {PREDEFINED_ALERTS.map((alert) => (
+                  <label
+                    key={alert}
+                    className="flex items-center gap-2 text-sm cursor-pointer border p-2 rounded bg-white hover:border-primary transition-colors"
+                  >
+                    <Checkbox
+                      checked={selectedAlerts.includes(alert)}
+                      onCheckedChange={(checked) => toggleAlert(alert, checked as boolean)}
+                    />
+                    <span className="leading-none">{alert}</span>
+                  </label>
+                ))}
+              </div>
             </div>
+
             <div className="col-span-full md:col-span-2 space-y-2">
               <Label>Descrição</Label>
               <Textarea
