@@ -1,4 +1,4 @@
-DO $
+DO $$
 DECLARE
     first_client_id uuid;
     first_case_id uuid;
@@ -48,5 +48,4 @@ BEGIN
     ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS "appointmentTypes" JSONB DEFAULT '["Reunião", "Aud.conciliação", "Diligência", "Feriado", "Outro"]'::jsonb;
     ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS "taskStatuses" JSONB DEFAULT '["em andamento", "pendente", "atualização", "Concluída", "aguarda protocolo", "cancelada"]'::jsonb;
 
-END $;
-
+END $$;
