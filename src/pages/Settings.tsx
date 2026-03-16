@@ -5,7 +5,7 @@ import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Download, Shield, Users, Sliders, Palette, Trash2, Plus } from 'lucide-react'
+import { Download, Shield, Users, Sliders, Trash2, Plus } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import {
@@ -16,6 +16,42 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
+import {
+  Form,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormControl,
+  FormMessage,
+  FormDescription,
+} from '@/components/ui/form'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import * as z from 'zod'
+import { supabase } from '@/lib/supabase/client'
+
+const userSchema = z.object({
+  name: z.string().min(2, 'Nome é obrigatório'),
+  email: z.string().email('E-mail inválido'),
+  password: z.string().min(6, 'A senha deve ter no mínimo 6 caracteres'),
+  role: z.enum(['Admin', 'User']),
+  canViewFinance: z.boolean(),
+  color: z.string(),
+})
 
 function EditableList({
   title,
@@ -68,7 +104,21 @@ function EditableList({
 }
 
 export default function Settings() {
-  const { state, updateItem, updateUser, addLog } = useLegalStore()
+  const { state, updateItem, updateUser, addLog, addUser } = useLegalStore()
+  const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const form = useForm<z.infer<typeof userSchema>>({
+    resolver: zodResolver(userSchema),
+    defaultValues: {
+      name: '',
+      email: '',
+      password: '',
+      role: 'User',
+      canViewFinance: false,
+      color: '#3b82f6',
+    },
+  })
 
   if (state.currentUser.role !== 'Admin') {
     return (
@@ -79,6 +129,34 @@ export default function Settings() {
   }
 
   const s = state.settings
+
+  const onSubmitUser = async (values: z.infer<typeof userSchema>) => {
+    setIsSubmitting(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('create-user', { body: values })
+      if (error) throw new Error(error.message || 'Erro ao criar usuário')
+      if (data?.error) throw new Error(data.error)
+
+      toast({ title: 'Sucesso', description: 'Usuário criado com sucesso' })
+      setIsCreateOpen(false)
+      form.reset()
+
+      const userId = data?.data?.user?.id
+      if (userId) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', userId)
+          .single()
+        if (profile) addUser(profile)
+      }
+      addLog('Criar', 'Usuário', `Usuário ${values.email} criado.`)
+    } catch (err: any) {
+      toast({ title: 'Erro', description: err.message, variant: 'destructive' })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -125,26 +203,143 @@ export default function Settings() {
 
         <TabsContent value="users">
           <Card>
-            <CardHeader>
-              <CardTitle>Gestão de Colaboradores</CardTitle>
-              <CardDescription>
-                Defina nível de acesso, financeiro e cor de identificação.
-              </CardDescription>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <div>
+                <CardTitle>Gestão de Colaboradores</CardTitle>
+                <CardDescription>
+                  Defina nível de acesso, financeiro e cor de identificação.
+                </CardDescription>
+              </div>
+              <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+                <DialogTrigger asChild>
+                  <Button size="sm">
+                    <Plus className="mr-2 h-4 w-4" /> Novo Usuário
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Adicionar Usuário</DialogTitle>
+                  </DialogHeader>
+                  <Form {...form}>
+                    <form onSubmit={form.handleSubmit(onSubmitUser)} className="space-y-4">
+                      <FormField
+                        control={form.control}
+                        name="name"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Nome Completo</FormLabel>
+                            <FormControl>
+                              <Input {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="email"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>E-mail</FormLabel>
+                            <FormControl>
+                              <Input type="email" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="password"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Senha</FormLabel>
+                            <FormControl>
+                              <Input type="password" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <div className="grid grid-cols-2 gap-4">
+                        <FormField
+                          control={form.control}
+                          name="role"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Nível de Acesso</FormLabel>
+                              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Selecione..." />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="User">Colaborador</SelectItem>
+                                  <SelectItem value="Admin">Admin</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="color"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Cor</FormLabel>
+                              <FormControl>
+                                <div className="flex items-center gap-2">
+                                  <Input type="color" className="h-10 w-14 p-1" {...field} />
+                                </div>
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      <FormField
+                        control={form.control}
+                        name="canViewFinance"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
+                            <div className="space-y-0.5">
+                              <FormLabel>Acesso ao Financeiro</FormLabel>
+                              <FormDescription>
+                                Permite visualizar a área financeira.
+                              </FormDescription>
+                            </div>
+                            <FormControl>
+                              <Switch checked={field.value} onCheckedChange={field.onChange} />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                      <Button type="submit" className="w-full" disabled={isSubmitting}>
+                        {isSubmitting ? 'Salvando...' : 'Salvar Usuário'}
+                      </Button>
+                    </form>
+                  </Form>
+                </DialogContent>
+              </Dialog>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Nome</TableHead>
+                    <TableHead>E-mail</TableHead>
                     <TableHead>Nível</TableHead>
                     <TableHead>Financeiro</TableHead>
                     <TableHead>Cor Identidade</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {state.users.map((u) => (
+                  {(state.users as any[]).map((u) => (
                     <TableRow key={u.id}>
                       <TableCell className="font-medium">{u.name}</TableCell>
+                      <TableCell>{u.email || '—'}</TableCell>
                       <TableCell>
                         <select
                           className="border rounded p-1 text-sm bg-white"

@@ -21,6 +21,7 @@ interface LegalContextType {
   addTask: (task: Omit<Task, 'id'>) => void
   addAppointment: (app: Omit<Appointment, 'id'>) => void
   updateUser: (id: string, changes: Partial<User>) => void
+  addUser: (user: any) => void
 }
 
 const LegalContext = createContext<LegalContextType | undefined>(undefined)
@@ -157,6 +158,10 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     await supabase.from('profiles').update(changes).eq('id', id)
   }, [])
 
+  const addUser = useCallback((newUser: any) => {
+    setState((prev) => ({ ...prev, users: [...prev.users, newUser] }))
+  }, [])
+
   return (
     <LegalContext.Provider
       value={{
@@ -169,6 +174,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         addTask,
         addAppointment,
         updateUser,
+        addUser,
       }}
     >
       {children}

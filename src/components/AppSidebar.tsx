@@ -24,6 +24,7 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar'
 import { cn } from '@/lib/utils'
+import useLegalStore from '@/stores/useLegalStore'
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
@@ -40,7 +41,14 @@ const navigation = [
 
 export default function AppSidebar() {
   const location = useLocation()
-  const { state } = useSidebar()
+  const { state: sidebarState } = useSidebar()
+  const { state: legalState } = useLegalStore()
+
+  const navItems = navigation.filter((item) => {
+    if (item.name === 'Financeiro' && !legalState.currentUser.canViewFinance) return false
+    if (item.name === 'Configurações' && legalState.currentUser.role !== 'Admin') return false
+    return true
+  })
 
   return (
     <Sidebar collapsible="icon" className="border-r shadow-sm">
@@ -51,7 +59,7 @@ export default function AppSidebar() {
         <span
           className={cn(
             'font-bold text-xl text-sidebar-foreground truncate transition-opacity duration-200 tracking-tight',
-            state === 'collapsed' ? 'opacity-0 hidden' : 'opacity-100',
+            sidebarState === 'collapsed' ? 'opacity-0 hidden' : 'opacity-100',
           )}
         >
           SBJur
@@ -61,7 +69,7 @@ export default function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navigation.map((item) => {
+              {navItems.map((item) => {
                 const isActive =
                   location.pathname === item.href ||
                   (item.href !== '/' && location.pathname.startsWith(item.href))
