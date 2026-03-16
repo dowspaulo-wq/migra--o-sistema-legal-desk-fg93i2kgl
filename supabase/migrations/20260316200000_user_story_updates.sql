@@ -1,4 +1,4 @@
-DO $
+DO $$
 DECLARE
     adv_jr_id uuid;
     admin_id uuid;
@@ -19,10 +19,10 @@ BEGIN
         UPDATE public.profiles SET name = 'Douglas', role = 'Admin' WHERE id = admin_id;
         UPDATE auth.users SET raw_user_meta_data = jsonb_set(COALESCE(raw_user_meta_data, '{}'::jsonb), '{name}', '"Douglas"') WHERE id = admin_id;
     END IF;
-END $;
+END $$;
 
 CREATE OR REPLACE FUNCTION public.handle_new_case_task()
-RETURNS trigger AS $
+RETURNS trigger AS $$
 DECLARE
     next_month date;
     due_date text;
@@ -53,11 +53,10 @@ BEGIN
 
     RETURN NEW;
 END;
-$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 DROP TRIGGER IF EXISTS on_case_created ON public.cases;
 CREATE TRIGGER on_case_created
     AFTER INSERT ON public.cases
     FOR EACH ROW
     EXECUTE FUNCTION public.handle_new_case_task();
-
