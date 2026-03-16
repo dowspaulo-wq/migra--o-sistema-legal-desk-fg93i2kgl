@@ -18,8 +18,11 @@ import {
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import useLegalStore from '@/stores/useLegalStore'
+import { toast } from '@/hooks/use-toast'
 
 export function ClientDialog({ open, onOpenChange, client, onSave, users, settings }: any) {
+  const { state } = useLegalStore()
   const sortedUsers = [...users].sort((a: any, b: any) => a.name.localeCompare(b.name))
   const sortedCaptacao = [...(settings?.captacaoOptions || [])].sort((a: string, b: string) =>
     a.localeCompare(b),
@@ -47,6 +50,21 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+
+    const isDupName = state.clients.some(
+      (c) => c.name.toLowerCase() === fd.name.toLowerCase() && c.id !== client?.id,
+    )
+    const isDupDoc = state.clients.some((c) => c.document === fd.document && c.id !== client?.id)
+
+    if (isDupName || isDupDoc) {
+      toast({
+        title: 'Erro',
+        description: 'Erro: Já existe um cliente cadastrado com este Nome ou CPF/CNPJ.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     onSave(fd)
     onOpenChange(false)
   }

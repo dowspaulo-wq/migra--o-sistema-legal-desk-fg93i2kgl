@@ -13,6 +13,9 @@ const COLORS = [
   'hsl(var(--chart-3))',
   'hsl(var(--chart-4))',
   'hsl(var(--chart-5))',
+  'hsl(var(--chart-1)/0.7)',
+  'hsl(var(--chart-2)/0.7)',
+  'hsl(var(--chart-3)/0.7)',
 ]
 
 export default function Index() {
@@ -46,6 +49,19 @@ export default function Index() {
       value: state.cases.filter((c) => c.responsibleId === u.id).length,
     }))
     .filter((x) => x.value > 0)
+
+  const captacaoData = state.clients.reduce(
+    (acc, c) => {
+      const cap = c.captacao || 'Não Informado'
+      acc[cap] = (acc[cap] || 0) + 1
+      return acc
+    },
+    {} as Record<string, number>,
+  )
+
+  const captacaoChartData = Object.entries(captacaoData)
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value)
 
   const totalIncome = state.transactions
     .filter((t) => t.type === 'income' && t.status === 'Pago')
@@ -130,7 +146,7 @@ export default function Index() {
         )}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
         <Card className="shadow-sm">
           <CardHeader>
             <CardTitle className="text-sm">Status dos Processos</CardTitle>
@@ -218,7 +234,38 @@ export default function Index() {
           </CardContent>
         </Card>
 
-        <Card className="shadow-sm lg:col-span-2">
+        <Card className="shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-sm">Clientes por Captação</CardTitle>
+          </CardHeader>
+          <CardContent className="h-48 flex justify-center">
+            <ChartContainer config={{}} className="h-full w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={captacaoChartData}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={40}
+                    outerRadius={60}
+                    paddingAngle={5}
+                  >
+                    {captacaoChartData.map((e, i) => (
+                      <Cell key={`c-${i}`} fill={COLORS[(i + 3) % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </ChartContainer>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card className="shadow-sm lg:col-span-3">
           <CardHeader>
             <CardTitle className="text-sm">Processos Recentes</CardTitle>
           </CardHeader>

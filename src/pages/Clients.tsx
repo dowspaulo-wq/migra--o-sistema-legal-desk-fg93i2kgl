@@ -32,6 +32,9 @@ import {
   LayoutGrid,
   List,
   Filter,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
@@ -46,6 +49,9 @@ export default function Clients() {
   const [captacaoFilter, setCaptacaoFilter] = useState('Todos')
   const [open, setOpen] = useState(false)
   const [editingClient, setEditingClient] = useState<any>(null)
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(
+    null,
+  )
 
   const sortedUsers = [...state.users].sort((a, b) => a.name.localeCompare(b.name))
   const sortedCaptacao = [...(state.settings?.captacaoOptions || [])].sort((a, b) =>
@@ -62,6 +68,37 @@ export default function Clients() {
     return matchSearch && matchStatus && matchType && matchResp && matchCaptacao
   })
 
+  const sortedAndFiltered = [...filtered].sort((a: any, b: any) => {
+    if (!sortConfig) return 0
+    const { key, direction } = sortConfig
+    let valA = a[key]
+    let valB = b[key]
+
+    if (key === 'responsibleId') {
+      valA = state.users.find((u) => u.id === valA)?.name || ''
+      valB = state.users.find((u) => u.id === valB)?.name || ''
+    } else if (key === 'captacao') {
+      valA = valA || ''
+      valB = valB || ''
+    } else if (typeof valA === 'string' && typeof valB === 'string') {
+      valA = valA.toLowerCase()
+      valB = valB.toLowerCase()
+    }
+
+    if (valA < valB) return direction === 'asc' ? -1 : 1
+    if (valA > valB) return direction === 'asc' ? 1 : -1
+    return 0
+  })
+
+  const handleSort = (key: string) => {
+    setSortConfig((current) => {
+      if (current?.key === key) {
+        return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
+      }
+      return { key, direction: 'asc' }
+    })
+  }
+
   const handleOpen = (client?: any) => {
     setEditingClient(client || null)
     setOpen(true)
@@ -72,8 +109,6 @@ export default function Clients() {
       updateItem('clients', editingClient.id, fd)
       toast({ title: 'Cliente atualizado' })
     } else {
-      if (state.clients.some((c) => c.document === fd.document))
-        return toast({ title: 'Erro', description: 'CPF já cadastrado', variant: 'destructive' })
       addClient(fd)
     }
   }
@@ -208,17 +243,113 @@ export default function Clients() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Nome</TableHead>
-                    <TableHead>CPF/CNPJ</TableHead>
-                    <TableHead>Contato</TableHead>
-                    <TableHead>Responsável</TableHead>
-                    <TableHead>Captação</TableHead>
-                    <TableHead>Status</TableHead>
+                    <TableHead
+                      onClick={() => handleSort('name')}
+                      className="cursor-pointer select-none hover:bg-slate-50 transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        Nome
+                        {sortConfig?.key === 'name' ? (
+                          sortConfig.direction === 'asc' ? (
+                            <ArrowUp className="h-3 w-3" />
+                          ) : (
+                            <ArrowDown className="h-3 w-3" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="h-3 w-3 opacity-20" />
+                        )}
+                      </div>
+                    </TableHead>
+                    <TableHead
+                      onClick={() => handleSort('document')}
+                      className="cursor-pointer select-none hover:bg-slate-50 transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        CPF/CNPJ
+                        {sortConfig?.key === 'document' ? (
+                          sortConfig.direction === 'asc' ? (
+                            <ArrowUp className="h-3 w-3" />
+                          ) : (
+                            <ArrowDown className="h-3 w-3" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="h-3 w-3 opacity-20" />
+                        )}
+                      </div>
+                    </TableHead>
+                    <TableHead
+                      onClick={() => handleSort('phone')}
+                      className="cursor-pointer select-none hover:bg-slate-50 transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        Contato
+                        {sortConfig?.key === 'phone' ? (
+                          sortConfig.direction === 'asc' ? (
+                            <ArrowUp className="h-3 w-3" />
+                          ) : (
+                            <ArrowDown className="h-3 w-3" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="h-3 w-3 opacity-20" />
+                        )}
+                      </div>
+                    </TableHead>
+                    <TableHead
+                      onClick={() => handleSort('responsibleId')}
+                      className="cursor-pointer select-none hover:bg-slate-50 transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        Responsável
+                        {sortConfig?.key === 'responsibleId' ? (
+                          sortConfig.direction === 'asc' ? (
+                            <ArrowUp className="h-3 w-3" />
+                          ) : (
+                            <ArrowDown className="h-3 w-3" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="h-3 w-3 opacity-20" />
+                        )}
+                      </div>
+                    </TableHead>
+                    <TableHead
+                      onClick={() => handleSort('captacao')}
+                      className="cursor-pointer select-none hover:bg-slate-50 transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        Captação
+                        {sortConfig?.key === 'captacao' ? (
+                          sortConfig.direction === 'asc' ? (
+                            <ArrowUp className="h-3 w-3" />
+                          ) : (
+                            <ArrowDown className="h-3 w-3" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="h-3 w-3 opacity-20" />
+                        )}
+                      </div>
+                    </TableHead>
+                    <TableHead
+                      onClick={() => handleSort('status')}
+                      className="cursor-pointer select-none hover:bg-slate-50 transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        Status
+                        {sortConfig?.key === 'status' ? (
+                          sortConfig.direction === 'asc' ? (
+                            <ArrowUp className="h-3 w-3" />
+                          ) : (
+                            <ArrowDown className="h-3 w-3" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="h-3 w-3 opacity-20" />
+                        )}
+                      </div>
+                    </TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filtered.map((c) => (
+                  {sortedAndFiltered.map((c) => (
                     <TableRow key={c.id}>
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-2">
@@ -288,7 +419,7 @@ export default function Clients() {
               value="grid"
               className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
             >
-              {filtered.map((c) => {
+              {sortedAndFiltered.map((c) => {
                 const caseCount = state.cases.filter((x) => x.clientId === c.id).length
                 return (
                   <Card key={c.id} className="relative overflow-hidden group">

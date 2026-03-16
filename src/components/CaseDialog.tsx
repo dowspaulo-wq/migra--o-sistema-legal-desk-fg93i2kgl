@@ -18,8 +18,11 @@ import {
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import useLegalStore from '@/stores/useLegalStore'
+import { toast } from '@/hooks/use-toast'
 
 export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, settings }: any) {
+  const { state } = useLegalStore()
   const sortedUsers = [...users].sort((a: any, b: any) => a.name.localeCompare(b.name))
   const sortedClients = [...clients].sort((a: any, b: any) => a.name.localeCompare(b.name))
   const sortedTypes = [...(settings.caseTypes || [])].sort((a: string, b: string) =>
@@ -55,6 +58,17 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+
+    const isDupNumber = state.cases.some((c) => c.number === fd.number && c.id !== data?.id)
+    if (isDupNumber) {
+      toast({
+        title: 'Erro',
+        description: 'Erro: Já existe um processo cadastrado com este número.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     onSave(fd)
     onOpenChange(false)
   }

@@ -22,11 +22,22 @@ export default function Login() {
     const { error } = await signIn(email, password)
     setLoading(false)
     if (error) {
-      toast({
-        title: 'Erro de autenticação',
-        description: 'Email ou senha inválidos',
-        variant: 'destructive',
-      })
+      if (
+        error.message.toLowerCase().includes('not confirmed') ||
+        error.message.toLowerCase().includes('email não confirmado')
+      ) {
+        toast({
+          title: 'Acesso bloqueado',
+          description: 'Por favor, confirme seu e-mail para acessar o sistema.',
+          variant: 'destructive',
+        })
+      } else {
+        toast({
+          title: 'Erro de autenticação',
+          description: 'Email ou senha inválidos',
+          variant: 'destructive',
+        })
+      }
     }
   }
 
