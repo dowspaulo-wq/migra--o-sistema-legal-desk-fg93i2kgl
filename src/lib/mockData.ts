@@ -99,6 +99,7 @@ export interface Settings {
   caseTypes: string[]
   appointmentTypes: string[]
   taskStatuses: string[]
+  taskTypes: string[]
 }
 export interface WhatsAppMessage {
   id: string
@@ -143,5 +144,6 @@ export const initialData: LegalState = {
     caseTypes: ['Cível', 'Trabalhista', 'Família'],
     appointmentTypes: ['Reunião', 'Feriado', 'Outro'],
     taskStatuses: ['pendente', 'em andamento', 'Concluída'],
+    taskTypes: ['Cartórios', 'Petições', 'Recorrer', 'Redigir inicial', 'interna e adm'],
   },
 }

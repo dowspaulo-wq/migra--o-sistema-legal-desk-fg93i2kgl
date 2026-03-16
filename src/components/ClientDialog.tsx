@@ -20,6 +20,8 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 
 export function ClientDialog({ open, onOpenChange, client, onSave, users }: any) {
+  const sortedUsers = [...users].sort((a: any, b: any) => a.name.localeCompare(b.name))
+
   const initial = client || {
     name: '',
     document: '',
@@ -31,7 +33,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users }: any)
     status: 'Ativo',
     isSpecial: false,
     observacoes: '',
-    responsibleId: users[0]?.id,
+    responsibleId: sortedUsers[0]?.id,
   }
   const [fd, setFd] = useState(initial)
 
@@ -132,7 +134,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users }: any)
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {users.map((u: any) => (
+                  {sortedUsers.map((u: any) => (
                     <SelectItem key={u.id} value={u.id}>
                       {u.name}
                     </SelectItem>

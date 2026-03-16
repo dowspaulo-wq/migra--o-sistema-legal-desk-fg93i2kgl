@@ -65,7 +65,8 @@ function EditableList({
   const [val, setVal] = useState('')
   const add = () => {
     if (val && !items.includes(val)) {
-      onSave([...items, val])
+      const newItems = [...items, val].sort((a, b) => a.localeCompare(b))
+      onSave(newItems)
       setVal('')
     }
   }
@@ -82,6 +83,7 @@ function EditableList({
             onChange={(e) => setVal(e.target.value)}
             placeholder="Nova opção..."
             className="h-8"
+            onKeyDown={(e) => e.key === 'Enter' && add()}
           />
           <Button size="sm" onClick={add}>
             <Plus className="h-4 w-4" />
@@ -193,6 +195,11 @@ export default function Settings() {
             title="Tipos de Compromissos"
             items={s.appointmentTypes || []}
             onSave={(items) => updateItem('settings', s.id, { appointmentTypes: items })}
+          />
+          <EditableList
+            title="Tipos de Tarefas"
+            items={s.taskTypes || []}
+            onSave={(items) => updateItem('settings', s.id, { taskTypes: items })}
           />
           <EditableList
             title="Status de Tarefas"

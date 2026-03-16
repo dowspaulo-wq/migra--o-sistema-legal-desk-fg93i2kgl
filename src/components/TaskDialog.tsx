@@ -28,19 +28,32 @@ export function TaskDialog({
   cases,
   settings,
 }: any) {
+  const sortedUsers = [...users].sort((a: any, b: any) => a.name.localeCompare(b.name))
+  const sortedClients = [...clients].sort((a: any, b: any) => a.name.localeCompare(b.name))
+  const sortedStatuses = [...(settings.taskStatuses || [])].sort((a: string, b: string) =>
+    a.localeCompare(b),
+  )
+  const sortedTypes = [...(settings.taskTypes || [])].sort((a: string, b: string) =>
+    a.localeCompare(b),
+  )
+
   const initial = data || {
     title: '',
     description: '',
     internalNotes: '',
     dueDate: new Date().toISOString().split('T')[0],
-    status: settings.taskStatuses?.[0] || 'pendente',
+    status: sortedStatuses[0] || 'pendente',
     priority: 'Média',
-    responsibleId: users[0]?.id,
-    type: 'Interna',
+    responsibleId: sortedUsers[0]?.id,
+    type: sortedTypes[0] || 'interna e adm',
     clientId: '',
     relatedProcessId: '',
   }
   const [fd, setFd] = useState(initial)
+
+  const sortedCases = [...cases]
+    .filter((c: any) => !fd.clientId || c.clientId === fd.clientId)
+    .sort((a: any, b: any) => a.number.localeCompare(b.number))
 
   useEffect(() => {
     setFd(data || initial)
@@ -70,11 +83,18 @@ export function TaskDialog({
             </div>
             <div className="space-y-2">
               <Label>Tipo da Tarefa</Label>
-              <Input
-                value={fd.type}
-                onChange={(e) => setFd({ ...fd, type: e.target.value })}
-                placeholder="Ex: Peticionamento, Diligência"
-              />
+              <Select value={fd.type} onValueChange={(v) => setFd({ ...fd, type: v })}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {sortedTypes.map((t: string) => (
+                    <SelectItem key={t} value={t}>
+                      {t}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label>Vencimento</Label>
@@ -91,7 +111,7 @@ export function TaskDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {settings.taskStatuses?.map((s: string) => (
+                  {sortedStatuses.map((s: string) => (
                     <SelectItem key={s} value={s}>
                       {s}
                     </SelectItem>
@@ -123,7 +143,7 @@ export function TaskDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {users.map((u: any) => (
+                  {sortedUsers.map((u: any) => (
                     <SelectItem key={u.id} value={u.id}>
                       {u.name}
                     </SelectItem>
@@ -142,7 +162,7 @@ export function TaskDialog({
                   <SelectValue placeholder="Selecione..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {clients.map((c: any) => (
+                  {sortedClients.map((c: any) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.name}
                     </SelectItem>
@@ -161,13 +181,11 @@ export function TaskDialog({
                   <SelectValue placeholder="Selecione..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {cases
-                    .filter((c: any) => !fd.clientId || c.clientId === fd.clientId)
-                    .map((c: any) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.number}
-                      </SelectItem>
-                    ))}
+                  {sortedCases.map((c: any) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.number}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

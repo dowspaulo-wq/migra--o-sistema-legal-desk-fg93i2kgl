@@ -28,18 +28,28 @@ export function AppointmentDialog({
   cases,
   settings,
 }: any) {
+  const sortedUsers = [...users].sort((a: any, b: any) => a.name.localeCompare(b.name))
+  const sortedClients = [...clients].sort((a: any, b: any) => a.name.localeCompare(b.name))
+  const sortedTypes = [...(settings.appointmentTypes || [])].sort((a: string, b: string) =>
+    a.localeCompare(b),
+  )
+
   const initial = data || {
     title: '',
     date: new Date().toISOString().split('T')[0],
     time: '10:00',
-    type: settings.appointmentTypes?.[0] || 'Reunião',
+    type: sortedTypes[0] || 'Reunião',
     priority: 'Média',
-    responsibleId: users[0]?.id,
+    responsibleId: sortedUsers[0]?.id,
     clientId: '',
     processId: '',
     description: '',
   }
   const [fd, setFd] = useState(initial)
+
+  const sortedCases = [...cases]
+    .filter((c: any) => !fd.clientId || c.clientId === fd.clientId)
+    .sort((a: any, b: any) => a.number.localeCompare(b.number))
 
   useEffect(() => {
     setFd(data || initial)
@@ -92,7 +102,7 @@ export function AppointmentDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {settings.appointmentTypes?.map((t: string) => (
+                  {sortedTypes.map((t: string) => (
                     <SelectItem key={t} value={t}>
                       {t}
                     </SelectItem>
@@ -124,7 +134,7 @@ export function AppointmentDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {users.map((u: any) => (
+                  {sortedUsers.map((u: any) => (
                     <SelectItem key={u.id} value={u.id}>
                       {u.name}
                     </SelectItem>
@@ -143,7 +153,7 @@ export function AppointmentDialog({
                   <SelectValue placeholder="Selecione..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {clients.map((c: any) => (
+                  {sortedClients.map((c: any) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.name}
                     </SelectItem>
@@ -162,13 +172,11 @@ export function AppointmentDialog({
                   <SelectValue placeholder="Selecione..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {cases
-                    .filter((c: any) => !fd.clientId || c.clientId === fd.clientId)
-                    .map((c: any) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.number}
-                      </SelectItem>
-                    ))}
+                  {sortedCases.map((c: any) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.number}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

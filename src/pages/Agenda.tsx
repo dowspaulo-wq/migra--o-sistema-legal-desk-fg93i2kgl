@@ -2,7 +2,16 @@ import { useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Plus, Gift, Video, Edit, LayoutGrid, List } from 'lucide-react'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Plus, Gift, Video, Edit, LayoutGrid, List, Filter } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { FullCalendar } from '@/components/FullCalendar'
@@ -14,6 +23,20 @@ export default function Agenda() {
   const [open, setOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<any>(null)
   const [search, setSearch] = useState('')
+  const [typeFilter, setTypeFilter] = useState('Todos')
+  const [priorityFilter, setPriorityFilter] = useState('Todos')
+  const [respFilter, setRespFilter] = useState('Todos')
+  const [clientFilter, setClientFilter] = useState('Todos')
+  const [processFilter, setProcessFilter] = useState('Todos')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+
+  const sortedUsers = [...state.users].sort((a, b) => a.name.localeCompare(b.name))
+  const sortedClients = [...state.clients].sort((a, b) => a.name.localeCompare(b.name))
+  const sortedCases = [...state.cases].sort((a, b) => a.number.localeCompare(b.number))
+  const sortedTypes = [...(state.settings.appointmentTypes || [])].sort((a, b) =>
+    a.localeCompare(b),
+  )
 
   const handleOpen = (item?: any) => {
     setEditingItem(item || null)
@@ -30,7 +53,6 @@ export default function Agenda() {
     ...state.clients
       .filter((c) => c.birthday)
       .map((c) => {
-        // Create a virtual birthday event for current year and next year
         const d = new Date(c.birthday!)
         const currD = new Date()
         d.setFullYear(currD.getFullYear())
@@ -45,7 +67,32 @@ export default function Agenda() {
       }),
   ]
 
-  const filtered = allItems.filter((i) => i.title.toLowerCase().includes(search.toLowerCase()))
+  const filtered = allItems.filter((i) => {
+    const mSearch = i.title.toLowerCase().includes(search.toLowerCase())
+    const mType = typeFilter === 'Todos' || i.type === typeFilter
+    const mPriority = priorityFilter === 'Todos' || (i as any).priority === priorityFilter
+    const mResp = respFilter === 'Todos' || (i as any).responsibleId === respFilter
+    const mClient =
+      clientFilter === 'Todos' ||
+      (i.itemType === 'birthday'
+        ? (i as any).client.id === clientFilter
+        : (i as any).clientId === clientFilter)
+    const mProcess =
+      processFilter === 'Todos' ||
+      (i.itemType === 'appointment' ? (i as any).processId === processFilter : true)
+
+    let mDate = true
+    const itemDate = i.date.split('T')[0]
+    if (dateFrom && dateTo) {
+      mDate = itemDate >= dateFrom && itemDate <= dateTo
+    } else if (dateFrom) {
+      mDate = itemDate >= dateFrom
+    } else if (dateTo) {
+      mDate = itemDate <= dateTo
+    }
+
+    return mSearch && mType && mPriority && mResp && mClient && mProcess && mDate
+  })
 
   return (
     <div className="space-y-6">
@@ -72,12 +119,133 @@ export default function Agenda() {
 
       <Tabs defaultValue="calendar">
         <div className="flex justify-between items-center mb-4">
-          <Input
-            placeholder="Buscar evento..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="max-w-xs"
-          />
+          <div className="flex gap-2 w-full max-w-md">
+            <Input
+              placeholder="Buscar evento..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="flex-1"
+            />
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="flex items-center gap-2">
+                  <Filter className="h-4 w-4" /> Filtros
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-80 max-h-[80vh] overflow-y-auto space-y-4">
+                <h4 className="font-medium text-sm border-b pb-2">Filtros Avançados</h4>
+                <div className="space-y-2">
+                  <Label className="text-xs">Tipo de Compromisso</Label>
+                  <Select value={typeFilter} onValueChange={setTypeFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Tipo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Todos">Todos</SelectItem>
+                      {sortedTypes.map((t) => (
+                        <SelectItem key={t} value={t}>
+                          {t}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs">Prioridade</Label>
+                  <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Prioridade" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Todos">Todos</SelectItem>
+                      <SelectItem value="Baixa">Baixa</SelectItem>
+                      <SelectItem value="Média">Média</SelectItem>
+                      <SelectItem value="Alta">Alta</SelectItem>
+                      <SelectItem value="Urgente">Urgente</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs">Responsável</Label>
+                  <Select value={respFilter} onValueChange={setRespFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Responsável" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Todos">Todos</SelectItem>
+                      {sortedUsers.map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs">Cliente</Label>
+                  <Select value={clientFilter} onValueChange={setClientFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Cliente" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Todos">Todos</SelectItem>
+                      {sortedClients.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs">Processo</Label>
+                  <Select value={processFilter} onValueChange={setProcessFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Processo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Todos">Todos</SelectItem>
+                      {sortedCases.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.number}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-2">
+                    <Label className="text-xs">Data De</Label>
+                    <Input
+                      type="date"
+                      value={dateFrom}
+                      onChange={(e) => setDateFrom(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">Data Até</Label>
+                    <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full mt-2"
+                  onClick={() => {
+                    setTypeFilter('Todos')
+                    setPriorityFilter('Todos')
+                    setRespFilter('Todos')
+                    setClientFilter('Todos')
+                    setProcessFilter('Todos')
+                    setDateFrom('')
+                    setDateTo('')
+                  }}
+                >
+                  Limpar Filtros
+                </Button>
+              </PopoverContent>
+            </Popover>
+          </div>
           <TabsList>
             <TabsTrigger value="list">
               <List className="h-4 w-4 mr-2" /> Lista
@@ -103,7 +271,7 @@ export default function Agenda() {
                     <Gift className="h-3 w-3 shrink-0" /> {item.client?.name.split(' ')[0]}
                   </div>
                 )
-              const resp = state.users.find((u) => u.id === item.responsibleId)
+              const resp = state.users.find((u) => u.id === (item as any).responsibleId)
               const isFeriado = item.type === 'Feriado'
               return (
                 <div
@@ -124,7 +292,7 @@ export default function Agenda() {
                   }
                   title={item.title}
                 >
-                  <span className="font-semibold">{item.time}</span> - {item.title}
+                  <span className="font-semibold">{(item as any).time}</span> - {item.title}
                 </div>
               )
             }}
@@ -134,7 +302,7 @@ export default function Agenda() {
         <TabsContent value="list" className="grid gap-3">
           {filtered
             .filter((i) => i.itemType !== 'birthday')
-            .map((a) => {
+            .map((a: any) => {
               const resp = state.users.find((u) => u.id === a.responsibleId)
               const client = state.clients.find((c) => c.id === a.clientId)
               return (

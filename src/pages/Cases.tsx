@@ -12,7 +12,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Search, Plus, Edit, Trash2, LayoutGrid, List, Star } from 'lucide-react'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Label } from '@/components/ui/label'
+import { Search, Plus, Edit, Trash2, LayoutGrid, List, Star, Filter } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import { CaseDialog } from '@/components/CaseDialog'
@@ -21,15 +23,31 @@ export default function Cases() {
   const { state, addCase, updateItem, deleteItem } = useLegalStore()
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('Todos')
+  const [typeFilter, setTypeFilter] = useState('Todos')
+  const [respFilter, setRespFilter] = useState('Todos')
+  const [clientFilter, setClientFilter] = useState('Todos')
+  const [minVal, setMinVal] = useState('')
+  const [maxVal, setMaxVal] = useState('')
   const [open, setOpen] = useState(false)
   const [editingCase, setEditingCase] = useState<any>(null)
 
+  const sortedUsers = [...state.users].sort((a, b) => a.name.localeCompare(b.name))
+  const sortedClients = [...state.clients].sort((a, b) => a.name.localeCompare(b.name))
+  const sortedTypes = [...(state.settings.caseTypes || [])].sort((a, b) => a.localeCompare(b))
+  const sortedStatuses = [...(state.settings.caseStatuses || [])].sort((a, b) => a.localeCompare(b))
+
   const filtered = state.cases.filter((c) => {
     const mSearch =
-      c.number.includes(search) ||
-      (c.adverseParty || '').toLowerCase().includes(search.toLowerCase())
+      c.number.toLowerCase().includes(search.toLowerCase()) ||
+      (c.adverseParty || '').toLowerCase().includes(search.toLowerCase()) ||
+      (c.court || '').toLowerCase().includes(search.toLowerCase())
     const mStatus = statusFilter === 'Todos' || c.status === statusFilter
-    return mSearch && mStatus
+    const mType = typeFilter === 'Todos' || c.type === typeFilter
+    const mResp = respFilter === 'Todos' || c.responsibleId === respFilter
+    const mClient = clientFilter === 'Todos' || c.clientId === clientFilter
+    const mMin = minVal === '' || c.value >= Number(minVal)
+    const mMax = maxVal === '' || c.value <= Number(maxVal)
+    return mSearch && mStatus && mType && mResp && mClient && mMin && mMax
   })
 
   const handleOpen = (c?: any) => {
@@ -75,26 +93,122 @@ export default function Cases() {
 
       <Card className="shadow-sm">
         <CardHeader className="py-4 flex flex-col md:flex-row gap-4">
-          <Input
-            type="search"
-            placeholder="Buscar número ou parte..."
-            className="max-w-sm"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="max-w-[150px]">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Todos">Todos</SelectItem>
-              {state.settings.caseStatuses?.map((s: string) => (
-                <SelectItem key={s} value={s}>
-                  {s}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex gap-2 w-full max-w-md">
+            <Input
+              type="search"
+              placeholder="Buscar por número, parte ou vara..."
+              className="flex-1"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="flex items-center gap-2">
+                  <Filter className="h-4 w-4" /> Filtros
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-80 max-h-[80vh] overflow-y-auto space-y-4">
+                <h4 className="font-medium text-sm border-b pb-2">Filtros Avançados</h4>
+                <div className="space-y-2">
+                  <Label className="text-xs">Status</Label>
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Todos">Todos</SelectItem>
+                      {sortedStatuses.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {s}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs">Tipo de Ação</Label>
+                  <Select value={typeFilter} onValueChange={setTypeFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Tipo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Todos">Todos</SelectItem>
+                      {sortedTypes.map((t) => (
+                        <SelectItem key={t} value={t}>
+                          {t}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs">Responsável</Label>
+                  <Select value={respFilter} onValueChange={setRespFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Responsável" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Todos">Todos</SelectItem>
+                      {sortedUsers.map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs">Cliente</Label>
+                  <Select value={clientFilter} onValueChange={setClientFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Cliente" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Todos">Todos</SelectItem>
+                      {sortedClients.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-2">
+                    <Label className="text-xs">Valor Mínimo (R$)</Label>
+                    <Input
+                      type="number"
+                      value={minVal}
+                      onChange={(e) => setMinVal(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">Valor Máximo (R$)</Label>
+                    <Input
+                      type="number"
+                      value={maxVal}
+                      onChange={(e) => setMaxVal(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full mt-2"
+                  onClick={() => {
+                    setStatusFilter('Todos')
+                    setTypeFilter('Todos')
+                    setRespFilter('Todos')
+                    setClientFilter('Todos')
+                    setMinVal('')
+                    setMaxVal('')
+                  }}
+                >
+                  Limpar Filtros
+                </Button>
+              </PopoverContent>
+            </Popover>
+          </div>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="list">

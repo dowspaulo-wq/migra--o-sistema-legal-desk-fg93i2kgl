@@ -20,6 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Label } from '@/components/ui/label'
 import {
   Plus,
   ExternalLink,
@@ -29,6 +31,7 @@ import {
   Trash2,
   LayoutGrid,
   List,
+  Filter,
 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
@@ -38,14 +41,20 @@ export default function Clients() {
   const { state, addClient, updateItem, deleteItem } = useLegalStore()
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('Todos')
+  const [typeFilter, setTypeFilter] = useState('Todos')
+  const [respFilter, setRespFilter] = useState('Todos')
   const [open, setOpen] = useState(false)
   const [editingClient, setEditingClient] = useState<any>(null)
+
+  const sortedUsers = [...state.users].sort((a, b) => a.name.localeCompare(b.name))
 
   const filtered = state.clients.filter((c) => {
     const matchSearch =
       c.name.toLowerCase().includes(searchTerm.toLowerCase()) || c.document.includes(searchTerm)
     const matchStatus = statusFilter === 'Todos' || c.status === statusFilter
-    return matchSearch && matchStatus
+    const matchType = typeFilter === 'Todos' || c.type === typeFilter
+    const matchResp = respFilter === 'Todos' || c.responsibleId === respFilter
+    return matchSearch && matchStatus && matchType && matchResp
   })
 
   const handleOpen = (client?: any) => {
@@ -86,23 +95,79 @@ export default function Clients() {
 
       <Card className="shadow-sm">
         <CardHeader className="py-4 flex flex-col md:flex-row gap-4">
-          <Input
-            type="search"
-            placeholder="Buscar por nome ou CPF..."
-            className="max-w-sm"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="max-w-[150px]">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Todos">Todos</SelectItem>
-              <SelectItem value="Ativo">Ativo</SelectItem>
-              <SelectItem value="Baixado">Baixado</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex gap-2 w-full max-w-md">
+            <Input
+              type="search"
+              placeholder="Buscar por nome ou CPF..."
+              className="flex-1"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="flex items-center gap-2">
+                  <Filter className="h-4 w-4" /> Filtros
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-80 space-y-4">
+                <h4 className="font-medium text-sm border-b pb-2">Filtros Avançados</h4>
+                <div className="space-y-2">
+                  <Label className="text-xs">Status</Label>
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Todos">Todos</SelectItem>
+                      <SelectItem value="Ativo">Ativo</SelectItem>
+                      <SelectItem value="Baixado">Baixado</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs">Tipo de Pessoa</Label>
+                  <Select value={typeFilter} onValueChange={setTypeFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Tipo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Todos">Todos</SelectItem>
+                      <SelectItem value="PF">Pessoa Física</SelectItem>
+                      <SelectItem value="PJ">Pessoa Jurídica</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs">Responsável</Label>
+                  <Select value={respFilter} onValueChange={setRespFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Responsável" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Todos">Todos</SelectItem>
+                      {sortedUsers.map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full mt-2"
+                  onClick={() => {
+                    setStatusFilter('Todos')
+                    setTypeFilter('Todos')
+                    setRespFilter('Todos')
+                  }}
+                >
+                  Limpar Filtros
+                </Button>
+              </PopoverContent>
+            </Popover>
+          </div>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="list">

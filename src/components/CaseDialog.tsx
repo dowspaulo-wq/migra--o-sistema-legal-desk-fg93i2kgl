@@ -20,19 +20,28 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 
 export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, settings }: any) {
+  const sortedUsers = [...users].sort((a: any, b: any) => a.name.localeCompare(b.name))
+  const sortedClients = [...clients].sort((a: any, b: any) => a.name.localeCompare(b.name))
+  const sortedTypes = [...(settings.caseTypes || [])].sort((a: string, b: string) =>
+    a.localeCompare(b),
+  )
+  const sortedStatuses = [...(settings.caseStatuses || [])].sort((a: string, b: string) =>
+    a.localeCompare(b),
+  )
+
   const initial = data || {
     number: '',
     clientId: '',
     position: 'Autor',
     adverseParty: '',
-    type: settings.caseTypes?.[0] || 'Cível',
-    status: settings.caseStatuses?.[0] || 'Em andamento',
+    type: sortedTypes[0] || 'Cível',
+    status: sortedStatuses[0] || 'Em andamento',
     court: '',
     comarca: '',
     state: 'SP',
     value: 0,
     startDate: new Date().toISOString().split('T')[0],
-    responsibleId: users[0]?.id,
+    responsibleId: sortedUsers[0]?.id,
     isSpecial: false,
     description: '',
     internalNotes: '',
@@ -86,7 +95,7 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
                   <SelectValue placeholder="Selecione" />
                 </SelectTrigger>
                 <SelectContent>
-                  {clients.map((c: any) => (
+                  {sortedClients.map((c: any) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.name}
                     </SelectItem>
@@ -101,7 +110,7 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {settings.caseTypes?.map((t: string) => (
+                  {sortedTypes.map((t: string) => (
                     <SelectItem key={t} value={t}>
                       {t}
                     </SelectItem>
@@ -116,7 +125,7 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {settings.caseStatuses?.map((t: string) => (
+                  {sortedStatuses.map((t: string) => (
                     <SelectItem key={t} value={t}>
                       {t}
                     </SelectItem>
@@ -134,7 +143,7 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {users.map((u: any) => (
+                  {sortedUsers.map((u: any) => (
                     <SelectItem key={u.id} value={u.id}>
                       {u.name}
                     </SelectItem>
