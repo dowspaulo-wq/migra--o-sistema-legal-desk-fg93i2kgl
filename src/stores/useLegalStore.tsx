@@ -54,7 +54,9 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
         ),
         cases: (results[2].data || []).sort(
-          (a: any, b: any) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+          (a: any, b: any) =>
+            new Date(b.updatedAt || b.created_at).getTime() -
+            new Date(a.updatedAt || a.created_at).getTime(),
         ),
         tasks: (results[3].data || []).sort(
           (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
@@ -69,7 +71,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
         ),
         petitions: results[7].data || [],
-        settings: results[8].data?.[0] || initialData.settings,
+        settings: { ...initialData.settings, ...(results[8].data?.[0] || {}) },
         whatsappMessages: (results[9].data || []).sort(
           (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
         ),
@@ -94,6 +96,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
   )
 
   const updateItem = useCallback(async (table: string, id: string, changes: any) => {
+    if (changes._delete) return deleteItem(table, id)
     if (table === 'settings') {
       setState((prev) => ({ ...prev, settings: { ...prev.settings, ...changes } }))
     } else {
@@ -119,62 +122,40 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     [addLog],
   )
 
-  const addClient = useCallback(
-    async (client: Omit<Client, 'id'>) => {
-      const { data, error } = await supabase.from('clients').insert(client).select().single()
-      if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
-      setState((prev) => ({ ...prev, clients: [data, ...prev.clients] }))
-      addLog('Criar', 'Cliente', `Cliente ${client.name} adicionado`)
-      toast({ title: 'Cliente adicionado' })
-    },
-    [addLog],
-  )
+  const addClient = useCallback(async (client: Omit<Client, 'id'>) => {
+    const { data, error } = await supabase.from('clients').insert(client).select().single()
+    if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
+    setState((prev) => ({ ...prev, clients: [data, ...prev.clients] }))
+    toast({ title: 'Cliente adicionado' })
+  }, [])
 
-  const addTask = useCallback(
-    async (task: Omit<Task, 'id'>) => {
-      const { data } = await supabase.from('tasks').insert(task).select().single()
-      if (data) {
-        setState((prev) => ({ ...prev, tasks: [data, ...prev.tasks] }))
-        addLog('Criar', 'Tarefa', `Tarefa ${task.title} adicionada`)
-      }
-    },
-    [addLog],
-  )
+  const addTask = useCallback(async (task: Omit<Task, 'id'>) => {
+    const { data } = await supabase.from('tasks').insert(task).select().single()
+    if (data) setState((prev) => ({ ...prev, tasks: [data, ...prev.tasks] }))
+  }, [])
 
-  const addCase = useCallback(
-    async (newCase: Omit<Case, 'id' | 'updatedAt'>) => {
-      const fullCase = { ...newCase, updatedAt: new Date().toISOString().split('T')[0] }
-      const { data, error } = await supabase.from('cases').insert(fullCase).select().single()
-      if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
-      setState((prev) => ({ ...prev, cases: [data, ...prev.cases] }))
-      addLog('Criar', 'Processo', `Processo ${data.number} adicionado`)
-      toast({ title: 'Processo adicionado' })
-    },
-    [addLog],
-  )
+  const addCase = useCallback(async (newCase: Omit<Case, 'id' | 'updatedAt'>) => {
+    const fullCase = { ...newCase, updatedAt: new Date().toISOString().split('T')[0] }
+    const { data, error } = await supabase.from('cases').insert(fullCase).select().single()
+    if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
+    setState((prev) => ({ ...prev, cases: [data, ...prev.cases] }))
+    toast({ title: 'Processo adicionado' })
+  }, [])
 
-  const addAppointment = useCallback(
-    async (app: Omit<Appointment, 'id'>) => {
-      const { data, error } = await supabase.from('appointments').insert(app).select().single()
-      if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
-      setState((prev) => ({ ...prev, appointments: [data, ...prev.appointments] }))
-      addLog('Criar', 'Agenda', `Compromisso ${app.title} adicionado`)
-      toast({ title: 'Agenda atualizada' })
-    },
-    [addLog],
-  )
+  const addAppointment = useCallback(async (app: Omit<Appointment, 'id'>) => {
+    const { data, error } = await supabase.from('appointments').insert(app).select().single()
+    if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
+    setState((prev) => ({ ...prev, appointments: [data, ...prev.appointments] }))
+    toast({ title: 'Agenda atualizada' })
+  }, [])
 
-  const updateUser = useCallback(
-    async (id: string, changes: Partial<User>) => {
-      setState((prev) => ({
-        ...prev,
-        users: prev.users.map((u) => (u.id === id ? { ...u, ...changes } : u)),
-      }))
-      await supabase.from('profiles').update(changes).eq('id', id)
-      addLog('Editar', 'Usuário', `Permissões de ${id} atualizadas`)
-    },
-    [addLog],
-  )
+  const updateUser = useCallback(async (id: string, changes: Partial<User>) => {
+    setState((prev) => ({
+      ...prev,
+      users: prev.users.map((u) => (u.id === id ? { ...u, ...changes } : u)),
+    }))
+    await supabase.from('profiles').update(changes).eq('id', id)
+  }, [])
 
   return (
     <LegalContext.Provider

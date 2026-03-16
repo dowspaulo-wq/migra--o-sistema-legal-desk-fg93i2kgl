@@ -17,6 +17,7 @@ export interface Client {
   responsibleId: string
   status: 'Ativo' | 'Baixado'
   isSpecial: boolean
+  observacoes: string
 }
 export interface Case {
   id: string
@@ -34,6 +35,10 @@ export interface Case {
   startDate: string
   responsibleId: string
   updatedAt: string
+  isSpecial: boolean
+  description: string
+  internalNotes: string
+  alerts: string
 }
 export interface Task {
   id: string
@@ -43,16 +48,22 @@ export interface Task {
   status: string
   priority: string
   responsibleId: string
-  relatedProcessId?: string
+  relatedProcessId: string
+  type: string
+  clientId: string
+  internalNotes: string
 }
 export interface Appointment {
   id: string
   title: string
   date: string
   type: string
+  priority: string
+  time: string
+  description: string
   responsibleId: string
-  clientId?: string
-  processId?: string
+  clientId: string
+  processId: string
 }
 export interface Transaction {
   id: string
@@ -84,6 +95,10 @@ export interface Settings {
   showFinanceDashboard: boolean
   themeColor: string
   logoUrl: string
+  caseStatuses: string[]
+  caseTypes: string[]
+  appointmentTypes: string[]
+  taskStatuses: string[]
 }
 export interface WhatsAppMessage {
   id: string
@@ -109,7 +124,7 @@ export interface LegalState {
 }
 
 export const initialData: LegalState = {
-  currentUser: { id: '', name: '', role: 'User', canViewFinance: false, color: '#000' },
+  currentUser: { id: '', name: '', role: 'User', canViewFinance: false, color: '#3b82f6' },
   users: [],
   clients: [],
   cases: [],
@@ -119,5 +134,14 @@ export const initialData: LegalState = {
   logs: [],
   petitions: [],
   whatsappMessages: [],
-  settings: { id: '', showFinanceDashboard: true, themeColor: 'blue', logoUrl: '' },
+  settings: {
+    id: '',
+    showFinanceDashboard: true,
+    themeColor: 'blue',
+    logoUrl: '',
+    caseStatuses: ['Em andamento', 'Pendente', 'Concluído'],
+    caseTypes: ['Cível', 'Trabalhista', 'Família'],
+    appointmentTypes: ['Reunião', 'Feriado', 'Outro'],
+    taskStatuses: ['pendente', 'em andamento', 'Concluída'],
+  },
 }
