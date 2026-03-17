@@ -173,6 +173,23 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         })
         await supabase.from(table).update(changes).eq('id', id)
 
+        // Special handling for Client Birthdays (fetch newly generated appointments from trigger)
+        if (
+          table === 'clients' &&
+          changes.birthday !== undefined &&
+          changes.birthday !== originalItem?.birthday
+        ) {
+          const { data } = await supabase.from('appointments').select('*')
+          if (data) {
+            setState((prev) => ({
+              ...prev,
+              appointments: data.sort(
+                (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+              ),
+            }))
+          }
+        }
+
         if (table === 'appointments' && originalItem) {
           const updatedItem = { ...originalItem, ...changes }
           const wasHoliday = originalItem.type?.toLowerCase() === 'feriado'
@@ -209,7 +226,12 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
               .select()
               .then(({ data, error }) => {
                 if (data && !error) {
-                  setState((prev) => ({ ...prev, appointments: [...data, ...prev.appointments] }))
+                  setState((prev) => ({
+                    ...prev,
+                    appointments: [...data, ...prev.appointments].sort(
+                      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+                    ),
+                  }))
                 }
               })
           }
@@ -224,6 +246,19 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
     setState((prev) => ({ ...prev, clients: [data, ...prev.clients] }))
     toast({ title: 'Cliente adicionado' })
+
+    if (client.birthday) {
+      // Refetch appointments in case trigger generated birthdays
+      const { data: appts } = await supabase.from('appointments').select('*')
+      if (appts) {
+        setState((prev) => ({
+          ...prev,
+          appointments: appts.sort(
+            (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+          ),
+        }))
+      }
+    }
   }, [])
 
   const addTask = useCallback(async (task: Omit<Task, 'id'>) => {
@@ -265,7 +300,12 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
 
     const { data, error } = await supabase.from('appointments').insert(toInsert).select()
     if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
-    setState((prev) => ({ ...prev, appointments: [...data, ...prev.appointments] }))
+    setState((prev) => ({
+      ...prev,
+      appointments: [...data, ...prev.appointments].sort(
+        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+      ),
+    }))
     toast({ title: 'Agenda atualizada' })
   }, [])
 

@@ -23,6 +23,9 @@ export function FullCalendar<T extends { id: string; date: string }>({
     return null
   })
 
+  const today = new Date()
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex justify-between items-center bg-card p-2 rounded-lg border shadow-sm">
@@ -47,28 +50,32 @@ export function FullCalendar<T extends { id: string; date: string }>({
             {d}
           </div>
         ))}
-        {days.map((d, i) => (
-          <div
-            key={i}
-            className={`min-h-[140px] border rounded-lg p-1 bg-card ${d ? 'hover:border-primary/50 cursor-pointer' : 'bg-muted/30'}`}
-            onClick={() => d && onDayClick?.(d)}
-          >
-            {d && (
-              <>
-                <div
-                  className={`text-right text-xs p-1 mb-1 ${d.toDateString() === new Date().toDateString() ? 'font-bold text-primary bg-primary/10 rounded w-fit ml-auto' : 'text-muted-foreground'}`}
-                >
-                  {d.getDate()}
-                </div>
-                <div className="flex flex-col gap-1 overflow-y-auto max-h-[100px] scrollbar-hide">
-                  {items
-                    .filter((item) => new Date(item.date).toDateString() === d.toDateString())
-                    .map(renderItem)}
-                </div>
-              </>
-            )}
-          </div>
-        ))}
+        {days.map((d, i) => {
+          const dateStr = d
+            ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+            : ''
+
+          return (
+            <div
+              key={i}
+              className={`min-h-[140px] border rounded-lg p-1 bg-card ${d ? 'hover:border-primary/50 cursor-pointer' : 'bg-muted/30'}`}
+              onClick={() => d && onDayClick?.(d)}
+            >
+              {d && (
+                <>
+                  <div
+                    className={`text-right text-xs p-1 mb-1 ${dateStr === todayStr ? 'font-bold text-primary bg-primary/10 rounded w-fit ml-auto' : 'text-muted-foreground'}`}
+                  >
+                    {d.getDate()}
+                  </div>
+                  <div className="flex flex-col gap-1 overflow-y-auto max-h-[100px] scrollbar-hide">
+                    {items.filter((item) => item.date.split('T')[0] === dateStr).map(renderItem)}
+                  </div>
+                </>
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )

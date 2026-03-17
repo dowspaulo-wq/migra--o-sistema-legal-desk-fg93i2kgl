@@ -48,38 +48,26 @@ export default function Agenda() {
     else addAppointment(fd)
   }
 
-  const allItems = [
-    ...state.appointments.map((a) => ({ ...a, itemType: 'appointment' as const })),
-    ...state.clients
-      .filter((c) => c.birthday)
-      .map((c) => {
-        const d = new Date(c.birthday!)
-        const currD = new Date()
-        d.setFullYear(currD.getFullYear())
-        return {
-          id: `bday-${c.id}`,
-          date: d.toISOString(),
-          title: `Aniversário: ${c.name}`,
-          type: 'Aniversário',
-          itemType: 'birthday' as const,
-          client: c,
-        }
-      }),
-  ]
+  // Helper to safely parse YYYY-MM-DD avoiding timezone offsets
+  const parseLocalDate = (dateStr: string) => {
+    if (!dateStr) return new Date()
+    const [y, m, d] = dateStr.split('T')[0].split('-')
+    return new Date(Number(y), Number(m) - 1, Number(d))
+  }
+
+  const allItems = state.appointments.map((a) => ({
+    ...a,
+    itemType: a.type === 'Aniversário' ? ('birthday' as const) : ('appointment' as const),
+    client: state.clients.find((c) => c.id === a.clientId),
+  }))
 
   const filtered = allItems.filter((i) => {
     const mSearch = i.title.toLowerCase().includes(search.toLowerCase())
     const mType = typeFilter === 'Todos' || i.type === typeFilter
     const mPriority = priorityFilter === 'Todos' || (i as any).priority === priorityFilter
     const mResp = respFilter === 'Todos' || (i as any).responsibleId === respFilter
-    const mClient =
-      clientFilter === 'Todos' ||
-      (i.itemType === 'birthday'
-        ? (i as any).client.id === clientFilter
-        : (i as any).clientId === clientFilter)
-    const mProcess =
-      processFilter === 'Todos' ||
-      (i.itemType === 'appointment' ? (i as any).processId === processFilter : true)
+    const mClient = clientFilter === 'Todos' || (i as any).clientId === clientFilter
+    const mProcess = processFilter === 'Todos' || (i as any).processId === processFilter
 
     let mDate = true
     const itemDate = i.date.split('T')[0]
@@ -261,14 +249,19 @@ export default function Agenda() {
             items={filtered}
             onDayClick={() => {}}
             renderItem={(item) => {
-              if (item.itemType === 'birthday')
+              if (item.type === 'Aniversário')
                 return (
                   <div
                     key={item.id}
-                    className="text-[10px] p-1 bg-pink-100 text-pink-800 border border-pink-200 rounded flex items-center gap-1 mb-1 truncate"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleOpen(item)
+                    }}
+                    className="text-[10px] p-1 bg-pink-100 text-pink-800 border border-pink-200 rounded flex items-center gap-1 mb-1 truncate cursor-pointer hover:bg-pink-200"
                     title={item.title}
                   >
-                    <Gift className="h-3 w-3 shrink-0" /> {item.client?.name.split(' ')[0]}
+                    <Gift className="h-3 w-3 shrink-0" />{' '}
+                    {item.client?.name.split(' ')[0] || item.title.replace('Aniversário: ', '')}
                   </div>
                 )
               const resp = state.users.find((u) => u.id === (item as any).responsibleId)
@@ -300,48 +293,47 @@ export default function Agenda() {
         </TabsContent>
 
         <TabsContent value="list" className="grid gap-3">
-          {filtered
-            .filter((i) => i.itemType !== 'birthday')
-            .map((a: any) => {
-              const resp = state.users.find((u) => u.id === a.responsibleId)
-              const client = state.clients.find((c) => c.id === a.clientId)
-              return (
-                <Card
-                  key={a.id}
-                  className="shadow-sm hover:border-primary/50 cursor-pointer"
-                  onClick={() => handleOpen(a)}
-                >
-                  <CardContent className="p-4 flex justify-between items-center">
-                    <div className="flex items-center gap-4">
-                      <div className="text-center bg-muted p-2 rounded-lg min-w-[70px]">
-                        <p className="text-xs font-bold uppercase">
-                          {new Date(a.date).toLocaleDateString('pt-BR', { month: 'short' })}
-                        </p>
-                        <p className="text-xl font-black text-primary">
-                          {new Date(a.date).getDate()}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="font-bold text-lg flex items-center gap-2">
-                          {a.title}{' '}
-                          {a.type === 'Reunião' && <Video className="h-4 w-4 text-blue-500" />}{' '}
-                          <Badge variant="outline">{a.type}</Badge>
-                        </p>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          Horário: {a.time} • Resp: {resp?.name}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Cliente: {client?.name || 'Não vinculado'}
-                        </p>
-                      </div>
+          {filtered.map((a: any) => {
+            const resp = state.users.find((u) => u.id === a.responsibleId)
+            const client = state.clients.find((c) => c.id === a.clientId)
+            const localDate = parseLocalDate(a.date)
+
+            return (
+              <Card
+                key={a.id}
+                className="shadow-sm hover:border-primary/50 cursor-pointer"
+                onClick={() => handleOpen(a)}
+              >
+                <CardContent className="p-4 flex justify-between items-center">
+                  <div className="flex items-center gap-4">
+                    <div className="text-center bg-muted p-2 rounded-lg min-w-[70px]">
+                      <p className="text-xs font-bold uppercase">
+                        {localDate.toLocaleDateString('pt-BR', { month: 'short' })}
+                      </p>
+                      <p className="text-xl font-black text-primary">{localDate.getDate()}</p>
                     </div>
-                    <Button variant="ghost" size="icon">
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                  </CardContent>
-                </Card>
-              )
-            })}
+                    <div>
+                      <p className="font-bold text-lg flex items-center gap-2">
+                        {a.title}{' '}
+                        {a.type === 'Reunião' && <Video className="h-4 w-4 text-blue-500" />}{' '}
+                        {a.type === 'Aniversário' && <Gift className="h-4 w-4 text-pink-500" />}{' '}
+                        <Badge variant="outline">{a.type}</Badge>
+                      </p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Horário: {a.time} • Resp: {resp?.name}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Cliente: {client?.name || 'Não vinculado'}
+                      </p>
+                    </div>
+                  </div>
+                  <Button variant="ghost" size="icon">
+                    <Edit className="h-4 w-4" />
+                  </Button>
+                </CardContent>
+              </Card>
+            )
+          })}
         </TabsContent>
       </Tabs>
     </div>

@@ -12,6 +12,7 @@ import {
   ChevronUp,
   CheckCircle2,
   Clock,
+  Gift,
 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { Link } from 'react-router-dom'
@@ -41,6 +42,7 @@ const renderLabel = ({ name, value, percent }: any) => {
 export default function Index() {
   const { state } = useLegalStore()
   const [isTasksOpen, setIsTasksOpen] = useState(true)
+  const [isAgendaOpen, setIsAgendaOpen] = useState(true)
 
   const pendingProtocol = state.tasks.filter((t) => t.status.toLowerCase() === 'aguarda protocolo')
   const myTasks = state.tasks.filter(
@@ -88,14 +90,16 @@ export default function Index() {
     .filter((t) => t.type === 'income' && t.status === 'Pago')
     .reduce((sum, t) => sum + t.amount, 0)
 
-  const todayAppts = state.appointments.filter(
-    (a) => new Date(a.date).toDateString() === new Date().toDateString(),
-  )
+  // Compute Today's string to avoid timezone parsing errors
+  const getLocalDateStr = (d = new Date()) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+  const now = new Date()
+  const todayStr = getLocalDateStr(now)
+
+  const todayAppts = state.appointments.filter((a) => a.date === todayStr)
 
   // Compute Task Management Dashboard stats
-  const now = new Date()
-  const todayStr = now.toISOString().split('T')[0]
-
   const userTasksStats = state.users
     .map((user) => {
       const userTasks = state.tasks.filter((t) => t.responsibleId === user.id)
@@ -147,6 +151,37 @@ export default function Index() {
     .filter((u) => u.total > 0)
     .sort((a, b) => b.total - a.total)
 
+  // Compute Agenda Management Dashboard stats
+  const userAgendaStats = state.users
+    .map((user) => {
+      const userAppts = state.appointments.filter((a) => a.responsibleId === user.id)
+      const todayCount = userAppts.filter((a) => a.date === todayStr).length
+      const futureCount = userAppts.filter((a) => a.date > todayStr).length
+      const pastCount = userAppts.filter((a) => a.date < todayStr).length
+
+      const upcomingAppts = userAppts.filter((a) => a.date >= todayStr)
+      const typesCount = upcomingAppts.reduce(
+        (acc, a) => {
+          acc[a.type] = (acc[a.type] || 0) + 1
+          return acc
+        },
+        {} as Record<string, number>,
+      )
+
+      const sortedTypes = Object.entries(typesCount).sort((a, b) => b[1] - a[1])
+
+      return {
+        user,
+        total: upcomingAppts.length,
+        todayCount,
+        futureCount,
+        pastCount,
+        types: sortedTypes,
+      }
+    })
+    .filter((u) => u.total > 0 || u.pastCount > 0)
+    .sort((a, b) => b.todayCount - a.todayCount || b.total - a.total)
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -157,6 +192,104 @@ export default function Index() {
           <p className="text-muted-foreground mt-1">Visão geral do escritório.</p>
         </div>
       </div>
+
+      <Collapsible
+        open={isAgendaOpen}
+        onOpenChange={setIsAgendaOpen}
+        className="bg-white dark:bg-slate-900 rounded-xl border shadow-sm"
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <div className="flex items-center gap-2 text-primary font-semibold">
+            <Calendar className="h-5 w-5" />
+            <h2 className="text-lg">Agenda por Responsável</h2>
+          </div>
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" size="sm" className="p-0 h-8 w-8">
+              {isAgendaOpen ? (
+                <ChevronUp className="h-5 w-5" />
+              ) : (
+                <ChevronDown className="h-5 w-5" />
+              )}
+            </Button>
+          </CollapsibleTrigger>
+        </div>
+        <CollapsibleContent className="p-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {userAgendaStats.map((stat) => (
+              <div
+                key={stat.user.id}
+                className={cn(
+                  'border rounded-xl p-5 shadow-sm transition-colors',
+                  stat.todayCount > 0
+                    ? 'border-green-300 bg-green-50/30'
+                    : 'border-slate-200 bg-white dark:bg-slate-950',
+                )}
+              >
+                <div className="flex items-center gap-3 mb-4">
+                  <Avatar>
+                    <AvatarImage src={stat.user.avatar_url} />
+                    <AvatarFallback className="bg-primary/10 text-primary font-bold">
+                      {stat.user.name.substring(0, 2).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <h3 className="font-semibold text-slate-800 dark:text-slate-100">
+                      {stat.user.name}
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      {stat.total} compromissos futuros/hoje
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-2 mb-4">
+                  {stat.todayCount > 0 && (
+                    <div className="flex items-center gap-2 bg-green-100/80 text-green-800 border border-green-200 rounded p-2 text-sm font-medium">
+                      <Calendar className="h-4 w-4" />
+                      {stat.todayCount} compromissos HOJE
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-1.5 mb-4 border-b pb-4 text-sm">
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">Hoje:</span>
+                    <span className="font-medium text-green-600">{stat.todayCount}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">Próximos:</span>
+                    <span className="font-medium text-blue-600">{stat.futureCount}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                    Por Tipo (Futuros/Hoje)
+                  </h4>
+                  <div className="space-y-1">
+                    {stat.types.map(([type, count]) => (
+                      <div key={type} className="flex justify-between items-center text-sm">
+                        <span className="text-slate-700 dark:text-slate-300 capitalize-first flex items-center gap-1.5">
+                          {type === 'Aniversário' && <Gift className="h-3 w-3 text-pink-500" />}
+                          {type}
+                        </span>
+                        <span className="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 px-2 py-0.5 rounded text-xs font-medium">
+                          {count}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {userAgendaStats.length === 0 && (
+              <p className="text-sm text-muted-foreground col-span-full">
+                Nenhum compromisso atribuído encontrado.
+              </p>
+            )}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
 
       <Collapsible
         open={isTasksOpen}
@@ -519,15 +652,15 @@ export default function Index() {
               {todayAppts.length > 0 ? (
                 todayAppts.map((a) => (
                   <div key={a.id} className="flex gap-3 items-center border-b pb-2 last:border-0">
-                    <Calendar className="h-5 w-5 text-primary" />
+                    {a.type === 'Aniversário' ? (
+                      <Gift className="h-5 w-5 text-pink-500" />
+                    ) : (
+                      <Calendar className="h-5 w-5 text-primary" />
+                    )}
                     <div>
                       <p className="text-sm font-medium leading-none">{a.title}</p>
                       <p className="text-xs text-muted-foreground">
-                        {new Date(a.date).toLocaleTimeString('pt-BR', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}{' '}
-                        - {a.type}
+                        {a.time} - {a.type}
                       </p>
                     </div>
                   </div>
