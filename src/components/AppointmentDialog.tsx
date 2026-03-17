@@ -42,7 +42,7 @@ export function AppointmentDialog({
     type: '',
     priority: '',
     responsibleId: '',
-    clientId: 'none',
+    clientId: '',
     processId: 'none',
     description: '',
     modality: '',
@@ -50,19 +50,19 @@ export function AppointmentDialog({
 
   const [fd, setFd] = useState(() =>
     data
-      ? { ...data, clientId: data.clientId || 'none', processId: data.processId || 'none' }
+      ? { ...data, clientId: data.clientId || '', processId: data.processId || 'none' }
       : getInitial(),
   )
 
   const sortedCases = [...cases]
-    .filter((c: any) => fd.clientId === 'none' || !fd.clientId || c.clientId === fd.clientId)
+    .filter((c: any) => !fd.clientId || c.clientId === fd.clientId)
     .sort((a: any, b: any) => a.number.localeCompare(b.number))
 
   useEffect(() => {
     if (open) {
       setFd(
         data
-          ? { ...data, clientId: data.clientId || 'none', processId: data.processId || 'none' }
+          ? { ...data, clientId: data.clientId || '', processId: data.processId || 'none' }
           : getInitial(),
       )
     }
@@ -73,10 +73,10 @@ export function AppointmentDialog({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!fd.type || !fd.priority || !fd.responsibleId) {
+    if (!fd.type || !fd.priority || !fd.responsibleId || !fd.clientId) {
       toast({
         title: 'Campos Obrigatórios',
-        description: 'Por favor, preencha Tipo, Prioridade e Responsável.',
+        description: 'Por favor, preencha Tipo, Prioridade, Responsável e Cliente.',
         variant: 'destructive',
       })
       return
@@ -91,12 +91,20 @@ export function AppointmentDialog({
       return
     }
 
-    onSave({
-      ...fd,
-      modality: fd.modality || null,
-      clientId: fd.clientId === 'none' ? null : fd.clientId,
+    const payload = {
+      title: fd.title,
+      date: fd.date,
+      time: fd.time,
+      type: fd.type,
+      priority: fd.priority,
+      responsibleId: fd.responsibleId,
+      clientId: fd.clientId,
       processId: fd.processId === 'none' ? null : fd.processId,
-    })
+      description: fd.description,
+      modality: fd.modality || null,
+    }
+
+    onSave(payload)
     onOpenChange(false)
   }
 
@@ -201,13 +209,12 @@ export function AppointmentDialog({
             </div>
 
             <div className="space-y-2">
-              <Label>Cliente</Label>
+              <Label>Cliente *</Label>
               <Select value={fd.clientId} onValueChange={(v) => setFd({ ...fd, clientId: v })}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione um Cliente..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">Nenhum / Não vinculado</SelectItem>
                   {sortedClients.map((c: any) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.name}

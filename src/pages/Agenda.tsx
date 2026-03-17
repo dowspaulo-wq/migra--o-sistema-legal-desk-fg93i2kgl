@@ -46,6 +46,7 @@ export default function Agenda() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [isSyncing, setIsSyncing] = useState(false)
+  const [calendarDate, setCalendarDate] = useState(new Date())
 
   const sortedUsers = [...state.users].sort((a, b) => a.name.localeCompare(b.name))
   const sortedClients = [...state.clients].sort((a, b) => a.name.localeCompare(b.name))
@@ -168,6 +169,14 @@ export default function Agenda() {
     }
 
     return mSearch && mType && mPriority && mResp && mClient && mProcess && mDate
+  })
+
+  const calendarYear = calendarDate.getFullYear()
+  const calendarMonth = calendarDate.getMonth()
+
+  const listItems = filtered.filter((i) => {
+    const d = parseSafeLocalDate(i.date)
+    return d.getFullYear() === calendarYear && d.getMonth() === calendarMonth
   })
 
   return (
@@ -366,6 +375,8 @@ export default function Agenda() {
         <TabsContent value="calendar">
           <FullCalendar
             items={filtered}
+            currentDate={calendarDate}
+            onDateChange={setCalendarDate}
             onDayClick={() => {}}
             renderItem={(item) => {
               if (item.type === 'Aniversário')
@@ -430,93 +441,111 @@ export default function Agenda() {
         </TabsContent>
 
         <TabsContent value="list" className="grid gap-3">
-          {filtered.map((a: any) => {
-            const resp = state.users.find((u) => u.id === a.responsibleId)
-            const client = state.clients.find((c) => c.id === a.clientId)
-            const process = state.cases.find((c) => c.id === a.processId)
-            const localDate = parseSafeLocalDate(a.date)
+          {listItems.length === 0 ? (
+            <div className="text-center p-8 text-muted-foreground bg-muted/20 rounded-lg border border-dashed mt-4">
+              Nenhum compromisso encontrado para{' '}
+              <span className="capitalize">
+                {calendarDate.toLocaleString('pt-BR', { month: 'long', year: 'numeric' })}
+              </span>
+              .
+            </div>
+          ) : (
+            listItems.map((a: any) => {
+              const resp = state.users.find((u) => u.id === a.responsibleId)
+              const client = state.clients.find((c) => c.id === a.clientId)
+              const process = state.cases.find((c) => c.id === a.processId)
+              const localDate = parseSafeLocalDate(a.date)
 
-            return (
-              <Card
-                key={a.id}
-                className="shadow-sm hover:border-primary/50 cursor-pointer"
-                onClick={() => handleOpen(a)}
-              >
-                <CardContent className="p-4 flex justify-between items-center">
-                  <div className="flex items-center gap-4 w-full">
-                    <div className="text-center bg-muted p-2 rounded-lg min-w-[70px]">
-                      <p className="text-xs font-bold uppercase">
-                        {localDate.toLocaleDateString('pt-BR', { month: 'short' })}
-                      </p>
-                      <p className="text-xl font-black text-primary">{localDate.getDate()}</p>
-                    </div>
-                    <div className="flex-1 w-full">
-                      <div className="font-bold text-lg flex items-center gap-2 flex-wrap">
-                        {a.title}
-                        {a.type === 'Aniversário' && <Gift className="h-4 w-4 text-pink-500" />}
-                        {a.modality === 'Presencial' && (
-                          <MapPin className="h-4 w-4 text-green-600" title="Presencial" />
-                        )}
-                        {a.modality === 'Virtual' && (
-                          <Video className="h-4 w-4 text-purple-600" title="Virtual" />
-                        )}
-                        <Badge variant="outline">{a.type}</Badge>
-                        {a.modality && (
-                          <Badge variant="secondary" className="bg-muted text-muted-foreground">
-                            {a.modality}
-                          </Badge>
-                        )}
+              return (
+                <Card
+                  key={a.id}
+                  className="shadow-sm hover:border-primary/50 cursor-pointer"
+                  onClick={() => handleOpen(a)}
+                >
+                  <CardContent className="p-4 flex justify-between items-center">
+                    <div className="flex items-center gap-4 w-full">
+                      <div className="text-center bg-muted p-2 rounded-lg min-w-[70px]">
+                        <p className="text-xs font-bold uppercase">
+                          {localDate.toLocaleDateString('pt-BR', { month: 'short' })}
+                        </p>
+                        <p className="text-xl font-black text-primary">{localDate.getDate()}</p>
                       </div>
-                      <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
-                        <span>Horário: {a.time}</span>
-                        {a.type !== 'Aniversário' && (
-                          <Badge
-                            variant="outline"
-                            className={`text-[10px] ${getPriorityColorClass(a.priority)}`}
-                          >
-                            {a.priority || 'Sem prioridade'}
-                          </Badge>
-                        )}
-                        {resp && (
-                          <span
-                            className="text-xs px-2 py-0.5 rounded-full font-medium ml-auto"
-                            style={{
-                              backgroundColor: `${resp.color}20`,
-                              color: resp.color,
-                              border: `1px solid ${resp.color}40`,
-                            }}
-                          >
-                            Resp: {resp.name}
-                          </span>
-                        )}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Cliente: {client?.name || 'Não vinculado'}
-                        {process && (
-                          <span>
-                            {' '}
-                            • Proc:{' '}
-                            <Link
-                              to={`/processos/${process.id}`}
-                              onClick={(e) => e.stopPropagation()}
-                              className="hover:underline text-primary"
+                      <div className="flex-1 w-full">
+                        <div className="font-bold text-lg flex items-center gap-2 flex-wrap">
+                          {a.title}
+                          {a.type === 'Aniversário' && <Gift className="h-4 w-4 text-pink-500" />}
+                          {a.modality === 'Presencial' && (
+                            <MapPin className="h-4 w-4 text-green-600" title="Presencial" />
+                          )}
+                          {a.modality === 'Virtual' && (
+                            <Video className="h-4 w-4 text-purple-600" title="Virtual" />
+                          )}
+                          <Badge variant="outline">{a.type}</Badge>
+                          {a.modality && (
+                            <Badge variant="secondary" className="bg-muted text-muted-foreground">
+                              {a.modality}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
+                          <span>Horário: {a.time}</span>
+                          {a.type !== 'Aniversário' && (
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] ${getPriorityColorClass(a.priority)}`}
                             >
-                              {process.number}
-                            </Link>
-                          </span>
-                        )}
-                      </p>
+                              {a.priority || 'Sem prioridade'}
+                            </Badge>
+                          )}
+                          {resp && (
+                            <span
+                              className="text-xs px-2 py-0.5 rounded-full font-medium ml-auto"
+                              style={{
+                                backgroundColor: `${resp.color}20`,
+                                color: resp.color,
+                                border: `1px solid ${resp.color}40`,
+                              }}
+                            >
+                              Resp: {resp.name}
+                            </span>
+                          )}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Cliente: {client?.name || 'Não vinculado'}
+                          {process && (
+                            <span>
+                              {' '}
+                              • Proc:{' '}
+                              <Link
+                                to={`/processos/${process.id}`}
+                                onClick={(e) => e.stopPropagation()}
+                                className="hover:underline text-primary font-medium ml-1"
+                              >
+                                {process.number}
+                              </Link>
+                            </span>
+                          )}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                  {a.type !== 'Aniversário' && (
-                    <Button variant="ghost" size="icon" className="ml-2">
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                  )}
-                </CardContent>
-              </Card>
-            )
-          })}
+                    {a.type !== 'Aniversário' && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="ml-2"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleOpen(a)
+                        }}
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
+              )
+            })
+          )}
         </TabsContent>
       </Tabs>
     </div>

@@ -6,12 +6,19 @@ export function FullCalendar<T extends { id: string; date: string }>({
   items,
   renderItem,
   onDayClick,
+  currentDate,
+  onDateChange,
 }: {
   items: T[]
   renderItem: (item: T) => React.ReactNode
   onDayClick?: (date: Date) => void
+  currentDate?: Date
+  onDateChange?: (date: Date) => void
 }) {
-  const [date, setDate] = useState(new Date())
+  const [internalDate, setInternalDate] = useState(new Date())
+  const date = currentDate || internalDate
+  const setDate = onDateChange || setInternalDate
+
   const year = date.getFullYear()
   const month = date.getMonth()
   const daysInMonth = new Date(year, month + 1, 0).getDate()

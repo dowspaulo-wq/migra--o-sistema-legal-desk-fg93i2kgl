@@ -295,13 +295,17 @@ export default function Tasks() {
                       <p className="text-xs text-muted-foreground mt-1">
                         Cliente:{' '}
                         <span className="font-medium">{client?.name || 'Não vinculado'}</span> •
-                        Proc:{' '}
+                        Processo:{' '}
                         {c ? (
-                          <Link to={`/processos/${c.id}`} className="hover:underline text-primary">
+                          <Link
+                            to={`/processos/${c.id}`}
+                            className="text-primary hover:underline font-semibold ml-1"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             {c.number}
                           </Link>
                         ) : (
-                          'Não vinculado'
+                          <span className="italic ml-1">Não vinculado</span>
                         )}
                       </p>
                       <div className="flex flex-wrap gap-2 text-xs mt-2 items-center">
