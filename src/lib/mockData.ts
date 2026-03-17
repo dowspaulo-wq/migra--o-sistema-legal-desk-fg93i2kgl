@@ -50,9 +50,9 @@ export interface Task {
   status: string
   priority: string
   responsibleId: string
-  relatedProcessId: string
+  relatedProcessId: string | null
   type: string
-  clientId: string
+  clientId: string | null
   internalNotes: string
 }
 export interface Appointment {
@@ -64,8 +64,8 @@ export interface Appointment {
   time: string
   description: string
   responsibleId: string
-  clientId: string
-  processId: string
+  clientId: string | null
+  processId: string | null
 }
 export interface Transaction {
   id: string

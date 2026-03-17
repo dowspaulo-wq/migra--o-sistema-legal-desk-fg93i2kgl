@@ -331,7 +331,7 @@ export default function Agenda() {
                           Horário: {a.time} • Resp: {resp?.name}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          Cliente: {client?.name || 'N/A'}
+                          Cliente: {client?.name || 'Não vinculado'}
                         </p>
                       </div>
                     </div>

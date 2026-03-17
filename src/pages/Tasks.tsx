@@ -266,8 +266,9 @@ export default function Tasks() {
                         </Badge>
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        Cliente: <span className="font-medium">{client?.name || 'N/A'}</span> •
-                        Proc: {c?.number || 'N/A'}
+                        Cliente:{' '}
+                        <span className="font-medium">{client?.name || 'Não vinculado'}</span> •
+                        Proc: {c?.number || 'Não vinculado'}
                       </p>
                       <div className="flex gap-2 text-xs mt-2 items-center">
                         <Badge variant="secondary" className="text-[10px]">

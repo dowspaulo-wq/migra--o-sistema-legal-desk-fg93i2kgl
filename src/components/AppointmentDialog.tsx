@@ -34,30 +34,45 @@ export function AppointmentDialog({
     a.localeCompare(b),
   )
 
-  const initial = data || {
+  const getInitial = () => ({
     title: '',
     date: new Date().toISOString().split('T')[0],
     time: '10:00',
     type: sortedTypes[0] || 'Reunião',
     priority: 'Média',
     responsibleId: sortedUsers[0]?.id,
-    clientId: '',
-    processId: '',
+    clientId: 'none',
+    processId: 'none',
     description: '',
-  }
-  const [fd, setFd] = useState(initial)
+  })
+
+  const [fd, setFd] = useState(() =>
+    data
+      ? { ...data, clientId: data.clientId || 'none', processId: data.processId || 'none' }
+      : getInitial(),
+  )
 
   const sortedCases = [...cases]
-    .filter((c: any) => !fd.clientId || c.clientId === fd.clientId)
+    .filter((c: any) => fd.clientId === 'none' || !fd.clientId || c.clientId === fd.clientId)
     .sort((a: any, b: any) => a.number.localeCompare(b.number))
 
   useEffect(() => {
-    setFd(data || initial)
+    if (open) {
+      setFd(
+        data
+          ? { ...data, clientId: data.clientId || 'none', processId: data.processId || 'none' }
+          : getInitial(),
+      )
+    }
   }, [data, open])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    onSave(fd)
+    onSave({
+      ...fd,
+      clientId: fd.clientId === 'none' ? null : fd.clientId,
+      processId: fd.processId === 'none' ? null : fd.processId,
+    })
     onOpenChange(false)
   }
 
@@ -143,16 +158,13 @@ export function AppointmentDialog({
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Cliente *</Label>
-              <Select
-                value={fd.clientId}
-                onValueChange={(v) => setFd({ ...fd, clientId: v })}
-                required
-              >
+              <Label>Cliente</Label>
+              <Select value={fd.clientId} onValueChange={(v) => setFd({ ...fd, clientId: v })}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione..." />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="none">Nenhum / Não vinculado</SelectItem>
                   {sortedClients.map((c: any) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.name}
@@ -162,16 +174,13 @@ export function AppointmentDialog({
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Processo *</Label>
-              <Select
-                value={fd.processId}
-                onValueChange={(v) => setFd({ ...fd, processId: v })}
-                required
-              >
+              <Label>Processo</Label>
+              <Select value={fd.processId} onValueChange={(v) => setFd({ ...fd, processId: v })}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione..." />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="none">Nenhum / Não vinculado</SelectItem>
                   {sortedCases.map((c: any) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.number}

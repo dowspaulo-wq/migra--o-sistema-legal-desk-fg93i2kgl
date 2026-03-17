@@ -37,7 +37,7 @@ export function TaskDialog({
     a.localeCompare(b),
   )
 
-  const initial = data || {
+  const getInitial = () => ({
     title: '',
     description: '',
     internalNotes: '',
@@ -46,22 +46,45 @@ export function TaskDialog({
     priority: 'Média',
     responsibleId: sortedUsers[0]?.id,
     type: sortedTypes[0] || 'interna e adm',
-    clientId: '',
-    relatedProcessId: '',
-  }
-  const [fd, setFd] = useState(initial)
+    clientId: 'none',
+    relatedProcessId: 'none',
+  })
+
+  const [fd, setFd] = useState(() =>
+    data
+      ? {
+          ...data,
+          clientId: data.clientId || 'none',
+          relatedProcessId: data.relatedProcessId || 'none',
+        }
+      : getInitial(),
+  )
 
   const sortedCases = [...cases]
-    .filter((c: any) => !fd.clientId || c.clientId === fd.clientId)
+    .filter((c: any) => fd.clientId === 'none' || !fd.clientId || c.clientId === fd.clientId)
     .sort((a: any, b: any) => a.number.localeCompare(b.number))
 
   useEffect(() => {
-    setFd(data || initial)
+    if (open) {
+      setFd(
+        data
+          ? {
+              ...data,
+              clientId: data.clientId || 'none',
+              relatedProcessId: data.relatedProcessId || 'none',
+            }
+          : getInitial(),
+      )
+    }
   }, [data, open])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    onSave(fd)
+    onSave({
+      ...fd,
+      clientId: fd.clientId === 'none' ? null : fd.clientId,
+      relatedProcessId: fd.relatedProcessId === 'none' ? null : fd.relatedProcessId,
+    })
     onOpenChange(false)
   }
 
@@ -152,16 +175,13 @@ export function TaskDialog({
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Cliente *</Label>
-              <Select
-                value={fd.clientId}
-                onValueChange={(v) => setFd({ ...fd, clientId: v })}
-                required
-              >
+              <Label>Cliente</Label>
+              <Select value={fd.clientId} onValueChange={(v) => setFd({ ...fd, clientId: v })}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione..." />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="none">Nenhum / Não vinculado</SelectItem>
                   {sortedClients.map((c: any) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.name}
@@ -171,16 +191,16 @@ export function TaskDialog({
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Processo *</Label>
+              <Label>Processo</Label>
               <Select
                 value={fd.relatedProcessId}
                 onValueChange={(v) => setFd({ ...fd, relatedProcessId: v })}
-                required
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione..." />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="none">Nenhum / Não vinculado</SelectItem>
                   {sortedCases.map((c: any) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.number}
