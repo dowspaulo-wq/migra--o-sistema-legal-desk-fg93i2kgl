@@ -12,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Plus,
   Gift,
@@ -37,7 +38,7 @@ export default function Agenda() {
   const [open, setOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<any>(null)
   const [search, setSearch] = useState('')
-  const [typeFilter, setTypeFilter] = useState('Todos')
+  const [typeFilters, setTypeFilters] = useState<string[]>([])
   const [priorityFilter, setPriorityFilter] = useState('Todos')
   const [respFilter, setRespFilter] = useState('Todos')
   const [clientFilter, setClientFilter] = useState('Todos')
@@ -133,9 +134,14 @@ export default function Agenda() {
   }, [state.appointments, state.clients])
 
   const filtered = allItems.filter((i) => {
-    const mSearch = i.title.toLowerCase().includes(search.toLowerCase())
-    const mType =
-      typeFilter === 'Todos' || (typeFilter === 'Vazio' ? !i.type : i.type === typeFilter)
+    const lowerSearch = search.toLowerCase()
+    const mSearch =
+      i.title.toLowerCase().includes(lowerSearch) ||
+      (i.description || '').toLowerCase().includes(lowerSearch)
+
+    const itemType = i.type || 'Vazio'
+    const mType = typeFilters.length === 0 || typeFilters.includes(itemType)
+
     const mPriority =
       priorityFilter === 'Todos' ||
       (priorityFilter === 'Vazio' ? !(i as any).priority : (i as any).priority === priorityFilter)
@@ -206,7 +212,7 @@ export default function Agenda() {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
           <div className="flex gap-2 w-full max-w-md">
             <Input
-              placeholder="Buscar evento..."
+              placeholder="Buscar por título ou descrição..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="flex-1"
@@ -219,24 +225,34 @@ export default function Agenda() {
               </PopoverTrigger>
               <PopoverContent className="w-80 max-h-[80vh] overflow-y-auto space-y-4">
                 <h4 className="font-medium text-sm border-b pb-2">Filtros Avançados</h4>
+
                 <div className="space-y-2">
-                  <Label className="text-xs">Tipo de Compromisso</Label>
-                  <Select value={typeFilter} onValueChange={setTypeFilter}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Tipo" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Todos">Todos</SelectItem>
-                      <SelectItem value="Vazio">Não Informado (Vazio)</SelectItem>
-                      <SelectItem value="Aniversário">Aniversário</SelectItem>
-                      {sortedTypes.map((t) => (
-                        <SelectItem key={t} value={t}>
-                          {t}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label className="text-xs">Tipos de Compromisso</Label>
+                  <div className="max-h-[140px] overflow-y-auto space-y-2 border rounded-md p-2 bg-background scrollbar-hide">
+                    {['Vazio', 'Aniversário', ...sortedTypes].map((t) => (
+                      <div key={t} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`type-${t}`}
+                          checked={typeFilters.includes(t)}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setTypeFilters([...typeFilters, t])
+                            } else {
+                              setTypeFilters(typeFilters.filter((f) => f !== t))
+                            }
+                          }}
+                        />
+                        <label
+                          htmlFor={`type-${t}`}
+                          className="text-sm font-medium leading-none cursor-pointer"
+                        >
+                          {t === 'Vazio' ? 'Não Informado' : t}
+                        </label>
+                      </div>
+                    ))}
+                  </div>
                 </div>
+
                 <div className="space-y-2">
                   <Label className="text-xs">Prioridade</Label>
                   <Select value={priorityFilter} onValueChange={setPriorityFilter}>
@@ -323,7 +339,7 @@ export default function Agenda() {
                   size="sm"
                   className="w-full mt-2"
                   onClick={() => {
-                    setTypeFilter('Todos')
+                    setTypeFilters([])
                     setPriorityFilter('Todos')
                     setRespFilter('Todos')
                     setClientFilter('Todos')
@@ -369,7 +385,6 @@ export default function Agenda() {
                 )
               const resp = state.users.find((u) => u.id === (item as any).responsibleId)
               const isFeriado = item.type === 'Feriado'
-              const isAudience = item.type === 'Aud.conciliação' || item.type === 'AIJ'
               const bgColor = isFeriado ? '#ef4444' : resp?.color || '#cbd5e1'
 
               return (
@@ -390,10 +405,10 @@ export default function Agenda() {
                   <div className="flex justify-between items-start gap-1 w-full">
                     <span className="font-semibold shrink-0 flex items-center gap-1">
                       {(item as any).time}
-                      {isAudience && (item as any).modality === 'Presencial' && (
+                      {(item as any).modality === 'Presencial' && (
                         <MapPin className="h-2.5 w-2.5 text-green-600" title="Presencial" />
                       )}
-                      {isAudience && (item as any).modality === 'Virtual' && (
+                      {(item as any).modality === 'Virtual' && (
                         <Video className="h-2.5 w-2.5 text-purple-600" title="Virtual" />
                       )}
                     </span>
@@ -420,7 +435,6 @@ export default function Agenda() {
             const client = state.clients.find((c) => c.id === a.clientId)
             const process = state.cases.find((c) => c.id === a.processId)
             const localDate = parseSafeLocalDate(a.date)
-            const isAudience = a.type === 'Aud.conciliação' || a.type === 'AIJ'
 
             return (
               <Card
@@ -439,12 +453,11 @@ export default function Agenda() {
                     <div className="flex-1 w-full">
                       <div className="font-bold text-lg flex items-center gap-2 flex-wrap">
                         {a.title}
-                        {a.type === 'Reunião' && <Video className="h-4 w-4 text-blue-500" />}
                         {a.type === 'Aniversário' && <Gift className="h-4 w-4 text-pink-500" />}
-                        {isAudience && a.modality === 'Presencial' && (
+                        {a.modality === 'Presencial' && (
                           <MapPin className="h-4 w-4 text-green-600" title="Presencial" />
                         )}
-                        {isAudience && a.modality === 'Virtual' && (
+                        {a.modality === 'Virtual' && (
                           <Video className="h-4 w-4 text-purple-600" title="Virtual" />
                         )}
                         <Badge variant="outline">{a.type}</Badge>

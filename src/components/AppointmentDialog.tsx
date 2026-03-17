@@ -93,7 +93,7 @@ export function AppointmentDialog({
 
     onSave({
       ...fd,
-      modality: isAudience ? fd.modality : null,
+      modality: fd.modality || null,
       clientId: fd.clientId === 'none' ? null : fd.clientId,
       processId: fd.processId === 'none' ? null : fd.processId,
     })
@@ -150,22 +150,23 @@ export function AppointmentDialog({
               </Select>
             </div>
 
-            {isAudience && (
-              <div className="space-y-2">
-                <Label>Modalidade *</Label>
-                <Select value={fd.modality} onValueChange={(v) => setFd({ ...fd, modality: v })}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione a Modalidade" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Presencial">Presencial</SelectItem>
-                    <SelectItem value="Virtual">Virtual</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
+            <div className="space-y-2">
+              <Label>Modalidade {isAudience && '*'}</Label>
+              <Select
+                value={fd.modality || ''}
+                onValueChange={(v) => setFd({ ...fd, modality: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione a Modalidade" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Presencial">Presencial</SelectItem>
+                  <SelectItem value="Virtual">Virtual</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-            <div className={`space-y-2 ${isAudience ? 'col-span-2' : ''}`}>
+            <div className="space-y-2">
               <Label>Prioridade *</Label>
               <Select value={fd.priority} onValueChange={(v) => setFd({ ...fd, priority: v })}>
                 <SelectTrigger>
@@ -198,6 +199,7 @@ export function AppointmentDialog({
                 </SelectContent>
               </Select>
             </div>
+
             <div className="space-y-2">
               <Label>Cliente</Label>
               <Select value={fd.clientId} onValueChange={(v) => setFd({ ...fd, clientId: v })}>
@@ -214,7 +216,7 @@ export function AppointmentDialog({
                 </SelectContent>
               </Select>
             </div>
-            <div className="col-span-2 space-y-2">
+            <div className="space-y-2">
               <Label>Processo</Label>
               <Select value={fd.processId} onValueChange={(v) => setFd({ ...fd, processId: v })}>
                 <SelectTrigger>
@@ -230,6 +232,7 @@ export function AppointmentDialog({
                 </SelectContent>
               </Select>
             </div>
+
             <div className="col-span-2 space-y-2">
               <Label>Observações</Label>
               <Textarea
