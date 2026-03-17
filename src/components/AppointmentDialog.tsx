@@ -43,14 +43,15 @@ export function AppointmentDialog({
     priority: '',
     responsibleId: '',
     clientId: '',
-    processId: 'none',
+    processId: '',
     description: '',
     modality: '',
+    status: 'Pendente',
   })
 
   const [fd, setFd] = useState(() =>
     data
-      ? { ...data, clientId: data.clientId || '', processId: data.processId || 'none' }
+      ? { ...data, clientId: data.clientId || '', processId: data.processId || '' }
       : getInitial(),
   )
 
@@ -62,7 +63,7 @@ export function AppointmentDialog({
     if (open) {
       setFd(
         data
-          ? { ...data, clientId: data.clientId || '', processId: data.processId || 'none' }
+          ? { ...data, clientId: data.clientId || '', processId: data.processId || '' }
           : getInitial(),
       )
     }
@@ -77,6 +78,15 @@ export function AppointmentDialog({
       toast({
         title: 'Campos Obrigatórios',
         description: 'Por favor, preencha Tipo, Prioridade, Responsável e Cliente.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    if (!fd.processId) {
+      toast({
+        title: 'Campo Obrigatório',
+        description: 'Por favor, selecione um Processo.',
         variant: 'destructive',
       })
       return
@@ -99,9 +109,10 @@ export function AppointmentDialog({
       priority: fd.priority,
       responsibleId: fd.responsibleId,
       clientId: fd.clientId,
-      processId: fd.processId === 'none' ? null : fd.processId,
+      processId: fd.processId,
       description: fd.description,
       modality: fd.modality || null,
+      status: fd.status || 'Pendente',
     }
 
     onSave(payload)
@@ -224,13 +235,12 @@ export function AppointmentDialog({
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Processo</Label>
+              <Label>Processo *</Label>
               <Select value={fd.processId} onValueChange={(v) => setFd({ ...fd, processId: v })}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione um Processo..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">Nenhum / Não vinculado</SelectItem>
                   {sortedCases.map((c: any) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.number}

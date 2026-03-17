@@ -13,10 +13,22 @@ import {
 } from '@/components/ui/select'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
+import {
   Plus,
   Gift,
   Video,
   Edit,
+  Trash,
   LayoutGrid,
   List,
   Filter,
@@ -27,6 +39,8 @@ import {
   ChevronDown,
   Search,
   X,
+  CheckCircle2,
+  Circle,
 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -51,10 +65,10 @@ const initialFilters = {
 }
 
 export default function Agenda() {
-  const { state, addAppointment, updateItem } = useLegalStore()
+  const { state, addAppointment, updateItem, deleteItem } = useLegalStore()
   const [filters, setFilters] = useState(initialFilters)
   const [appliedFilters, setAppliedFilters] = useState(initialFilters)
-  const [searchOpen, setSearchOpen] = useState(true)
+  const [searchOpen, setSearchOpen] = useState(false)
   const [open, setOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<any>(null)
   const [isSyncing, setIsSyncing] = useState(false)
@@ -119,7 +133,7 @@ export default function Agenda() {
             }
             virtualBirthdays.push({
               id: `bday-${client.id}-${ny}`,
-              title: `Aniversário: ${client.name}`,
+              title: `Aniversário`,
               date: `${ny}-${nm}-${nd}`,
               time: '08:00',
               type: 'Aniversário',
@@ -129,6 +143,7 @@ export default function Agenda() {
               processId: null,
               itemType: 'birthday',
               client: client,
+              status: 'Pendente',
             })
           }
         }
@@ -410,15 +425,19 @@ export default function Agenda() {
                       handleOpen(item)
                     }}
                     className="text-[10px] p-1 bg-pink-100 text-pink-800 border border-pink-200 rounded flex items-center gap-1 mb-1 truncate cursor-pointer hover:bg-pink-200"
-                    title={item.title}
+                    title={`${item.title} - ${item.client?.name}`}
                   >
-                    <Gift className="h-3 w-3 shrink-0" />{' '}
-                    {item.client?.name.split(' ')[0] || item.title.replace('Aniversário: ', '')}
+                    <Gift className="h-3 w-3 shrink-0" /> {item.client?.name.split(' ')[0]}
                   </div>
                 )
               const resp = state.users.find((u) => u.id === (item as any).responsibleId)
               const isFeriado = item.type === 'Feriado'
               const bgColor = isFeriado ? '#ef4444' : resp?.color || '#cbd5e1'
+              const isDone = item.status === 'Concluído'
+
+              const clientName = item.client?.name || 'Sem cliente'
+              const respName = resp?.name.split(' ')[0] || ''
+              const titleFull = `${item.title} - ${clientName} - ${respName}`
 
               return (
                 <div
@@ -427,16 +446,18 @@ export default function Agenda() {
                     e.stopPropagation()
                     handleOpen(item)
                   }}
-                  className={`text-[10px] p-1.5 flex flex-col rounded cursor-pointer mb-1 truncate ${isFeriado ? 'text-white font-bold' : ''}`}
+                  className={`text-[10px] p-1.5 flex flex-col rounded cursor-pointer mb-1 truncate ${isFeriado ? 'text-white font-bold' : ''} ${isDone ? 'opacity-60' : ''}`}
                   style={{
                     backgroundColor: isFeriado ? bgColor : `${bgColor}20`,
                     borderLeft: `3px solid ${bgColor}`,
                     color: isFeriado ? '#fff' : '#333',
                   }}
-                  title={item.title}
+                  title={titleFull}
                 >
                   <div className="flex justify-between items-start gap-1 w-full">
-                    <span className="font-semibold shrink-0 flex items-center gap-1">
+                    <span
+                      className={`font-semibold shrink-0 flex items-center gap-1 ${isDone ? 'line-through' : ''}`}
+                    >
                       {(item as any).time}
                       {(item as any).modality === 'Presencial' && (
                         <MapPin className="h-2.5 w-2.5 text-green-600" title="Presencial" />
@@ -445,17 +466,12 @@ export default function Agenda() {
                         <Video className="h-2.5 w-2.5 text-purple-600" title="Virtual" />
                       )}
                     </span>
-                    {!isFeriado && resp && (
-                      <span
-                        className="text-[8px] px-1 py-0.5 rounded truncate max-w-[60px]"
-                        style={{ backgroundColor: bgColor, color: '#fff' }}
-                        title={resp.name}
-                      >
-                        {resp.name.split(' ')[0]}
-                      </span>
-                    )}
                   </div>
-                  <span className="truncate mt-0.5">{item.title}</span>
+                  <span
+                    className={`truncate mt-0.5 ${isDone ? 'line-through text-muted-foreground' : ''}`}
+                  >
+                    {titleFull}
+                  </span>
                 </div>
               )
             }}
@@ -477,25 +493,48 @@ export default function Agenda() {
               const client = state.clients.find((c) => c.id === a.clientId)
               const process = state.cases.find((c) => c.id === a.processId)
               const localDate = parseSafeLocalDate(a.date)
+              const isDone = a.status === 'Concluído'
+              const isBirthday = a.type === 'Aniversário'
 
               return (
                 <Card
                   key={a.id}
-                  className="shadow-sm hover:border-primary/50 cursor-pointer"
+                  className={`shadow-sm hover:border-primary/50 cursor-pointer ${isDone ? 'opacity-60 border-l-4 border-l-green-500' : 'border-l-4 border-l-primary'}`}
                   onClick={() => handleOpen(a)}
                 >
-                  <CardContent className="p-4 flex justify-between items-center">
-                    <div className="flex items-center gap-4 w-full">
+                  <CardContent className="p-4 flex justify-between items-center gap-4">
+                    <div className="flex items-start gap-4 w-full">
+                      {!isBirthday && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            updateItem('appointments', a.id, {
+                              status: isDone ? 'Pendente' : 'Concluído',
+                            })
+                          }}
+                          className="mt-1 text-muted-foreground hover:text-primary transition-colors"
+                        >
+                          {isDone ? (
+                            <CheckCircle2 className="h-5 w-5 text-green-500" />
+                          ) : (
+                            <Circle className="h-5 w-5" />
+                          )}
+                        </button>
+                      )}
+
                       <div className="text-center bg-muted p-2 rounded-lg min-w-[70px]">
                         <p className="text-xs font-bold uppercase">
                           {localDate.toLocaleDateString('pt-BR', { month: 'short' })}
                         </p>
                         <p className="text-xl font-black text-primary">{localDate.getDate()}</p>
                       </div>
+
                       <div className="flex-1 w-full">
-                        <div className="font-bold text-lg flex items-center gap-2 flex-wrap">
+                        <div
+                          className={`font-bold text-lg flex items-center gap-2 flex-wrap ${isDone ? 'line-through text-muted-foreground' : ''}`}
+                        >
                           {a.title}
-                          {a.type === 'Aniversário' && <Gift className="h-4 w-4 text-pink-500" />}
+                          {isBirthday && <Gift className="h-4 w-4 text-pink-500" />}
                           {a.modality === 'Presencial' && (
                             <MapPin className="h-4 w-4 text-green-600" title="Presencial" />
                           )}
@@ -511,7 +550,7 @@ export default function Agenda() {
                         </div>
                         <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
                           <span>Horário: {a.time}</span>
-                          {a.type !== 'Aniversário' && (
+                          {!isBirthday && (
                             <Badge
                               variant="outline"
                               className={`text-[10px] ${getPriorityColorClass(a.priority)}`}
@@ -533,7 +572,8 @@ export default function Agenda() {
                           )}
                         </p>
                         <p className="text-xs text-muted-foreground mt-1">
-                          Cliente: {client?.name || 'Não vinculado'}
+                          Cliente:{' '}
+                          <span className="font-medium">{client?.name || 'Não vinculado'}</span>
                           {process && (
                             <span>
                               {' '}
@@ -550,18 +590,49 @@ export default function Agenda() {
                         </p>
                       </div>
                     </div>
-                    {a.type !== 'Aniversário' && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="ml-2"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleOpen(a)
-                        }}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
+
+                    {!isBirthday && (
+                      <div className="flex gap-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleOpen(a)
+                          }}
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-red-500"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Trash className="h-4 w-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Excluir Compromisso?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Esta ação removerá o compromisso permanentemente do sistema.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                              <AlertDialogAction
+                                className="bg-red-600 hover:bg-red-700"
+                                onClick={() => deleteItem('appointments', a.id)}
+                              >
+                                Excluir
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
                     )}
                   </CardContent>
                 </Card>

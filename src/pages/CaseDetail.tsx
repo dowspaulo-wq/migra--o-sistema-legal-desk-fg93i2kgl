@@ -12,7 +12,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { ArrowLeft, Scale, Users, CheckSquare, FileText, Download, Star, Edit } from 'lucide-react'
+import {
+  ArrowLeft,
+  Scale,
+  Users,
+  CheckSquare,
+  FileText,
+  Download,
+  Star,
+  Edit,
+  Plus,
+  FolderTree,
+} from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import { CaseDialog } from '@/components/CaseDialog'
@@ -21,14 +32,17 @@ import { formatSafeLocalDate } from '@/lib/utils'
 
 export default function CaseDetail() {
   const { id } = useParams<{ id: string }>()
-  const { state, updateItem } = useLegalStore()
+  const { state, updateItem, addCase, addTask } = useLegalStore()
   const [selectedTpl, setSelectedTpl] = useState<string>('')
   const [isCaseOpen, setIsCaseOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<any>(null)
+  const [creatingTask, setCreatingTask] = useState(false)
+  const [creatingSubcase, setCreatingSubcase] = useState(false)
 
   const c = state.cases.find((x) => x.id === id)
   const client = state.clients.find((cl) => cl.id === c?.clientId)
   const tasks = state.tasks.filter((t) => t.relatedProcessId === id)
+  const subcases = state.cases.filter((sc) => sc.parentId === id)
 
   if (!c) return <div className="p-8 text-center">Processo não encontrado.</div>
 
@@ -72,11 +86,31 @@ export default function CaseDetail() {
         clients={state.clients}
         settings={state.settings}
       />
+      <CaseDialog
+        open={creatingSubcase}
+        onOpenChange={setCreatingSubcase}
+        data={{ parentId: c.id, clientId: c.clientId, isNew: true }}
+        onSave={(d: any) => addCase(d)}
+        users={state.users}
+        clients={state.clients}
+        settings={state.settings}
+      />
       <TaskDialog
         open={!!editingTask}
         onOpenChange={(v: boolean) => !v && setEditingTask(null)}
         data={editingTask}
         onSave={(d: any) => updateItem('tasks', d.id, d)}
+        users={state.users}
+        clients={state.clients}
+        cases={state.cases}
+        settings={state.settings}
+      />
+      <TaskDialog
+        open={creatingTask}
+        onOpenChange={setCreatingTask}
+        data={{ clientId: c.clientId, isNew: true }}
+        lockedProcessId={c.id}
+        onSave={(d: any) => addTask(d)}
         users={state.users}
         clients={state.clients}
         cases={state.cases}
@@ -113,8 +147,9 @@ export default function CaseDetail() {
       </div>
 
       <Tabs defaultValue="info" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 max-w-xl">
+        <TabsList className="grid w-full grid-cols-4 max-w-2xl">
           <TabsTrigger value="info">Informações</TabsTrigger>
+          <TabsTrigger value="subprocessos">Subprocessos</TabsTrigger>
           <TabsTrigger value="tasks">Tarefas</TabsTrigger>
           <TabsTrigger value="docs">Documentos</TabsTrigger>
         </TabsList>
@@ -167,15 +202,61 @@ export default function CaseDetail() {
           </Card>
         </TabsContent>
 
+        <TabsContent value="subprocessos" className="mt-4">
+          <Card className="shadow-sm">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <FolderTree className="h-5 w-5" /> Subprocessos Vinculados
+              </CardTitle>
+              <Button size="sm" onClick={() => setCreatingSubcase(true)}>
+                <Plus className="h-4 w-4 mr-2" /> Novo Subprocesso
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2 mt-2">
+                {subcases.map((sc) => (
+                  <div
+                    key={sc.id}
+                    className="flex justify-between items-center border p-3 rounded hover:bg-slate-50 transition-colors"
+                  >
+                    <div>
+                      <Link
+                        to={`/processos/${sc.id}`}
+                        className="font-semibold text-primary hover:underline flex items-center gap-2"
+                      >
+                        {sc.number}
+                      </Link>
+                      <div className="text-xs text-muted-foreground mt-1 flex gap-2">
+                        <span>{sc.type}</span>
+                        <span>•</span>
+                        <span>{sc.court}</span>
+                      </div>
+                    </div>
+                    <Badge variant="outline">{sc.status}</Badge>
+                  </div>
+                ))}
+                {subcases.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-6 bg-muted/20 border border-dashed rounded">
+                    Nenhum subprocesso vinculado (ex: Recursos, Cartas Precatórias).
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="tasks" className="mt-4">
           <Card className="shadow-sm">
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-lg flex items-center gap-2">
                 <CheckSquare className="h-5 w-5" /> Tarefas
               </CardTitle>
+              <Button size="sm" onClick={() => setCreatingTask(true)}>
+                <Plus className="h-4 w-4 mr-2" /> Incluir nova tarefa
+              </Button>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2">
+              <div className="space-y-2 mt-2">
                 {tasks.map((t) => {
                   const resp = state.users.find((u) => u.id === t.responsibleId)
                   return (

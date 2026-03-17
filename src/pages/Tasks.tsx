@@ -62,7 +62,7 @@ export default function Tasks() {
   const { state, updateItem, deleteItem, addTask } = useLegalStore()
   const [filters, setFilters] = useState(initialFilters)
   const [appliedFilters, setAppliedFilters] = useState(initialFilters)
-  const [searchOpen, setSearchOpen] = useState(true)
+  const [searchOpen, setSearchOpen] = useState(false)
   const [open, setOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<any>(null)
 
@@ -383,37 +383,35 @@ export default function Tasks() {
                     >
                       <Edit className="h-4 w-4" />
                     </Button>
-                    {state.currentUser.role === 'Admin' && (
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-red-500"
-                            title="Excluir"
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-red-500"
+                          title="Excluir"
+                        >
+                          <Trash className="h-4 w-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Excluir Tarefa?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Esta ação removerá a tarefa permanentemente do sistema.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-red-600 hover:bg-red-700"
+                            onClick={() => deleteItem('tasks', t.id)}
                           >
-                            <Trash className="h-4 w-4" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Excluir Tarefa?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Esta ação removerá a tarefa permanentemente do sistema.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                            <AlertDialogAction
-                              className="bg-red-600 hover:bg-red-700"
-                              onClick={() => deleteItem('tasks', t.id)}
-                            >
-                              Excluir
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    )}
+                            Excluir
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </div>
                 </CardContent>
               </Card>
@@ -426,13 +424,14 @@ export default function Tasks() {
             renderItem={(t) => {
               const resp = state.users.find((u) => u.id === t.responsibleId)
               const c = state.cases.find((x) => x.id === t.relatedProcessId)
+              const isDone = t.status.toLowerCase() === 'concluída'
               const bgColor = resp?.color || '#cbd5e1'
 
               return (
                 <div
                   key={t.id}
                   onClick={() => handleOpen(t)}
-                  className="text-[10px] p-1.5 border rounded mb-1 cursor-pointer hover:opacity-90 bg-white"
+                  className={`text-[10px] p-1.5 border rounded mb-1 cursor-pointer hover:opacity-90 bg-white ${isDone ? 'opacity-50' : ''}`}
                   style={{
                     backgroundColor: `${bgColor}20`,
                     borderLeftWidth: '3px',
@@ -441,7 +440,11 @@ export default function Tasks() {
                   }}
                 >
                   <div className="font-bold flex justify-between items-start gap-1">
-                    <span className="truncate">{t.type}</span>{' '}
+                    <span
+                      className={`truncate ${isDone ? 'line-through text-muted-foreground' : ''}`}
+                    >
+                      {t.type}
+                    </span>{' '}
                     {resp && (
                       <span
                         className="text-[8px] px-1 py-0.5 rounded truncate max-w-[50px] shrink-0"
@@ -453,7 +456,7 @@ export default function Tasks() {
                     )}
                   </div>
                   <div
-                    className="truncate mt-0.5 text-muted-foreground font-medium"
+                    className={`truncate mt-0.5 font-medium ${isDone ? 'line-through text-muted-foreground' : 'text-muted-foreground'}`}
                     title={c?.number || t.title}
                   >
                     {c?.number || t.title}

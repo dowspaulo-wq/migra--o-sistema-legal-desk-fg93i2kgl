@@ -28,6 +28,7 @@ export function TaskDialog({
   clients,
   cases,
   settings,
+  lockedProcessId,
 }: any) {
   const sortedUsers = [...users].sort((a: any, b: any) => a.name.localeCompare(b.name))
   const sortedClients = [...clients].sort((a: any, b: any) => a.name.localeCompare(b.name))
@@ -47,22 +48,22 @@ export function TaskDialog({
     priority: '',
     responsibleId: '',
     type: '',
-    clientId: 'none',
-    relatedProcessId: 'none',
+    clientId: '',
+    relatedProcessId: lockedProcessId || '',
   })
 
   const [fd, setFd] = useState(() =>
     data
       ? {
           ...data,
-          clientId: data.clientId || 'none',
-          relatedProcessId: data.relatedProcessId || 'none',
+          clientId: data.clientId || '',
+          relatedProcessId: lockedProcessId || data.relatedProcessId || '',
         }
       : getInitial(),
   )
 
   const sortedCases = [...cases]
-    .filter((c: any) => fd.clientId === 'none' || !fd.clientId || c.clientId === fd.clientId)
+    .filter((c: any) => !fd.clientId || c.clientId === fd.clientId)
     .sort((a: any, b: any) => a.number.localeCompare(b.number))
 
   useEffect(() => {
@@ -71,13 +72,13 @@ export function TaskDialog({
         data
           ? {
               ...data,
-              clientId: data.clientId || 'none',
-              relatedProcessId: data.relatedProcessId || 'none',
+              clientId: data.clientId || '',
+              relatedProcessId: lockedProcessId || data.relatedProcessId || '',
             }
           : getInitial(),
       )
     }
-  }, [data, open])
+  }, [data, open, lockedProcessId])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -91,10 +92,19 @@ export function TaskDialog({
       return
     }
 
+    if (!fd.relatedProcessId) {
+      toast({
+        title: 'Campo Obrigatório',
+        description: 'Por favor, selecione um Processo.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     onSave({
       ...fd,
-      clientId: fd.clientId === 'none' ? null : fd.clientId,
-      relatedProcessId: fd.relatedProcessId === 'none' ? null : fd.relatedProcessId,
+      clientId: fd.clientId || null,
+      relatedProcessId: fd.relatedProcessId,
     })
     onOpenChange(false)
   }
@@ -104,7 +114,7 @@ export function TaskDialog({
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <form onSubmit={handleSubmit} className="grid gap-4">
           <DialogHeader>
-            <DialogTitle>{data ? 'Editar' : 'Nova'} Tarefa</DialogTitle>
+            <DialogTitle>{data && !data.isNew ? 'Editar' : 'Nova'} Tarefa</DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2 space-y-2">
@@ -192,7 +202,6 @@ export function TaskDialog({
                   <SelectValue placeholder="Selecione um Cliente..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">Nenhum / Não vinculado</SelectItem>
                   {sortedClients.map((c: any) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.name}
@@ -202,16 +211,16 @@ export function TaskDialog({
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Processo</Label>
+              <Label>Processo *</Label>
               <Select
                 value={fd.relatedProcessId}
                 onValueChange={(v) => setFd({ ...fd, relatedProcessId: v })}
+                disabled={!!lockedProcessId}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione um Processo..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">Nenhum / Não vinculado</SelectItem>
                   {sortedCases.map((c: any) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.number}

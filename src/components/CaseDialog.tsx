@@ -51,9 +51,9 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
     a.localeCompare(b),
   )
 
-  const initial = data || {
+  const getInitial = () => ({
     number: '',
-    clientId: '',
+    clientId: data?.clientId || '',
     position: '',
     adverseParty: '',
     type: '',
@@ -69,13 +69,17 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
     description: '',
     internalNotes: '',
     alerts: '',
-  }
-  const [fd, setFd] = useState(initial)
+    parentId: data?.parentId || null,
+  })
+
+  const [fd, setFd] = useState(() => (data && !data.isNew ? data : getInitial()))
 
   const selectedAlerts = fd.alerts ? fd.alerts.split(',').filter(Boolean) : []
 
   useEffect(() => {
-    setFd(data || initial)
+    if (open) {
+      setFd(data && !data.isNew ? data : getInitial())
+    }
   }, [data, open])
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -116,7 +120,10 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <form onSubmit={handleSubmit} className="grid gap-4">
           <DialogHeader>
-            <DialogTitle>{data ? 'Editar' : 'Cadastrar'} Processo</DialogTitle>
+            <DialogTitle>
+              {data && !data.isNew ? 'Editar' : 'Cadastrar'} Processo{' '}
+              {fd.parentId && '(Subprocesso)'}
+            </DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <div className="col-span-2 flex gap-4 items-end pb-1">

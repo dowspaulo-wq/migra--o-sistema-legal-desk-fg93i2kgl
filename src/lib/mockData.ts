@@ -42,6 +42,7 @@ export interface Case {
   description: string
   internalNotes: string
   alerts: string
+  parentId?: string | null
 }
 export interface Task {
   id: string
@@ -68,6 +69,7 @@ export interface Appointment {
   clientId: string | null
   processId: string | null
   modality?: string
+  status: string
 }
 export interface Transaction {
   id: string
