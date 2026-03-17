@@ -4,7 +4,6 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -13,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,25 +24,47 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
-import { Plus, Trash, Edit, LayoutGrid, List, CheckCircle2, Circle, Filter } from 'lucide-react'
+import {
+  Plus,
+  Trash,
+  Edit,
+  LayoutGrid,
+  List,
+  CheckCircle2,
+  Circle,
+  Filter,
+  ChevronDown,
+  ChevronUp,
+  Search,
+  X,
+} from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import useLegalStore from '@/stores/useLegalStore'
 import { TaskDialog } from '@/components/TaskDialog'
 import { FullCalendar } from '@/components/FullCalendar'
-import { formatSafeLocalDate, getPriorityColorClass } from '@/lib/utils'
+import { formatSafeLocalDate, getPriorityColorClass, normalizeStr } from '@/lib/utils'
+import { DatePicker } from '@/components/ui/date-picker'
+import { MultiSelect } from '@/components/ui/multi-select'
+
+const initialFilters = {
+  titulo: '',
+  status: [] as string[],
+  prioridade: 'Todos',
+  tipo: 'Todos',
+  responsavelId: 'Todos',
+  clienteId: 'Todos',
+  numeroProcesso: '',
+  dataVencimentoDe: '',
+  dataVencimentoAte: '',
+}
 
 export default function Tasks() {
   const { state, updateItem, deleteItem, addTask } = useLegalStore()
+  const [filters, setFilters] = useState(initialFilters)
+  const [appliedFilters, setAppliedFilters] = useState(initialFilters)
+  const [searchOpen, setSearchOpen] = useState(true)
   const [open, setOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<any>(null)
-  const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('Todos')
-  const [typeFilter, setTypeFilter] = useState('Todos')
-  const [priorityFilter, setPriorityFilter] = useState('Todos')
-  const [respFilter, setRespFilter] = useState('Todos')
-  const [clientFilter, setClientFilter] = useState('Todos')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
 
   const sortedUsers = [...state.users].sort((a, b) => a.name.localeCompare(b.name))
   const sortedClients = [...state.clients].sort((a, b) => a.name.localeCompare(b.name))
@@ -50,31 +72,20 @@ export default function Tasks() {
   const sortedStatuses = [...(state.settings.taskStatuses || [])].sort((a, b) => a.localeCompare(b))
 
   const filtered = state.tasks.filter((t) => {
-    const mSearch = t.title.toLowerCase().includes(search.toLowerCase())
-    const mStatus =
-      statusFilter === 'Todos' || (statusFilter === 'Vazio' ? !t.status : t.status === statusFilter)
-    const mType =
-      typeFilter === 'Todos' || (typeFilter === 'Vazio' ? !t.type : t.type === typeFilter)
-    const mPriority =
-      priorityFilter === 'Todos' ||
-      (priorityFilter === 'Vazio' ? !t.priority : t.priority === priorityFilter)
-    const mResp =
-      respFilter === 'Todos' ||
-      (respFilter === 'Vazio' ? !t.responsibleId : t.responsibleId === respFilter)
-    const mClient =
-      clientFilter === 'Todos' ||
-      (clientFilter === 'Vazio' ? !t.clientId : t.clientId === clientFilter)
-
-    let mDate = true
-    if (dateFrom && dateTo && t.dueDate) {
-      mDate = t.dueDate >= dateFrom && t.dueDate <= dateTo
-    } else if (dateFrom && t.dueDate) {
-      mDate = t.dueDate >= dateFrom
-    } else if (dateTo && t.dueDate) {
-      mDate = t.dueDate <= dateTo
+    const f = appliedFilters
+    if (f.titulo && !normalizeStr(t.title).includes(normalizeStr(f.titulo))) return false
+    if (f.status.length > 0 && !f.status.includes(t.status)) return false
+    if (f.prioridade !== 'Todos' && t.priority !== f.prioridade) return false
+    if (f.tipo !== 'Todos' && t.type !== f.tipo) return false
+    if (f.responsavelId !== 'Todos' && t.responsibleId !== f.responsavelId) return false
+    if (f.clienteId !== 'Todos' && t.clientId !== f.clienteId) return false
+    if (f.numeroProcesso) {
+      const c = state.cases.find((x) => x.id === t.relatedProcessId)
+      if (!c || !normalizeStr(c.number).includes(normalizeStr(f.numeroProcesso))) return false
     }
-
-    return mSearch && mStatus && mType && mPriority && mResp && mClient && mDate
+    if (f.dataVencimentoDe && (!t.dueDate || t.dueDate < f.dataVencimentoDe)) return false
+    if (f.dataVencimentoAte && (!t.dueDate || t.dueDate > f.dataVencimentoAte)) return false
+    return true
   })
 
   const handleOpen = (item?: any) => {
@@ -109,145 +120,172 @@ export default function Tasks() {
         settings={state.settings}
       />
 
-      <Card className="shadow-sm">
-        <CardContent className="p-4 flex flex-col md:flex-row gap-4 justify-between items-center">
-          <div className="flex gap-2 w-full max-w-md">
-            <Input
-              placeholder="Buscar tarefa..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="flex-1"
-            />
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" className="flex items-center gap-2">
-                  <Filter className="h-4 w-4" /> Filtros
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-80 max-h-[80vh] overflow-y-auto space-y-4">
-                <h4 className="font-medium text-sm border-b pb-2">Filtros Avançados</h4>
-                <div className="space-y-2">
-                  <Label className="text-xs">Status</Label>
-                  <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Todos">Todos</SelectItem>
-                      <SelectItem value="Vazio">Não Informado (Vazio)</SelectItem>
-                      {sortedStatuses.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          {s}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs">Tipo de Tarefa</Label>
-                  <Select value={typeFilter} onValueChange={setTypeFilter}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Tipo" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Todos">Todos</SelectItem>
-                      <SelectItem value="Vazio">Não Informado (Vazio)</SelectItem>
-                      {sortedTypes.map((t) => (
-                        <SelectItem key={t} value={t}>
-                          {t}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs">Prioridade</Label>
-                  <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Prioridade" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Todos">Todos</SelectItem>
-                      <SelectItem value="Vazio">Não Informado (Vazio)</SelectItem>
-                      <SelectItem value="Baixa">Baixa</SelectItem>
-                      <SelectItem value="Média">Média</SelectItem>
-                      <SelectItem value="Alta">Alta</SelectItem>
-                      <SelectItem value="Urgente">Urgente</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs">Responsável</Label>
-                  <Select value={respFilter} onValueChange={setRespFilter}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Responsável" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Todos">Todos</SelectItem>
-                      <SelectItem value="Vazio">Não Atribuído (Vazio)</SelectItem>
-                      {sortedUsers.map((u) => (
-                        <SelectItem key={u.id} value={u.id}>
-                          {u.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs">Cliente</Label>
-                  <Select value={clientFilter} onValueChange={setClientFilter}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Cliente" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Todos">Todos</SelectItem>
-                      <SelectItem value="Vazio">Sem Cliente (Vazio)</SelectItem>
-                      {sortedClients.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-2">
-                    <Label className="text-xs">Vencimento De</Label>
-                    <Input
-                      type="date"
-                      value={dateFrom}
-                      onChange={(e) => setDateFrom(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-xs">Vencimento Até</Label>
-                    <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
-                  </div>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full mt-2"
-                  onClick={() => {
-                    setStatusFilter('Todos')
-                    setTypeFilter('Todos')
-                    setPriorityFilter('Todos')
-                    setRespFilter('Todos')
-                    setClientFilter('Todos')
-                    setDateFrom('')
-                    setDateTo('')
-                  }}
-                >
-                  Limpar Filtros
-                </Button>
-              </PopoverContent>
-            </Popover>
+      <Collapsible
+        open={searchOpen}
+        onOpenChange={setSearchOpen}
+        className="bg-card border rounded-lg shadow-sm"
+      >
+        <CollapsibleTrigger asChild>
+          <div className="flex items-center justify-between p-4 cursor-pointer hover:bg-muted/50 transition-colors rounded-t-lg">
+            <div className="flex items-center gap-2 font-bold text-primary">
+              <Filter className="h-5 w-5" />
+              Pesquisa Avançada
+            </div>
+            {searchOpen ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
           </div>
-        </CardContent>
-      </Card>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="px-4 pb-4">
+          <div className="border-t pt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">
+                Título da Tarefa
+              </Label>
+              <Input
+                placeholder="Buscar por título..."
+                value={filters.titulo}
+                onChange={(e) => setFilters({ ...filters, titulo: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">Status</Label>
+              <MultiSelect
+                options={sortedStatuses}
+                values={filters.status}
+                onChange={(v) => setFilters({ ...filters, status: v })}
+                placeholder="Todos os status"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">Prioridade</Label>
+              <Select
+                value={filters.prioridade}
+                onValueChange={(v) => setFilters({ ...filters, prioridade: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Todos">Todas</SelectItem>
+                  <SelectItem value="Baixa">Baixa</SelectItem>
+                  <SelectItem value="Média">Média</SelectItem>
+                  <SelectItem value="Alta">Alta</SelectItem>
+                  <SelectItem value="Urgente">Urgente</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">Tipo de Tarefa</Label>
+              <Select
+                value={filters.tipo}
+                onValueChange={(v) => setFilters({ ...filters, tipo: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos os tipos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Todos">Todos os tipos</SelectItem>
+                  {sortedTypes.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {t}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">
+                Colaborador Responsável
+              </Label>
+              <Select
+                value={filters.responsavelId}
+                onValueChange={(v) => setFilters({ ...filters, responsavelId: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Todos">Todos</SelectItem>
+                  {sortedUsers.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">Cliente</Label>
+              <Select
+                value={filters.clienteId}
+                onValueChange={(v) => setFilters({ ...filters, clienteId: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos os clientes" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Todos">Todos os clientes</SelectItem>
+                  {sortedClients.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">
+                Número do Processo
+              </Label>
+              <Input
+                placeholder="0000000-00.0000.0.00.0000"
+                value={filters.numeroProcesso}
+                onChange={(e) => setFilters({ ...filters, numeroProcesso: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">
+                Data de Vencimento (De)
+              </Label>
+              <DatePicker
+                value={filters.dataVencimentoDe}
+                onChange={(v) => setFilters({ ...filters, dataVencimentoDe: v })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">
+                Data de Vencimento (Até)
+              </Label>
+              <DatePicker
+                value={filters.dataVencimentoAte}
+                onChange={(v) => setFilters({ ...filters, dataVencimentoAte: v })}
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-4 mt-4 border-t">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setFilters(initialFilters)
+                setAppliedFilters(initialFilters)
+              }}
+            >
+              <X className="mr-2 h-4 w-4" /> Limpar Filtros
+            </Button>
+            <Button
+              onClick={() => setAppliedFilters(filters)}
+              className="bg-primary text-primary-foreground"
+            >
+              <Search className="mr-2 h-4 w-4" /> Pesquisar
+            </Button>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
 
       <Tabs defaultValue="list">
-        <div className="flex justify-end mb-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
+          <p className="text-sm font-medium text-muted-foreground">
+            {filtered.length} tarefa(s) encontrada(s)
+          </p>
           <TabsList>
             <TabsTrigger value="list">
               <List className="h-4 w-4 mr-2" /> Lista

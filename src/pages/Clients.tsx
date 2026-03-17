@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import {
@@ -20,8 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Label } from '@/components/ui/label'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -46,19 +46,32 @@ import {
   ArrowUp,
   ArrowDown,
   ArrowUpDown,
+  ChevronDown,
+  ChevronUp,
+  Search,
+  X,
 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import { ClientDialog } from '@/components/ClientDialog'
 import { normalizeStr } from '@/lib/utils'
 
+const initialFilters = {
+  nome: '',
+  documento: '',
+  tipo: 'Todos',
+  status: 'Todos',
+  email: '',
+  telefone: '',
+  responsavelId: 'Todos',
+  especial: 'Todos',
+}
+
 export default function Clients() {
   const { state, addClient, updateItem, deleteItem } = useLegalStore()
-  const [searchTerm, setSearchTerm] = useState('')
-  const [statusFilter, setStatusFilter] = useState('Todos')
-  const [typeFilter, setTypeFilter] = useState('Todos')
-  const [respFilter, setRespFilter] = useState('Todos')
-  const [captacaoFilter, setCaptacaoFilter] = useState('Todos')
+  const [filters, setFilters] = useState(initialFilters)
+  const [appliedFilters, setAppliedFilters] = useState(initialFilters)
+  const [searchOpen, setSearchOpen] = useState(true)
   const [open, setOpen] = useState(false)
   const [editingClient, setEditingClient] = useState<any>(null)
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(
@@ -66,27 +79,21 @@ export default function Clients() {
   )
 
   const sortedUsers = [...state.users].sort((a, b) => a.name.localeCompare(b.name))
-  const sortedCaptacao = [...(state.settings?.captacaoOptions || [])].sort((a, b) =>
-    a.localeCompare(b),
-  )
 
   const filtered = state.clients.filter((c) => {
-    const normalizedSearch = normalizeStr(searchTerm)
-    const matchSearch =
-      normalizeStr(c.name).includes(normalizedSearch) ||
-      normalizeStr(c.document).includes(normalizedSearch)
-
-    const matchStatus =
-      statusFilter === 'Todos' || (statusFilter === 'Vazio' ? !c.status : c.status === statusFilter)
-    const matchType =
-      typeFilter === 'Todos' || (typeFilter === 'Vazio' ? !c.type : c.type === typeFilter)
-    const matchResp =
-      respFilter === 'Todos' ||
-      (respFilter === 'Vazio' ? !c.responsibleId : c.responsibleId === respFilter)
-    const matchCaptacao =
-      captacaoFilter === 'Todos' ||
-      (captacaoFilter === 'Vazio' ? !c.captacao : c.captacao === captacaoFilter)
-    return matchSearch && matchStatus && matchType && matchResp && matchCaptacao
+    const f = appliedFilters
+    if (f.nome && !normalizeStr(c.name).includes(normalizeStr(f.nome))) return false
+    if (f.documento && !normalizeStr(c.document).includes(normalizeStr(f.documento))) return false
+    if (f.tipo !== 'Todos' && c.type !== f.tipo) return false
+    if (f.status !== 'Todos' && c.status !== f.status) return false
+    if (f.email && !normalizeStr(c.email).includes(normalizeStr(f.email))) return false
+    if (f.telefone && !normalizeStr(c.phone).includes(normalizeStr(f.telefone))) return false
+    if (f.responsavelId !== 'Todos' && c.responsibleId !== f.responsavelId) return false
+    if (f.especial !== 'Todos') {
+      const isEspecial = f.especial === 'Sim'
+      if (!!c.isSpecial !== isEspecial) return false
+    }
+    return true
   })
 
   const sortedAndFiltered = [...filtered].sort((a: any, b: any) => {
@@ -155,106 +162,155 @@ export default function Clients() {
         settings={state.settings}
       />
 
-      <Card className="shadow-sm">
-        <CardHeader className="py-4 flex flex-col md:flex-row gap-4">
-          <div className="flex gap-2 w-full max-w-md">
-            <Input
-              type="search"
-              placeholder="Buscar por nome ou CPF..."
-              className="flex-1"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" className="flex items-center gap-2">
-                  <Filter className="h-4 w-4" /> Filtros
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-80 space-y-4">
-                <h4 className="font-medium text-sm border-b pb-2">Filtros Avançados</h4>
-                <div className="space-y-2">
-                  <Label className="text-xs">Status</Label>
-                  <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Todos">Todos</SelectItem>
-                      <SelectItem value="Vazio">Não Informado (Vazio)</SelectItem>
-                      <SelectItem value="Ativo">Ativo</SelectItem>
-                      <SelectItem value="Baixado">Baixado</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs">Tipo de Pessoa</Label>
-                  <Select value={typeFilter} onValueChange={setTypeFilter}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Tipo" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Todos">Todos</SelectItem>
-                      <SelectItem value="Vazio">Não Informado (Vazio)</SelectItem>
-                      <SelectItem value="PF">Pessoa Física</SelectItem>
-                      <SelectItem value="PJ">Pessoa Jurídica</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs">Responsável</Label>
-                  <Select value={respFilter} onValueChange={setRespFilter}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Responsável" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Todos">Todos</SelectItem>
-                      <SelectItem value="Vazio">Não Atribuído (Vazio)</SelectItem>
-                      {sortedUsers.map((u) => (
-                        <SelectItem key={u.id} value={u.id}>
-                          {u.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs">Captação</Label>
-                  <Select value={captacaoFilter} onValueChange={setCaptacaoFilter}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Captação" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Todos">Todos</SelectItem>
-                      <SelectItem value="Vazio">Não Informado (Vazio)</SelectItem>
-                      {sortedCaptacao.map((c) => (
-                        <SelectItem key={c} value={c}>
-                          {c}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full mt-2"
-                  onClick={() => {
-                    setStatusFilter('Todos')
-                    setTypeFilter('Todos')
-                    setRespFilter('Todos')
-                    setCaptacaoFilter('Todos')
-                  }}
-                >
-                  Limpar Filtros
-                </Button>
-              </PopoverContent>
-            </Popover>
+      <Collapsible
+        open={searchOpen}
+        onOpenChange={setSearchOpen}
+        className="bg-card border rounded-lg shadow-sm"
+      >
+        <CollapsibleTrigger asChild>
+          <div className="flex items-center justify-between p-4 cursor-pointer hover:bg-muted/50 transition-colors rounded-t-lg">
+            <div className="flex items-center gap-2 font-bold text-primary">
+              <Filter className="h-5 w-5" />
+              Pesquisa Avançada
+            </div>
+            {searchOpen ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
           </div>
-        </CardHeader>
-        <CardContent>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="px-4 pb-4">
+          <div className="border-t pt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">Nome do Cliente</Label>
+              <Input
+                placeholder="Buscar por nome..."
+                value={filters.nome}
+                onChange={(e) => setFilters({ ...filters, nome: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">
+                Documento (CPF/CNPJ)
+              </Label>
+              <Input
+                placeholder="Buscar por documento..."
+                value={filters.documento}
+                onChange={(e) => setFilters({ ...filters, documento: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">Tipo</Label>
+              <Select
+                value={filters.tipo}
+                onValueChange={(v) => setFilters({ ...filters, tipo: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Todos">Todos</SelectItem>
+                  <SelectItem value="PF">Pessoa Física</SelectItem>
+                  <SelectItem value="PJ">Pessoa Jurídica</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">Status</Label>
+              <Select
+                value={filters.status}
+                onValueChange={(v) => setFilters({ ...filters, status: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos os status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Todos">Todos os status</SelectItem>
+                  <SelectItem value="Ativo">Ativo</SelectItem>
+                  <SelectItem value="Baixado">Inativo (Baixado)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">E-mail</Label>
+              <Input
+                placeholder="Buscar por e-mail..."
+                value={filters.email}
+                onChange={(e) => setFilters({ ...filters, email: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">Telefone</Label>
+              <Input
+                placeholder="Buscar por telefone..."
+                value={filters.telefone}
+                onChange={(e) => setFilters({ ...filters, telefone: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">
+                Colaborador Responsável
+              </Label>
+              <Select
+                value={filters.responsavelId}
+                onValueChange={(v) => setFilters({ ...filters, responsavelId: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Todos">Todos</SelectItem>
+                  {sortedUsers.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">
+                Cliente Especial
+              </Label>
+              <Select
+                value={filters.especial}
+                onValueChange={(v) => setFilters({ ...filters, especial: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Todos">Todos</SelectItem>
+                  <SelectItem value="Sim">Sim</SelectItem>
+                  <SelectItem value="Não">Não</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-4 mt-4 border-t">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setFilters(initialFilters)
+                setAppliedFilters(initialFilters)
+              }}
+            >
+              <X className="mr-2 h-4 w-4" /> Limpar Filtros
+            </Button>
+            <Button
+              onClick={() => setAppliedFilters(filters)}
+              className="bg-primary text-primary-foreground"
+            >
+              <Search className="mr-2 h-4 w-4" /> Pesquisar
+            </Button>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+
+      <Card className="shadow-sm">
+        <CardContent className="p-4">
           <Tabs defaultValue="list">
-            <div className="flex justify-end mb-4">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
+              <p className="text-sm font-medium text-muted-foreground">
+                {sortedAndFiltered.length} cliente(s) encontrado(s)
+              </p>
               <TabsList>
                 <TabsTrigger value="list">
                   <List className="h-4 w-4 mr-2" /> Lista

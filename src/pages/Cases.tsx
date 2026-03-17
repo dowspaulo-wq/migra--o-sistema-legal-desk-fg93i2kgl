@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -12,8 +12,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Label } from '@/components/ui/label'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -25,21 +25,46 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
-import { Search, Plus, Edit, Trash2, LayoutGrid, List, Star, Filter } from 'lucide-react'
+import {
+  Plus,
+  Edit,
+  Trash2,
+  LayoutGrid,
+  List,
+  Star,
+  Filter,
+  ChevronDown,
+  ChevronUp,
+  Search,
+  X,
+} from 'lucide-react'
+import { DatePicker } from '@/components/ui/date-picker'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import { CaseDialog } from '@/components/CaseDialog'
 import { normalizeStr } from '@/lib/utils'
 
+const initialFilters = {
+  numero: '',
+  clienteId: 'Todos',
+  tipo: 'Todos',
+  status: 'Todos',
+  vara: '',
+  comarca: '',
+  estado: '',
+  valorMin: '',
+  valorMax: '',
+  dataInicioDe: '',
+  dataInicioAte: '',
+  responsavelId: 'Todos',
+  especial: 'Todos',
+}
+
 export default function Cases() {
   const { state, addCase, updateItem, deleteItem } = useLegalStore()
-  const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('Todos')
-  const [typeFilter, setTypeFilter] = useState('Todos')
-  const [respFilter, setRespFilter] = useState('Todos')
-  const [clientFilter, setClientFilter] = useState('Todos')
-  const [minVal, setMinVal] = useState('')
-  const [maxVal, setMaxVal] = useState('')
+  const [filters, setFilters] = useState(initialFilters)
+  const [appliedFilters, setAppliedFilters] = useState(initialFilters)
+  const [searchOpen, setSearchOpen] = useState(true)
   const [open, setOpen] = useState(false)
   const [editingCase, setEditingCase] = useState<any>(null)
 
@@ -56,28 +81,24 @@ export default function Cases() {
   const sortedStatuses = [...(state.settings.caseStatuses || [])].sort((a, b) => a.localeCompare(b))
 
   const filtered = state.cases.filter((c) => {
-    const client = state.clients.find((cl) => cl.id === c.clientId)
-    const clientName = client ? client.name : ''
-
-    const normalizedSearch = normalizeStr(search)
-    const mSearch =
-      normalizeStr((c.number || '').toString()).includes(normalizedSearch) ||
-      normalizeStr(c.adverseParty).includes(normalizedSearch) ||
-      normalizeStr(clientName).includes(normalizedSearch)
-
-    const mStatus =
-      statusFilter === 'Todos' || (statusFilter === 'Vazio' ? !c.status : c.status === statusFilter)
-    const mType =
-      typeFilter === 'Todos' || (typeFilter === 'Vazio' ? !c.type : c.type === typeFilter)
-    const mResp =
-      respFilter === 'Todos' ||
-      (respFilter === 'Vazio' ? !c.responsibleId : c.responsibleId === respFilter)
-    const mClient =
-      clientFilter === 'Todos' ||
-      (clientFilter === 'Vazio' ? !c.clientId : c.clientId === clientFilter)
-    const mMin = minVal === '' || (c.value || 0) >= Number(minVal)
-    const mMax = maxVal === '' || (c.value || 0) <= Number(maxVal)
-    return mSearch && mStatus && mType && mResp && mClient && mMin && mMax
+    const f = appliedFilters
+    if (f.numero && !normalizeStr(c.number).includes(normalizeStr(f.numero))) return false
+    if (f.clienteId !== 'Todos' && c.clientId !== f.clienteId) return false
+    if (f.tipo !== 'Todos' && c.type !== f.tipo) return false
+    if (f.status !== 'Todos' && c.status !== f.status) return false
+    if (f.vara && !normalizeStr(c.court).includes(normalizeStr(f.vara))) return false
+    if (f.comarca && !normalizeStr(c.comarca).includes(normalizeStr(f.comarca))) return false
+    if (f.estado && !normalizeStr(c.state).includes(normalizeStr(f.estado))) return false
+    if (f.valorMin !== '' && c.value < Number(f.valorMin)) return false
+    if (f.valorMax !== '' && c.value > Number(f.valorMax)) return false
+    if (f.dataInicioDe && (!c.startDate || c.startDate < f.dataInicioDe)) return false
+    if (f.dataInicioAte && (!c.startDate || c.startDate > f.dataInicioAte)) return false
+    if (f.responsavelId !== 'Todos' && c.responsibleId !== f.responsavelId) return false
+    if (f.especial !== 'Todos') {
+      const isEspecial = f.especial === 'Sim'
+      if (!!c.isSpecial !== isEspecial) return false
+    }
+    return true
   })
 
   const handleOpen = (c?: any) => {
@@ -128,135 +149,225 @@ export default function Cases() {
         settings={state.settings}
       />
 
-      <Card className="shadow-sm">
-        <CardHeader className="py-4 flex flex-col md:flex-row gap-4">
-          <div className="flex gap-2 w-full max-w-md">
-            <Input
-              type="search"
-              placeholder="Buscar por número, cliente ou adversa..."
-              className="flex-1"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" className="flex items-center gap-2">
-                  <Filter className="h-4 w-4" /> Filtros
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-80 max-h-[80vh] overflow-y-auto space-y-4">
-                <h4 className="font-medium text-sm border-b pb-2">Filtros Avançados</h4>
-                <div className="space-y-2">
-                  <Label className="text-xs">Status</Label>
-                  <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Todos">Todos</SelectItem>
-                      <SelectItem value="Vazio">Não Informado (Vazio)</SelectItem>
-                      {sortedStatuses.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          {s}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs">Tipo de Ação</Label>
-                  <Select value={typeFilter} onValueChange={setTypeFilter}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Tipo" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Todos">Todos</SelectItem>
-                      <SelectItem value="Vazio">Não Informado (Vazio)</SelectItem>
-                      {sortedTypes.map((t: any) => {
-                        const label = typeof t === 'string' ? t : t.label
-                        return (
-                          <SelectItem key={label} value={label}>
-                            {label}
-                          </SelectItem>
-                        )
-                      })}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs">Responsável</Label>
-                  <Select value={respFilter} onValueChange={setRespFilter}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Responsável" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Todos">Todos</SelectItem>
-                      <SelectItem value="Vazio">Não Atribuído (Vazio)</SelectItem>
-                      {sortedUsers.map((u) => (
-                        <SelectItem key={u.id} value={u.id}>
-                          {u.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs">Cliente</Label>
-                  <Select value={clientFilter} onValueChange={setClientFilter}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Cliente" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Todos">Todos</SelectItem>
-                      <SelectItem value="Vazio">Sem Cliente (Vazio)</SelectItem>
-                      {sortedClients.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-2">
-                    <Label className="text-xs">Valor Mínimo (R$)</Label>
-                    <Input
-                      type="number"
-                      value={minVal}
-                      onChange={(e) => setMinVal(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-xs">Valor Máximo (R$)</Label>
-                    <Input
-                      type="number"
-                      value={maxVal}
-                      onChange={(e) => setMaxVal(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full mt-2"
-                  onClick={() => {
-                    setStatusFilter('Todos')
-                    setTypeFilter('Todos')
-                    setRespFilter('Todos')
-                    setClientFilter('Todos')
-                    setMinVal('')
-                    setMaxVal('')
-                  }}
-                >
-                  Limpar Filtros
-                </Button>
-              </PopoverContent>
-            </Popover>
+      <Collapsible
+        open={searchOpen}
+        onOpenChange={setSearchOpen}
+        className="bg-card border rounded-lg shadow-sm"
+      >
+        <CollapsibleTrigger asChild>
+          <div className="flex items-center justify-between p-4 cursor-pointer hover:bg-muted/50 transition-colors rounded-t-lg">
+            <div className="flex items-center gap-2 font-bold text-primary">
+              <Filter className="h-5 w-5" />
+              Pesquisa Avançada
+            </div>
+            {searchOpen ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
           </div>
-        </CardHeader>
-        <CardContent>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="px-4 pb-4">
+          <div className="border-t pt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">
+                Número do Processo
+              </Label>
+              <Input
+                placeholder="0000000-00.0000.0.00.0000"
+                value={filters.numero}
+                onChange={(e) => setFilters({ ...filters, numero: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">Cliente</Label>
+              <Select
+                value={filters.clienteId}
+                onValueChange={(v) => setFilters({ ...filters, clienteId: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos os clientes" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Todos">Todos os clientes</SelectItem>
+                  {sortedClients.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">
+                Tipo de Processo
+              </Label>
+              <Select
+                value={filters.tipo}
+                onValueChange={(v) => setFilters({ ...filters, tipo: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos os tipos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Todos">Todos os tipos</SelectItem>
+                  {sortedTypes.map((t: any) => {
+                    const label = typeof t === 'string' ? t : t.label
+                    return (
+                      <SelectItem key={label} value={label}>
+                        {label}
+                      </SelectItem>
+                    )
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">Status</Label>
+              <Select
+                value={filters.status}
+                onValueChange={(v) => setFilters({ ...filters, status: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos os status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Todos">Todos os status</SelectItem>
+                  {sortedStatuses.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">Vara</Label>
+              <Input
+                placeholder="Ex: 1ª Vara Cível"
+                value={filters.vara}
+                onChange={(e) => setFilters({ ...filters, vara: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">Comarca</Label>
+              <Input
+                placeholder="Ex: São Paulo"
+                value={filters.comarca}
+                onChange={(e) => setFilters({ ...filters, comarca: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">Estado</Label>
+              <Input
+                placeholder="Ex: SP"
+                value={filters.estado}
+                onChange={(e) => setFilters({ ...filters, estado: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">
+                Valor da Causa (Mín)
+              </Label>
+              <Input
+                type="number"
+                placeholder="0.00"
+                value={filters.valorMin}
+                onChange={(e) => setFilters({ ...filters, valorMin: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">
+                Valor da Causa (Máx)
+              </Label>
+              <Input
+                type="number"
+                placeholder="0.00"
+                value={filters.valorMax}
+                onChange={(e) => setFilters({ ...filters, valorMax: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">
+                Data Início (De)
+              </Label>
+              <DatePicker
+                value={filters.dataInicioDe}
+                onChange={(v) => setFilters({ ...filters, dataInicioDe: v })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">
+                Data Início (Até)
+              </Label>
+              <DatePicker
+                value={filters.dataInicioAte}
+                onChange={(v) => setFilters({ ...filters, dataInicioAte: v })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">
+                Colaborador Responsável
+              </Label>
+              <Select
+                value={filters.responsavelId}
+                onValueChange={(v) => setFilters({ ...filters, responsavelId: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Todos">Todos</SelectItem>
+                  {sortedUsers.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">
+                Processo Especial
+              </Label>
+              <Select
+                value={filters.especial}
+                onValueChange={(v) => setFilters({ ...filters, especial: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Todos">Todos</SelectItem>
+                  <SelectItem value="Sim">Sim</SelectItem>
+                  <SelectItem value="Não">Não</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-4 mt-4 border-t">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setFilters(initialFilters)
+                setAppliedFilters(initialFilters)
+              }}
+            >
+              <X className="mr-2 h-4 w-4" /> Limpar Filtros
+            </Button>
+            <Button
+              onClick={() => setAppliedFilters(filters)}
+              className="bg-primary text-primary-foreground"
+            >
+              <Search className="mr-2 h-4 w-4" /> Pesquisar
+            </Button>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+
+      <Card className="shadow-sm">
+        <CardContent className="p-4">
           <Tabs defaultValue="list">
-            <div className="flex justify-end mb-4">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
+              <p className="text-sm font-medium text-muted-foreground">
+                {filtered.length} processo(s) encontrado(s)
+              </p>
               <TabsList>
                 <TabsTrigger value="list">
                   <List className="h-4 w-4 mr-2" /> Lista
