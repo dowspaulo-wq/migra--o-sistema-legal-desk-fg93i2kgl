@@ -135,29 +135,6 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     [state.currentUser.name],
   )
 
-  const updateItem = useCallback(async (table: string, id: string, changes: any) => {
-    if (changes._delete) return deleteItem(table, id)
-
-    if (table === 'settings') {
-      setState((prev) => ({ ...prev, settings: { ...prev.settings, ...changes } }))
-      if (id && id !== 'default') {
-        await supabase.from(table).update(changes).eq('id', id)
-      } else {
-        // Automatically insert settings if missing when user updates
-        const { data } = await supabase.from(table).insert(changes).select().single()
-        if (data) setState((prev) => ({ ...prev, settings: { ...prev.settings, id: data.id } }))
-      }
-    } else {
-      setState((prev) => ({
-        ...prev,
-        [table]: (prev[table as keyof LegalState] as any[]).map((item) =>
-          item.id === id ? { ...item, ...changes } : item,
-        ),
-      }))
-      await supabase.from(table).update(changes).eq('id', id)
-    }
-  }, [])
-
   const deleteItem = useCallback(
     async (table: string, id: string) => {
       setState((prev) => ({
@@ -168,6 +145,78 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       addLog('Excluir', table, `Registro ${id} removido`)
     },
     [addLog],
+  )
+
+  const updateItem = useCallback(
+    async (table: string, id: string, changes: any) => {
+      if (changes._delete) return deleteItem(table, id)
+
+      let originalItem: any
+
+      if (table === 'settings') {
+        setState((prev) => ({ ...prev, settings: { ...prev.settings, ...changes } }))
+        if (id && id !== 'default') {
+          await supabase.from(table).update(changes).eq('id', id)
+        } else {
+          // Automatically insert settings if missing when user updates
+          const { data } = await supabase.from(table).insert(changes).select().single()
+          if (data) setState((prev) => ({ ...prev, settings: { ...prev.settings, id: data.id } }))
+        }
+      } else {
+        setState((prev) => {
+          const arr = prev[table as keyof LegalState] as any[]
+          originalItem = arr?.find((item) => item.id === id)
+          return {
+            ...prev,
+            [table]: arr?.map((item) => (item.id === id ? { ...item, ...changes } : item)),
+          }
+        })
+        await supabase.from(table).update(changes).eq('id', id)
+
+        if (table === 'appointments' && originalItem) {
+          const updatedItem = { ...originalItem, ...changes }
+          const wasHoliday = originalItem.type?.toLowerCase() === 'feriado'
+          const isHoliday = updatedItem.type?.toLowerCase() === 'feriado'
+          const dateChanged = originalItem.date !== updatedItem.date
+
+          if (isHoliday && (!wasHoliday || dateChanged)) {
+            const [y, m, d] = updatedItem.date.split('-')
+            const isLeapDay = m === '02' && d === '29'
+            const futureHolidays = []
+            for (let i = 1; i <= 5; i++) {
+              let ny = parseInt(y) + i
+              let nm = m
+              let nd = d
+              if (isLeapDay && !((ny % 4 === 0 && ny % 100 !== 0) || ny % 400 === 0)) {
+                nm = '02'
+                nd = '28'
+              }
+              futureHolidays.push({
+                title: updatedItem.title,
+                type: updatedItem.type,
+                priority: 'Baixa',
+                date: `${ny}-${nm}-${nd}`,
+                time: updatedItem.time,
+                description: updatedItem.description,
+                responsibleId: updatedItem.responsibleId,
+                clientId: updatedItem.clientId,
+                processId: updatedItem.processId,
+              })
+            }
+            supabase
+              .from('appointments')
+              .insert(futureHolidays)
+              .select()
+              .then(({ data, error }) => {
+                if (data && !error) {
+                  setState((prev) => ({ ...prev, appointments: [...data, ...prev.appointments] }))
+                }
+              })
+          }
+        }
+      }
+    },
+    [deleteItem],
   )
 
   const addClient = useCallback(async (client: Omit<Client, 'id'>) => {
@@ -191,9 +240,32 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const addAppointment = useCallback(async (app: Omit<Appointment, 'id'>) => {
-    const { data, error } = await supabase.from('appointments').insert(app).select().single()
+    let toInsert = [app]
+
+    if (app.type?.toLowerCase() === 'feriado') {
+      app.priority = 'Baixa'
+      const [y, m, d] = app.date.split('-')
+      const isLeapDay = m === '02' && d === '29'
+
+      for (let i = 1; i <= 5; i++) {
+        let ny = parseInt(y) + i
+        let nm = m
+        let nd = d
+        if (isLeapDay && !((ny % 4 === 0 && ny % 100 !== 0) || ny % 400 === 0)) {
+          nm = '02'
+          nd = '28'
+        }
+        toInsert.push({
+          ...app,
+          priority: 'Baixa',
+          date: `${ny}-${nm}-${nd}`,
+        })
+      }
+    }
+
+    const { data, error } = await supabase.from('appointments').insert(toInsert).select()
     if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
-    setState((prev) => ({ ...prev, appointments: [data, ...prev.appointments] }))
+    setState((prev) => ({ ...prev, appointments: [...data, ...prev.appointments] }))
     toast({ title: 'Agenda atualizada' })
   }, [])
 

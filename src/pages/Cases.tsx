@@ -282,7 +282,16 @@ export default function Cases() {
                         </Badge>
                       </div>
                       <p className="text-sm font-medium mt-1">
-                        {client?.name || '—'}{' '}
+                        {client ? (
+                          <Link
+                            to={`/clientes/${client.id}`}
+                            className="hover:underline text-primary"
+                          >
+                            {client.name}
+                          </Link>
+                        ) : (
+                          '—'
+                        )}{' '}
                         <span className="text-muted-foreground text-xs">({c.position})</span> x{' '}
                         {c.adverseParty}
                       </p>
@@ -370,7 +379,16 @@ export default function Cases() {
                       <div className="text-sm space-y-1">
                         <p>
                           <span className="text-muted-foreground">Cliente:</span>{' '}
-                          {client?.name || '—'}
+                          {client ? (
+                            <Link
+                              to={`/clientes/${client.id}`}
+                              className="hover:underline text-primary"
+                            >
+                              {client.name}
+                            </Link>
+                          ) : (
+                            '—'
+                          )}
                         </p>
                         <p>
                           <span className="text-muted-foreground">Adversa:</span> {c.adverseParty}

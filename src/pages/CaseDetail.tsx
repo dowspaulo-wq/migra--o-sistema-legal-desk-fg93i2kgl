@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -39,10 +40,10 @@ export default function CaseDetail() {
     let html = tpl.content
       .replace(/{{client_name}}/g, client?.name || '')
       .replace(/{{client_document}}/g, client?.document || '')
-      .replace(/{{process_number}}/g, c.number)
-      .replace(/{{adverse_party}}/g, c.adverseParty || '')
-      .replace(/{{court}}/g, c.court || '')
-      .replace(/{{comarca}}/g, c.comarca || '')
+      .replace(/{{process_number}}/g, c?.number || '')
+      .replace(/{{adverse_party}}/g, c?.adverseParty || '')
+      .replace(/{{court}}/g, c?.court || '')
+      .replace(/{{comarca}}/g, c?.comarca || '')
 
     const docContent = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>${tpl.title}</title></head><body>${html}</body></html>`
     const blob = new Blob(['\ufeff', docContent], { type: 'application/msword' })
@@ -98,12 +99,16 @@ export default function CaseDetail() {
             <CardContent className="space-y-4">
               <div>
                 <p className="text-sm text-muted-foreground">Cliente ({c.position})</p>
-                <Link
-                  to={`/clientes/${client?.id}`}
-                  className="font-medium text-primary hover:underline"
-                >
-                  {client?.name}
-                </Link>
+                {client ? (
+                  <Link
+                    to={`/clientes/${client.id}`}
+                    className="font-medium text-primary hover:underline"
+                  >
+                    {client.name}
+                  </Link>
+                ) : (
+                  <p className="font-medium text-muted-foreground">—</p>
+                )}
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Parte Adversa</p>

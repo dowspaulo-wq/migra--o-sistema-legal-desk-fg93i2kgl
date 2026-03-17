@@ -43,8 +43,9 @@ const App = () => (
               <Route path="/logs" element={<Logs />} />
               <Route path="/configuracoes" element={<Settings />} />
 
-              {/* Aliases to satisfy English path assumptions */}
+              {/* Aliases to satisfy English path assumptions and potential external links */}
               <Route path="/cases" element={<Navigate to="/processos" replace />} />
+              <Route path="/cases/:id" element={<CaseDetail />} />
               <Route path="/settings" element={<Navigate to="/configuracoes" replace />} />
             </Route>
             <Route path="*" element={<NotFound />} />

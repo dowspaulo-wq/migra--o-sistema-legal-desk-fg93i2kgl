@@ -1,11 +1,27 @@
+import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Briefcase, Users, CheckSquare, DollarSign, AlertTriangle, Calendar } from 'lucide-react'
+import {
+  Briefcase,
+  Users,
+  CheckSquare,
+  DollarSign,
+  AlertTriangle,
+  Calendar,
+  ChevronDown,
+  ChevronUp,
+  CheckCircle2,
+  Clock,
+} from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { Link } from 'react-router-dom'
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
 import { Badge } from '@/components/ui/badge'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 
 const COLORS = [
   'hsl(var(--chart-1))',
@@ -24,21 +40,22 @@ const renderLabel = ({ name, value, percent }: any) => {
 
 export default function Index() {
   const { state } = useLegalStore()
+  const [isTasksOpen, setIsTasksOpen] = useState(true)
 
-  const pendingProtocol = state.tasks.filter((t) => t.status === 'Aguarda protocol')
+  const pendingProtocol = state.tasks.filter((t) => t.status.toLowerCase() === 'aguarda protocolo')
   const myTasks = state.tasks.filter(
-    (t) => t.responsibleId === state.currentUser.id && t.status !== 'Concluída',
+    (t) => t.responsibleId === state.currentUser.id && t.status.toLowerCase() !== 'concluída',
   )
 
   const processStatusData = Object.entries(
     state.cases.reduce(
       (acc, c) => {
-        acc[c.status] = (acc[c.status] || 0) + 1
+        acc[c.status || ''] = (acc[c.status || ''] || 0) + 1
         return acc
       },
       {} as Record<string, number>,
     ),
-  ).map(([name, value]) => ({ name, value }))
+  ).map(([name, value]) => ({ name: name || 'N/I', value }))
 
   const clientsPerUser = state.users
     .map((u) => ({
@@ -70,9 +87,65 @@ export default function Index() {
   const totalIncome = state.transactions
     .filter((t) => t.type === 'income' && t.status === 'Pago')
     .reduce((sum, t) => sum + t.amount, 0)
+
   const todayAppts = state.appointments.filter(
     (a) => new Date(a.date).toDateString() === new Date().toDateString(),
   )
+
+  // Compute Task Management Dashboard stats
+  const now = new Date()
+  const todayStr = now.toISOString().split('T')[0]
+
+  const userTasksStats = state.users
+    .map((user) => {
+      const userTasks = state.tasks.filter((t) => t.responsibleId === user.id)
+      const total = userTasks.length
+
+      const incompleteTasks = userTasks.filter((t) => t.status.toLowerCase() !== 'concluída')
+
+      const delayedDeadlines = incompleteTasks.filter((t) => {
+        if (!t.dueDate) return false
+        const isUpdate =
+          t.type.toLowerCase() === 'atualização' || t.type.toLowerCase() === 'interna e adm'
+        return t.dueDate < todayStr && !isUpdate
+      }).length
+
+      const delayedUpdates = incompleteTasks.filter((t) => {
+        if (!t.dueDate) return false
+        const isUpdate =
+          t.type.toLowerCase() === 'atualização' || t.type.toLowerCase() === 'interna e adm'
+        return t.dueDate < todayStr && isUpdate
+      }).length
+
+      const pending = userTasks.filter((t) => t.status.toLowerCase() === 'pendente').length
+      const updating = userTasks.filter((t) => t.status.toLowerCase() === 'atualização').length
+      const completed = userTasks.filter((t) => t.status.toLowerCase() === 'concluída').length
+
+      const typesCount = userTasks.reduce(
+        (acc, t) => {
+          acc[t.type] = (acc[t.type] || 0) + 1
+          return acc
+        },
+        {} as Record<string, number>,
+      )
+
+      const sortedTypes = Object.entries(typesCount).sort((a, b) => b[1] - a[1])
+
+      return {
+        user,
+        total,
+        delayedDeadlines,
+        delayedUpdates,
+        statusCounts: {
+          Pendentes: pending,
+          Atualização: updating,
+          Concluídas: completed,
+        },
+        types: sortedTypes,
+      }
+    })
+    .filter((u) => u.total > 0)
+    .sort((a, b) => b.total - a.total)
 
   return (
     <div className="space-y-6">
@@ -85,6 +158,119 @@ export default function Index() {
         </div>
       </div>
 
+      <Collapsible
+        open={isTasksOpen}
+        onOpenChange={setIsTasksOpen}
+        className="bg-white dark:bg-slate-900 rounded-xl border shadow-sm"
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <div className="flex items-center gap-2 text-primary font-semibold">
+            <CheckCircle2 className="h-5 w-5" />
+            <h2 className="text-lg">Tarefas por Responsável</h2>
+          </div>
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" size="sm" className="p-0 h-8 w-8">
+              {isTasksOpen ? (
+                <ChevronUp className="h-5 w-5" />
+              ) : (
+                <ChevronDown className="h-5 w-5" />
+              )}
+            </Button>
+          </CollapsibleTrigger>
+        </div>
+        <CollapsibleContent className="p-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {userTasksStats.map((stat) => (
+              <div
+                key={stat.user.id}
+                className={cn(
+                  'border rounded-xl p-5 shadow-sm transition-colors',
+                  stat.delayedDeadlines > 0
+                    ? 'border-red-300 bg-red-50/30'
+                    : stat.delayedUpdates > 0
+                      ? 'border-orange-300 bg-orange-50/30'
+                      : 'border-slate-200 bg-white dark:bg-slate-950',
+                )}
+              >
+                <div className="flex items-center gap-3 mb-4">
+                  <Avatar>
+                    <AvatarImage src={stat.user.avatar_url} />
+                    <AvatarFallback className="bg-primary/10 text-primary font-bold">
+                      {stat.user.name.substring(0, 2).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <h3 className="font-semibold text-slate-800 dark:text-slate-100">
+                      {stat.user.name}
+                    </h3>
+                    <p className="text-xs text-muted-foreground">{stat.total} tarefas</p>
+                  </div>
+                </div>
+
+                <div className="space-y-2 mb-4">
+                  {stat.delayedDeadlines > 0 && (
+                    <div className="flex items-center gap-2 bg-red-100/80 text-red-700 border border-red-200 rounded p-2 text-sm font-medium">
+                      <AlertTriangle className="h-4 w-4" />
+                      {stat.delayedDeadlines} prazos atrasados!
+                    </div>
+                  )}
+                  {stat.delayedUpdates > 0 && (
+                    <div className="flex items-center gap-2 bg-orange-100/80 text-orange-800 border border-orange-200 rounded p-2 text-sm font-medium">
+                      <Clock className="h-4 w-4" />
+                      {stat.delayedUpdates} atualizações atrasadas
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-1.5 mb-4 border-b pb-4 text-sm">
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">Pendentes:</span>
+                    <span className="font-medium text-orange-600">
+                      {stat.statusCounts.Pendentes}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">Atualização:</span>
+                    <span className="font-medium text-blue-600">
+                      {stat.statusCounts.Atualização}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">Concluídas:</span>
+                    <span className="font-medium text-green-600">
+                      {stat.statusCounts.Concluídas}
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                    Por Tipo
+                  </h4>
+                  <div className="space-y-1">
+                    {stat.types.map(([type, count]) => (
+                      <div key={type} className="flex justify-between items-center text-sm">
+                        <span className="text-blue-700 dark:text-blue-400 capitalize-first">
+                          {type}
+                        </span>
+                        <span className="bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 px-2 py-0.5 rounded text-xs font-medium">
+                          {count}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {userTasksStats.length === 0 && (
+              <p className="text-sm text-muted-foreground col-span-full">
+                Nenhuma tarefa atribuída encontrada.
+              </p>
+            )}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+
       {pendingProtocol.length > 0 && (
         <Alert
           variant="destructive"
@@ -94,7 +280,7 @@ export default function Index() {
           <AlertTitle>Atenção - Protocolos Pendentes</AlertTitle>
           <AlertDescription>
             Existem {pendingProtocol.length} tarefas aguardando protocolo urgente.{' '}
-            <Link to="/tarefas?status=Aguarda+protocolo" className="underline font-bold">
+            <Link to="/tarefas?status=aguarda+protocolo" className="underline font-bold">
               Ver tarefas
             </Link>
           </AlertDescription>
@@ -128,7 +314,7 @@ export default function Index() {
           <CardContent>
             <div className="text-2xl font-bold">{myTasks.length}</div>
             <Link
-              to={`/tarefas?resp=${state.currentUser.id}&status=Pendente`}
+              to={`/tarefas?resp=${state.currentUser.id}&status=pendente`}
               className="text-xs text-primary hover:underline"
             >
               Ver lista filtrada
