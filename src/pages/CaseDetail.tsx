@@ -17,6 +17,7 @@ import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import { CaseDialog } from '@/components/CaseDialog'
 import { TaskDialog } from '@/components/TaskDialog'
+import { formatSafeLocalDate } from '@/lib/utils'
 
 export default function CaseDetail() {
   const { id } = useParams<{ id: string }>()
@@ -175,22 +176,32 @@ export default function CaseDetail() {
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {tasks.map((t) => (
-                  <div
-                    key={t.id}
-                    className="flex justify-between items-center border p-3 rounded hover:bg-slate-50 cursor-pointer transition-colors group"
-                    onClick={() => setEditingTask(t)}
-                  >
-                    <div>
-                      <p className="font-semibold text-sm group-hover:text-primary transition-colors flex items-center gap-2">
-                        {t.title}
-                        <Edit className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      </p>
-                      <p className="text-xs text-muted-foreground">Vencimento: {t.dueDate}</p>
+                {tasks.map((t) => {
+                  const resp = state.users.find((u) => u.id === t.responsibleId)
+                  return (
+                    <div
+                      key={t.id}
+                      className="flex justify-between items-center border p-3 rounded hover:bg-slate-50 cursor-pointer transition-colors group"
+                      onClick={() => setEditingTask(t)}
+                    >
+                      <div>
+                        <p className="font-semibold text-sm group-hover:text-primary transition-colors flex items-center gap-2">
+                          {t.title}
+                          <Edit className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground" />
+                        </p>
+                        <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
+                          <span>Vencimento: {formatSafeLocalDate(t.dueDate)}</span>
+                          {resp && (
+                            <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">
+                              Resp: <span className="font-medium">{resp.name.split(' ')[0]}</span>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <Badge variant="outline">{t.status}</Badge>
                     </div>
-                    <Badge variant="outline">{t.status}</Badge>
-                  </div>
-                ))}
+                  )
+                })}
                 {tasks.length === 0 && (
                   <p className="text-sm text-muted-foreground">Nenhuma tarefa vinculada.</p>
                 )}

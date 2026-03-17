@@ -249,6 +249,7 @@ export default function Tasks() {
           {filtered.map((t) => {
             const client = state.clients.find((c) => c.id === t.clientId)
             const c = state.cases.find((x) => x.id === t.relatedProcessId)
+            const resp = state.users.find((u) => u.id === t.responsibleId)
             const isDone = t.status.toLowerCase() === 'concluída'
             return (
               <Card
@@ -269,7 +270,7 @@ export default function Tasks() {
                         <Circle className="h-5 w-5" />
                       )}
                     </button>
-                    <div>
+                    <div className="flex-1 w-full">
                       <p
                         className={`font-bold ${isDone ? 'line-through text-muted-foreground' : ''}`}
                       >
@@ -290,7 +291,7 @@ export default function Tasks() {
                           'Não vinculado'
                         )}
                       </p>
-                      <div className="flex gap-2 text-xs mt-2 items-center">
+                      <div className="flex flex-wrap gap-2 text-xs mt-2 items-center">
                         <Badge variant="secondary" className="text-[10px]">
                           {t.status}
                         </Badge>
@@ -298,6 +299,14 @@ export default function Tasks() {
                         <span className="text-muted-foreground ml-2 font-semibold">
                           Vence: {formatSafeLocalDate(t.dueDate)}
                         </span>
+                        {resp && (
+                          <span className="text-muted-foreground ml-auto flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-full">
+                            Resp:{' '}
+                            <span className="font-medium text-slate-700">
+                              {resp.name.split(' ')[0]}
+                            </span>
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -360,14 +369,21 @@ export default function Tasks() {
                   className="text-[10px] p-1.5 border rounded mb-1 cursor-pointer hover:border-primary/50 bg-white"
                   style={{ borderLeftWidth: '3px', borderLeftColor: resp?.color || '#000' }}
                 >
-                  <div className="font-bold flex justify-between">
-                    <span>{t.type}</span>{' '}
-                    <span className="text-muted-foreground bg-muted px-1 rounded">
-                      {resp?.name.substring(0, 2).toUpperCase()}
+                  <div className="font-bold flex justify-between items-start gap-1">
+                    <span className="truncate">{t.type}</span>{' '}
+                    <span
+                      className="text-[8px] text-white px-1 py-0.5 rounded truncate max-w-[50px] shrink-0"
+                      style={{ backgroundColor: resp?.color || '#64748b' }}
+                      title={resp?.name}
+                    >
+                      {resp?.name.split(' ')[0] || 'N/A'}
                     </span>
                   </div>
-                  <div className="truncate mt-0.5 text-muted-foreground">
-                    {c?.number || 'Sem processo'}
+                  <div
+                    className="truncate mt-0.5 text-muted-foreground"
+                    title={c?.number || t.title}
+                  >
+                    {c?.number || t.title}
                   </div>
                 </div>
               )

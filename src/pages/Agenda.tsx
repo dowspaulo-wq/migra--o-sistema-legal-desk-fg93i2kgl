@@ -317,7 +317,7 @@ export default function Agenda() {
                     e.stopPropagation()
                     handleOpen(item)
                   }}
-                  className={`text-[10px] p-1 rounded cursor-pointer mb-1 truncate ${isFeriado ? 'bg-red-500 text-white font-bold' : ''}`}
+                  className={`text-[10px] p-1.5 flex flex-col rounded cursor-pointer mb-1 truncate ${isFeriado ? 'bg-red-500 text-white font-bold' : ''}`}
                   style={
                     !isFeriado
                       ? {
@@ -329,7 +329,18 @@ export default function Agenda() {
                   }
                   title={item.title}
                 >
-                  <span className="font-semibold">{(item as any).time}</span> - {item.title}
+                  <div className="flex justify-between items-start gap-1 w-full">
+                    <span className="font-semibold shrink-0">{(item as any).time}</span>
+                    {!isFeriado && resp && (
+                      <span
+                        className="text-[8px] bg-white/60 px-1 rounded truncate max-w-[60px]"
+                        title={resp.name}
+                      >
+                        {resp.name.split(' ')[0]}
+                      </span>
+                    )}
+                  </div>
+                  <span className="truncate mt-0.5">{item.title}</span>
                 </div>
               )
             }}
