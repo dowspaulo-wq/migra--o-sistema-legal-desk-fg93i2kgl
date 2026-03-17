@@ -54,19 +54,16 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
   const initial = data || {
     number: '',
     clientId: '',
-    position: 'Autor',
+    position: '',
     adverseParty: '',
-    type:
-      (sortedTypes[0] &&
-        (typeof sortedTypes[0] === 'string' ? sortedTypes[0] : sortedTypes[0].label)) ||
-      'Cível',
-    status: sortedStatuses[0] || 'Em andamento',
+    type: '',
+    status: '',
     court: '',
     comarca: '',
     state: 'SP',
     value: 0,
     startDate: new Date().toISOString().split('T')[0],
-    responsibleId: sortedUsers[0]?.id || '',
+    responsibleId: '',
     isSpecial: false,
     isProblematic: false,
     description: '',
@@ -84,11 +81,20 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
+    if (!fd.clientId || !fd.type || !fd.status || !fd.responsibleId) {
+      toast({
+        title: 'Campos Obrigatórios',
+        description: 'Por favor, preencha Cliente, Tipo, Status e Responsável.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     const isDupNumber = state.cases.some((c) => c.number === fd.number && c.id !== data?.id)
     if (isDupNumber) {
       toast({
         title: 'Erro',
-        description: 'Erro: Já existe um processo cadastrado com este número.',
+        description: 'Já existe um processo cadastrado com este número.',
         variant: 'destructive',
       })
       return
@@ -151,13 +157,9 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
             </div>
             <div className="space-y-2">
               <Label>Cliente *</Label>
-              <Select
-                value={fd.clientId}
-                onValueChange={(v) => setFd({ ...fd, clientId: v })}
-                required
-              >
+              <Select value={fd.clientId} onValueChange={(v) => setFd({ ...fd, clientId: v })}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Selecione" />
+                  <SelectValue placeholder="Selecione o Cliente" />
                 </SelectTrigger>
                 <SelectContent>
                   {sortedClients.map((c: any) => (
@@ -169,10 +171,10 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Tipo</Label>
+              <Label>Tipo *</Label>
               <Select value={fd.type} onValueChange={(v) => setFd({ ...fd, type: v })}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Selecione o Tipo" />
                 </SelectTrigger>
                 <SelectContent>
                   {sortedTypes.map((t: any) => {
@@ -187,10 +189,10 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Status</Label>
+              <Label>Status *</Label>
               <Select value={fd.status} onValueChange={(v) => setFd({ ...fd, status: v })}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Selecione o Status" />
                 </SelectTrigger>
                 <SelectContent>
                   {sortedStatuses.map((t: string) => (
@@ -202,13 +204,13 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Responsável</Label>
+              <Label>Responsável *</Label>
               <Select
                 value={fd.responsibleId}
                 onValueChange={(v) => setFd({ ...fd, responsibleId: v })}
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Selecione o Responsável" />
                 </SelectTrigger>
                 <SelectContent>
                   {sortedUsers.map((u: any) => (

@@ -44,10 +44,13 @@ export default function Cases() {
   const sortedStatuses = [...(state.settings.caseStatuses || [])].sort((a, b) => a.localeCompare(b))
 
   const filtered = state.cases.filter((c) => {
+    const client = state.clients.find((cl) => cl.id === c.clientId)
+    const clientName = client ? client.name.toLowerCase() : ''
+
     const mSearch =
       (c.number || '').toString().toLowerCase().includes(search.toLowerCase()) ||
       (c.adverseParty || '').toLowerCase().includes(search.toLowerCase()) ||
-      (c.court || '').toLowerCase().includes(search.toLowerCase())
+      clientName.includes(search.toLowerCase())
     const mStatus =
       statusFilter === 'Todos' || (statusFilter === 'Vazio' ? !c.status : c.status === statusFilter)
     const mType =
@@ -116,7 +119,7 @@ export default function Cases() {
           <div className="flex gap-2 w-full max-w-md">
             <Input
               type="search"
-              placeholder="Buscar por número, parte ou vara..."
+              placeholder="Buscar por número, cliente ou parte adversa..."
               className="flex-1"
               value={search}
               onChange={(e) => setSearch(e.target.value)}

@@ -5,7 +5,7 @@ import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Download, Shield, Users, Sliders, Trash2, Plus } from 'lucide-react'
+import { Download, Shield, Users, Sliders, Trash2, Plus, UserCircle } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import {
@@ -184,15 +184,35 @@ export default function Settings() {
     },
   })
 
-  if (state.currentUser.role !== 'Admin') {
-    return (
-      <div className="p-8 text-center text-destructive font-bold">
-        Acesso negado. Apenas Administradores.
-      </div>
-    )
-  }
-
+  const isAdmin = state.currentUser.role === 'Admin'
   const s = state.settings
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    try {
+      const fileExt = file.name.split('.').pop()
+      const fileName = `${state.currentUser.id}-${Math.random()}.${fileExt}`
+
+      const { error: uploadError } = await supabase.storage.from('avatars').upload(fileName, file)
+
+      if (uploadError) throw uploadError
+
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from('avatars').getPublicUrl(fileName)
+
+      await updateUser(state.currentUser.id, { avatar_url: publicUrl })
+      toast({ title: 'Sucesso', description: 'Foto de perfil atualizada' })
+    } catch (err: any) {
+      toast({
+        title: 'Erro',
+        description: err.message || 'Erro ao enviar foto',
+        variant: 'destructive',
+      })
+    }
+  }
 
   const onSubmitUser = async (values: z.infer<typeof userSchema>) => {
     setIsSubmitting(true)
@@ -225,274 +245,329 @@ export default function Settings() {
   return (
     <div className="space-y-6 max-w-5xl">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Configurações do Sistema</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Configurações</h1>
         <p className="text-muted-foreground">Personalização, Opções, Backup e Acessos.</p>
       </div>
 
-      <Tabs defaultValue="options" className="w-full">
+      <Tabs defaultValue="profile" className="w-full">
         <TabsList className="mb-4">
-          <TabsTrigger value="options">
-            <Sliders className="h-4 w-4 mr-2" /> Opções Globais
+          <TabsTrigger value="profile">
+            <UserCircle className="h-4 w-4 mr-2" /> Meu Perfil
           </TabsTrigger>
-          <TabsTrigger value="users">
-            <Users className="h-4 w-4 mr-2" /> Usuários & Permissões
-          </TabsTrigger>
-          <TabsTrigger value="general">
-            <Shield className="h-4 w-4 mr-2" /> Avançado
-          </TabsTrigger>
+          {isAdmin && (
+            <>
+              <TabsTrigger value="options">
+                <Sliders className="h-4 w-4 mr-2" /> Opções Globais
+              </TabsTrigger>
+              <TabsTrigger value="users">
+                <Users className="h-4 w-4 mr-2" /> Usuários & Permissões
+              </TabsTrigger>
+              <TabsTrigger value="general">
+                <Shield className="h-4 w-4 mr-2" /> Avançado
+              </TabsTrigger>
+            </>
+          )}
         </TabsList>
 
-        <TabsContent value="options" className="grid md:grid-cols-2 gap-4">
-          <EditableList
-            title="Status de Processos"
-            items={s.caseStatuses || []}
-            onSave={(items) => updateItem('settings', s.id, { caseStatuses: items })}
-          />
-          <EditableColorList
-            title="Tipos de Processos (Com Cores)"
-            items={s.caseTypes || []}
-            onSave={(items: any[]) => updateItem('settings', s.id, { caseTypes: items })}
-          />
-          <EditableList
-            title="Tipos de Compromissos"
-            items={s.appointmentTypes || []}
-            onSave={(items) => updateItem('settings', s.id, { appointmentTypes: items })}
-          />
-          <EditableList
-            title="Tipos de Tarefas"
-            items={s.taskTypes || []}
-            onSave={(items) => updateItem('settings', s.id, { taskTypes: items })}
-          />
-          <EditableList
-            title="Status de Tarefas"
-            items={s.taskStatuses || []}
-            onSave={(items) => updateItem('settings', s.id, { taskStatuses: items })}
-          />
-          <EditableList
-            title="Fontes de Captação"
-            items={s.captacaoOptions || []}
-            onSave={(items) => updateItem('settings', s.id, { captacaoOptions: items })}
-          />
-        </TabsContent>
-
-        <TabsContent value="users">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <div>
-                <CardTitle>Gestão de Colaboradores</CardTitle>
-                <CardDescription>
-                  Defina nível de acesso, financeiro e cor de identificação.
-                </CardDescription>
-              </div>
-              <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-                <DialogTrigger asChild>
-                  <Button size="sm">
-                    <Plus className="mr-2 h-4 w-4" /> Novo Usuário
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-md">
-                  <DialogHeader>
-                    <DialogTitle>Adicionar Usuário</DialogTitle>
-                  </DialogHeader>
-                  <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onSubmitUser)} className="space-y-4">
-                      <FormField
-                        control={form.control}
-                        name="name"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Nome Completo</FormLabel>
-                            <FormControl>
-                              <Input {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="email"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>E-mail</FormLabel>
-                            <FormControl>
-                              <Input type="email" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="password"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Senha</FormLabel>
-                            <FormControl>
-                              <Input type="password" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <div className="grid grid-cols-2 gap-4">
-                        <FormField
-                          control={form.control}
-                          name="role"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Nível de Acesso</FormLabel>
-                              <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Selecione..." />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  <SelectItem value="User">Colaborador</SelectItem>
-                                  <SelectItem value="Admin">Admin</SelectItem>
-                                </SelectContent>
-                              </Select>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name="color"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Cor</FormLabel>
-                              <FormControl>
-                                <div className="flex items-center gap-2">
-                                  <Input
-                                    type="color"
-                                    className="h-10 w-14 p-1 cursor-pointer"
-                                    {...field}
-                                  />
-                                </div>
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
-                      <FormField
-                        control={form.control}
-                        name="canViewFinance"
-                        render={({ field }) => (
-                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
-                            <div className="space-y-0.5">
-                              <FormLabel>Acesso ao Financeiro</FormLabel>
-                              <FormDescription>
-                                Permite visualizar a área financeira.
-                              </FormDescription>
-                            </div>
-                            <FormControl>
-                              <Switch checked={field.value} onCheckedChange={field.onChange} />
-                            </FormControl>
-                          </FormItem>
-                        )}
-                      />
-                      <Button type="submit" className="w-full" disabled={isSubmitting}>
-                        {isSubmitting ? 'Salvando...' : 'Salvar Usuário'}
-                      </Button>
-                    </form>
-                  </Form>
-                </DialogContent>
-              </Dialog>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nome</TableHead>
-                    <TableHead>E-mail</TableHead>
-                    <TableHead>Nível</TableHead>
-                    <TableHead>Financeiro</TableHead>
-                    <TableHead>Cor Identidade</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(state.users as any[]).map((u) => (
-                    <TableRow key={u.id}>
-                      <TableCell className="font-medium">{u.name}</TableCell>
-                      <TableCell>{u.email || '—'}</TableCell>
-                      <TableCell>
-                        <select
-                          className="border rounded p-1 text-sm bg-white"
-                          value={u.role}
-                          onChange={(e) =>
-                            updateUser(u.id, { role: e.target.value as 'Admin' | 'User' })
-                          }
-                          disabled={u.id === state.currentUser.id}
-                        >
-                          <option value="Admin">Admin</option>
-                          <option value="User">Colaborador</option>
-                        </select>
-                      </TableCell>
-                      <TableCell>
-                        <Switch
-                          checked={u.canViewFinance}
-                          onCheckedChange={(v) => updateUser(u.id, { canViewFinance: v })}
-                          disabled={u.id === state.currentUser.id}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="color"
-                            value={u.color || '#3b82f6'}
-                            onChange={(e) => updateUser(u.id, { color: e.target.value })}
-                            className="h-8 w-8 rounded cursor-pointer border-0 p-0"
-                          />
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="general" className="space-y-6">
+        <TabsContent value="profile" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Preferências Globais</CardTitle>
+              <CardTitle>Meu Perfil</CardTitle>
+              <CardDescription>Atualize sua foto de perfil.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center justify-between border-b pb-4">
-                <div className="space-y-0.5">
-                  <Label className="text-base">Exibir Financeiro no Dashboard</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Visível apenas para quem tem permissão.
+              <div className="flex items-center gap-6">
+                <div className="h-24 w-24 rounded-full overflow-hidden bg-muted border">
+                  {state.currentUser.avatar_url ? (
+                    <img
+                      src={state.currentUser.avatar_url}
+                      alt="Avatar"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <UserCircle className="h-full w-full text-muted-foreground p-2" />
+                  )}
+                </div>
+                <div>
+                  <Label
+                    htmlFor="avatar-upload"
+                    className="cursor-pointer bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md text-sm font-medium inline-block"
+                  >
+                    Alterar Foto
+                  </Label>
+                  <Input
+                    id="avatar-upload"
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleAvatarUpload}
+                  />
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Recomendado: 256x256px. Máx: 2MB.
                   </p>
                 </div>
-                <Switch
-                  checked={s.showFinanceDashboard}
-                  onCheckedChange={(v) => updateItem('settings', s.id, { showFinanceDashboard: v })}
-                />
               </div>
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>Segurança e Backup</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Button
-                onClick={() => {
-                  addLog('Exportar', 'Backup', 'Backup JSON')
-                  toast({ title: 'Sucesso', description: 'Download iniciado' })
-                }}
-                variant="outline"
-              >
-                <Download className="mr-2 h-4 w-4" /> Exportar Dados (JSON)
-              </Button>
-            </CardContent>
-          </Card>
         </TabsContent>
+
+        {isAdmin && (
+          <>
+            <TabsContent value="options" className="grid md:grid-cols-2 gap-4">
+              <EditableList
+                title="Status de Processos"
+                items={s.caseStatuses || []}
+                onSave={(items) => updateItem('settings', s.id, { caseStatuses: items })}
+              />
+              <EditableColorList
+                title="Tipos de Processos (Com Cores)"
+                items={s.caseTypes || []}
+                onSave={(items: any[]) => updateItem('settings', s.id, { caseTypes: items })}
+              />
+              <EditableList
+                title="Tipos de Compromissos"
+                items={s.appointmentTypes || []}
+                onSave={(items) => updateItem('settings', s.id, { appointmentTypes: items })}
+              />
+              <EditableList
+                title="Tipos de Tarefas"
+                items={s.taskTypes || []}
+                onSave={(items) => updateItem('settings', s.id, { taskTypes: items })}
+              />
+              <EditableList
+                title="Status de Tarefas"
+                items={s.taskStatuses || []}
+                onSave={(items) => updateItem('settings', s.id, { taskStatuses: items })}
+              />
+              <EditableList
+                title="Fontes de Captação"
+                items={s.captacaoOptions || []}
+                onSave={(items) => updateItem('settings', s.id, { captacaoOptions: items })}
+              />
+            </TabsContent>
+
+            <TabsContent value="users">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <div>
+                    <CardTitle>Gestão de Colaboradores</CardTitle>
+                    <CardDescription>
+                      Defina nível de acesso, financeiro e cor de identificação.
+                    </CardDescription>
+                  </div>
+                  <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+                    <DialogTrigger asChild>
+                      <Button size="sm">
+                        <Plus className="mr-2 h-4 w-4" /> Novo Usuário
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>Adicionar Usuário</DialogTitle>
+                      </DialogHeader>
+                      <Form {...form}>
+                        <form onSubmit={form.handleSubmit(onSubmitUser)} className="space-y-4">
+                          <FormField
+                            control={form.control}
+                            name="name"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Nome Completo</FormLabel>
+                                <FormControl>
+                                  <Input {...field} />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="email"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>E-mail</FormLabel>
+                                <FormControl>
+                                  <Input type="email" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="password"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Senha</FormLabel>
+                                <FormControl>
+                                  <Input type="password" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <div className="grid grid-cols-2 gap-4">
+                            <FormField
+                              control={form.control}
+                              name="role"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Nível de Acesso</FormLabel>
+                                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                    <FormControl>
+                                      <SelectTrigger>
+                                        <SelectValue placeholder="Selecione..." />
+                                      </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                      <SelectItem value="User">Colaborador</SelectItem>
+                                      <SelectItem value="Admin">Admin</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <FormField
+                              control={form.control}
+                              name="color"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Cor</FormLabel>
+                                  <FormControl>
+                                    <div className="flex items-center gap-2">
+                                      <Input
+                                        type="color"
+                                        className="h-10 w-14 p-1 cursor-pointer"
+                                        {...field}
+                                      />
+                                    </div>
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </div>
+                          <FormField
+                            control={form.control}
+                            name="canViewFinance"
+                            render={({ field }) => (
+                              <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
+                                <div className="space-y-0.5">
+                                  <FormLabel>Acesso ao Financeiro</FormLabel>
+                                  <FormDescription>
+                                    Permite visualizar a área financeira.
+                                  </FormDescription>
+                                </div>
+                                <FormControl>
+                                  <Switch checked={field.value} onCheckedChange={field.onChange} />
+                                </FormControl>
+                              </FormItem>
+                            )}
+                          />
+                          <Button type="submit" className="w-full" disabled={isSubmitting}>
+                            {isSubmitting ? 'Salvando...' : 'Salvar Usuário'}
+                          </Button>
+                        </form>
+                      </Form>
+                    </DialogContent>
+                  </Dialog>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Nome</TableHead>
+                        <TableHead>E-mail</TableHead>
+                        <TableHead>Nível</TableHead>
+                        <TableHead>Financeiro</TableHead>
+                        <TableHead>Cor Identidade</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(state.users as any[]).map((u) => (
+                        <TableRow key={u.id}>
+                          <TableCell className="font-medium">{u.name}</TableCell>
+                          <TableCell>{u.email || '—'}</TableCell>
+                          <TableCell>
+                            <select
+                              className="border rounded p-1 text-sm bg-white"
+                              value={u.role}
+                              onChange={(e) =>
+                                updateUser(u.id, { role: e.target.value as 'Admin' | 'User' })
+                              }
+                              disabled={u.id === state.currentUser.id}
+                            >
+                              <option value="Admin">Admin</option>
+                              <option value="User">Colaborador</option>
+                            </select>
+                          </TableCell>
+                          <TableCell>
+                            <Switch
+                              checked={u.canViewFinance}
+                              onCheckedChange={(v) => updateUser(u.id, { canViewFinance: v })}
+                              disabled={u.id === state.currentUser.id}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={u.color || '#3b82f6'}
+                                onChange={(e) => updateUser(u.id, { color: e.target.value })}
+                                className="h-8 w-8 rounded cursor-pointer border-0 p-0"
+                              />
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="general" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Preferências Globais</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between border-b pb-4">
+                    <div className="space-y-0.5">
+                      <Label className="text-base">Exibir Financeiro no Dashboard</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Visível apenas para quem tem permissão.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={s.showFinanceDashboard}
+                      onCheckedChange={(v) =>
+                        updateItem('settings', s.id, { showFinanceDashboard: v })
+                      }
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Segurança e Backup</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Button
+                    onClick={() => {
+                      addLog('Exportar', 'Backup', 'Backup JSON')
+                      toast({ title: 'Sucesso', description: 'Download iniciado' })
+                    }}
+                    variant="outline"
+                  >
+                    <Download className="mr-2 h-4 w-4" /> Exportar Dados (JSON)
+                  </Button>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </>
+        )}
       </Tabs>
     </div>
   )

@@ -32,15 +32,15 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
   const initial = client || {
     name: '',
     document: '',
-    type: 'PF',
+    type: '',
     email: '',
     phone: '',
     address: '',
     birthday: '',
-    status: 'Ativo',
+    status: '',
     isSpecial: false,
     observacoes: '',
-    responsibleId: sortedUsers[0]?.id || '',
+    responsibleId: '',
     captacao: '',
   }
   const [fd, setFd] = useState(initial)
@@ -52,11 +52,19 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!fd.birthday || !fd.email || !fd.phone || !fd.responsibleId || !fd.captacao) {
+    if (
+      !fd.birthday ||
+      !fd.email ||
+      !fd.phone ||
+      !fd.responsibleId ||
+      !fd.captacao ||
+      !fd.type ||
+      !fd.status
+    ) {
       toast({
         title: 'Campos Obrigatórios',
         description:
-          'Nascimento, E-mail, WhatsApp, Responsável e Captação são de preenchimento obrigatório.',
+          'Nascimento, E-mail, WhatsApp, Tipo, Status, Responsável e Captação são de preenchimento obrigatório.',
         variant: 'destructive',
       })
       return
@@ -70,7 +78,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
     if (isDupName || isDupDoc) {
       toast({
         title: 'Erro',
-        description: 'Erro: Já existe um cliente cadastrado com este Nome ou CPF/CNPJ.',
+        description: 'Já existe um cliente cadastrado com este Nome ou CPF/CNPJ.',
         variant: 'destructive',
       })
       return
@@ -120,10 +128,10 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
               />
             </div>
             <div className="space-y-2">
-              <Label>Tipo</Label>
+              <Label>Tipo *</Label>
               <Select value={fd.type} onValueChange={(v) => setFd({ ...fd, type: v })}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Selecione o Tipo" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="PF">PF</SelectItem>
@@ -141,10 +149,10 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
               />
             </div>
             <div className="space-y-2">
-              <Label>Status</Label>
+              <Label>Status *</Label>
               <Select value={fd.status} onValueChange={(v) => setFd({ ...fd, status: v })}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Selecione o Status" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="Ativo">Ativo</SelectItem>
@@ -176,7 +184,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
                 onValueChange={(v) => setFd({ ...fd, responsibleId: v })}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Selecione..." />
+                  <SelectValue placeholder="Selecione o Responsável" />
                 </SelectTrigger>
                 <SelectContent>
                   {sortedUsers.map((u: any) => (
@@ -191,7 +199,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
               <Label>Captação *</Label>
               <Select value={fd.captacao} onValueChange={(v) => setFd({ ...fd, captacao: v })}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Selecione..." />
+                  <SelectValue placeholder="Selecione a Captação" />
                 </SelectTrigger>
                 <SelectContent>
                   {sortedCaptacao.map((c: string) => (

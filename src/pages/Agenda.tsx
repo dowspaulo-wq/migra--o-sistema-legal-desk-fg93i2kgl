@@ -69,6 +69,8 @@ export default function Agenda() {
     const mClient = clientFilter === 'Todos' || (i as any).clientId === clientFilter
     const mProcess = processFilter === 'Todos' || (i as any).processId === processFilter
 
+    if (respFilter !== 'Todos' && i.type === 'Aniversário') return false
+
     let mDate = true
     const itemDate = i.date.split('T')[0]
     if (dateFrom && dateTo) {

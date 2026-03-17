@@ -60,7 +60,8 @@ export default function Clients() {
 
   const filtered = state.clients.filter((c) => {
     const matchSearch =
-      c.name.toLowerCase().includes(searchTerm.toLowerCase()) || c.document.includes(searchTerm)
+      c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (c.document || '').includes(searchTerm)
     const matchStatus = statusFilter === 'Todos' || c.status === statusFilter
     const matchType = typeFilter === 'Todos' || c.type === typeFilter
     const matchResp =
@@ -483,6 +484,18 @@ export default function Clients() {
                         <Button size="sm" variant="outline" onClick={() => handleOpen(c)}>
                           <Edit className="h-4 w-4" />
                         </Button>
+                        {state.currentUser.role === 'Admin' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-red-500 hover:bg-red-50"
+                            onClick={() => {
+                              if (confirm('Tem certeza?')) deleteItem('clients', c.id)
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     </CardContent>
                   </Card>

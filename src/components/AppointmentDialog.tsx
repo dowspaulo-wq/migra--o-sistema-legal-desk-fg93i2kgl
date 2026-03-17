@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { toast } from '@/hooks/use-toast'
 
 export function AppointmentDialog({
   open,
@@ -38,9 +39,9 @@ export function AppointmentDialog({
     title: '',
     date: new Date().toISOString().split('T')[0],
     time: '10:00',
-    type: sortedTypes[0] || 'Reunião',
-    priority: 'Média',
-    responsibleId: sortedUsers[0]?.id,
+    type: '',
+    priority: '',
+    responsibleId: '',
     clientId: 'none',
     processId: 'none',
     description: '',
@@ -68,6 +69,16 @@ export function AppointmentDialog({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (!fd.type || !fd.priority || !fd.responsibleId) {
+      toast({
+        title: 'Campos Obrigatórios',
+        description: 'Por favor, preencha Tipo, Prioridade e Responsável.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     onSave({
       ...fd,
       clientId: fd.clientId === 'none' ? null : fd.clientId,
@@ -111,10 +122,10 @@ export function AppointmentDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label>Tipo</Label>
+              <Label>Tipo *</Label>
               <Select value={fd.type} onValueChange={(v) => setFd({ ...fd, type: v })}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Selecione o Tipo" />
                 </SelectTrigger>
                 <SelectContent>
                   {sortedTypes.map((t: string) => (
@@ -126,10 +137,10 @@ export function AppointmentDialog({
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Prioridade</Label>
+              <Label>Prioridade *</Label>
               <Select value={fd.priority} onValueChange={(v) => setFd({ ...fd, priority: v })}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Selecione a Prioridade" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="Baixa">Baixa</SelectItem>
@@ -140,13 +151,13 @@ export function AppointmentDialog({
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Responsável</Label>
+              <Label>Responsável *</Label>
               <Select
                 value={fd.responsibleId}
                 onValueChange={(v) => setFd({ ...fd, responsibleId: v })}
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Selecione o Responsável" />
                 </SelectTrigger>
                 <SelectContent>
                   {sortedUsers.map((u: any) => (
@@ -161,7 +172,7 @@ export function AppointmentDialog({
               <Label>Cliente</Label>
               <Select value={fd.clientId} onValueChange={(v) => setFd({ ...fd, clientId: v })}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Selecione..." />
+                  <SelectValue placeholder="Selecione um Cliente..." />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Nenhum / Não vinculado</SelectItem>
@@ -177,7 +188,7 @@ export function AppointmentDialog({
               <Label>Processo</Label>
               <Select value={fd.processId} onValueChange={(v) => setFd({ ...fd, processId: v })}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Selecione..." />
+                  <SelectValue placeholder="Selecione um Processo..." />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Nenhum / Não vinculado</SelectItem>

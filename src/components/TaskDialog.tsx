@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { toast } from '@/hooks/use-toast'
 
 export function TaskDialog({
   open,
@@ -42,10 +43,10 @@ export function TaskDialog({
     description: '',
     internalNotes: '',
     dueDate: new Date().toISOString().split('T')[0],
-    status: sortedStatuses[0] || 'pendente',
-    priority: 'Média',
-    responsibleId: sortedUsers[0]?.id,
-    type: sortedTypes[0] || 'interna e adm',
+    status: '',
+    priority: '',
+    responsibleId: '',
+    type: '',
     clientId: 'none',
     relatedProcessId: 'none',
   })
@@ -80,6 +81,16 @@ export function TaskDialog({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (!fd.type || !fd.status || !fd.priority || !fd.responsibleId) {
+      toast({
+        title: 'Campos Obrigatórios',
+        description: 'Por favor, preencha Tipo, Status, Prioridade e Responsável.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     onSave({
       ...fd,
       clientId: fd.clientId === 'none' ? null : fd.clientId,
@@ -105,10 +116,10 @@ export function TaskDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label>Tipo da Tarefa</Label>
+              <Label>Tipo da Tarefa *</Label>
               <Select value={fd.type} onValueChange={(v) => setFd({ ...fd, type: v })}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Selecione..." />
+                  <SelectValue placeholder="Selecione o Tipo" />
                 </SelectTrigger>
                 <SelectContent>
                   {sortedTypes.map((t: string) => (
@@ -128,10 +139,10 @@ export function TaskDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label>Status</Label>
+              <Label>Status *</Label>
               <Select value={fd.status} onValueChange={(v) => setFd({ ...fd, status: v })}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Selecione o Status" />
                 </SelectTrigger>
                 <SelectContent>
                   {sortedStatuses.map((s: string) => (
@@ -143,10 +154,10 @@ export function TaskDialog({
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Prioridade</Label>
+              <Label>Prioridade *</Label>
               <Select value={fd.priority} onValueChange={(v) => setFd({ ...fd, priority: v })}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Selecione a Prioridade" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="Baixa">Baixa</SelectItem>
@@ -157,13 +168,13 @@ export function TaskDialog({
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Responsável</Label>
+              <Label>Responsável *</Label>
               <Select
                 value={fd.responsibleId}
                 onValueChange={(v) => setFd({ ...fd, responsibleId: v })}
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Selecione o Responsável" />
                 </SelectTrigger>
                 <SelectContent>
                   {sortedUsers.map((u: any) => (
@@ -178,7 +189,7 @@ export function TaskDialog({
               <Label>Cliente</Label>
               <Select value={fd.clientId} onValueChange={(v) => setFd({ ...fd, clientId: v })}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Selecione..." />
+                  <SelectValue placeholder="Selecione um Cliente..." />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Nenhum / Não vinculado</SelectItem>
@@ -197,7 +208,7 @@ export function TaskDialog({
                 onValueChange={(v) => setFd({ ...fd, relatedProcessId: v })}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Selecione..." />
+                  <SelectValue placeholder="Selecione um Processo..." />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Nenhum / Não vinculado</SelectItem>
