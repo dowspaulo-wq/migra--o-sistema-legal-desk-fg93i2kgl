@@ -12,14 +12,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { ArrowLeft, Scale, Users, CheckSquare, FileText, Download, Star } from 'lucide-react'
+import { ArrowLeft, Scale, Users, CheckSquare, FileText, Download, Star, Edit } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
+import { CaseDialog } from '@/components/CaseDialog'
+import { TaskDialog } from '@/components/TaskDialog'
 
 export default function CaseDetail() {
   const { id } = useParams<{ id: string }>()
-  const { state } = useLegalStore()
+  const { state, updateItem } = useLegalStore()
   const [selectedTpl, setSelectedTpl] = useState<string>('')
+  const [isCaseOpen, setIsCaseOpen] = useState(false)
+  const [editingTask, setEditingTask] = useState<any>(null)
 
   const c = state.cases.find((x) => x.id === id)
   const client = state.clients.find((cl) => cl.id === c?.clientId)
@@ -40,10 +44,10 @@ export default function CaseDetail() {
     let html = tpl.content
       .replace(/{{client_name}}/g, client?.name || '')
       .replace(/{{client_document}}/g, client?.document || '')
-      .replace(/{{process_number}}/g, c?.number || '')
-      .replace(/{{adverse_party}}/g, c?.adverseParty || '')
-      .replace(/{{court}}/g, c?.court || '')
-      .replace(/{{comarca}}/g, c?.comarca || '')
+      .replace(/{{process_number}}/g, c.number || '')
+      .replace(/{{adverse_party}}/g, c.adverseParty || '')
+      .replace(/{{court}}/g, c.court || '')
+      .replace(/{{comarca}}/g, c.comarca || '')
 
     const docContent = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>${tpl.title}</title></head><body>${html}</body></html>`
     const blob = new Blob(['\ufeff', docContent], { type: 'application/msword' })
@@ -58,24 +62,49 @@ export default function CaseDetail() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
+      <CaseDialog
+        open={isCaseOpen}
+        onOpenChange={setIsCaseOpen}
+        data={c}
+        onSave={(d: any) => updateItem('cases', d.id, d)}
+        users={state.users}
+        clients={state.clients}
+        settings={state.settings}
+      />
+      <TaskDialog
+        open={!!editingTask}
+        onOpenChange={(v: boolean) => !v && setEditingTask(null)}
+        data={editingTask}
+        onSave={(d: any) => updateItem('tasks', d.id, d)}
+        users={state.users}
+        clients={state.clients}
+        cases={state.cases}
+        settings={state.settings}
+      />
+
+      <div className="flex items-start gap-4">
         <Button variant="outline" size="icon" asChild>
           <Link to="/processos">
             <ArrowLeft className="h-4 w-4" />
           </Link>
         </Button>
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-primary flex items-center gap-3">
-            {c.number}
-            {c.isSpecial && (
-              <Star className="h-6 w-6 fill-yellow-400 text-yellow-400" title="Especial" />
-            )}
-            {c.isProblematic && (
-              <span className="text-2xl" title="Problemático">
-                💩
-              </span>
-            )}
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-primary flex items-center gap-3">
+              {c.number}
+              {c.isSpecial && (
+                <Star className="h-6 w-6 fill-yellow-400 text-yellow-400" title="Especial" />
+              )}
+              {c.isProblematic && (
+                <span className="text-2xl" title="Problemático">
+                  💩
+                </span>
+              )}
+            </h1>
+            <Button variant="outline" size="sm" onClick={() => setIsCaseOpen(true)}>
+              <Edit className="h-4 w-4 mr-2" /> Editar
+            </Button>
+          </div>
           <p className="text-muted-foreground mt-1">
             <Badge variant="outline">{c.status}</Badge> • Sistema: {c.system}
           </p>
@@ -86,7 +115,7 @@ export default function CaseDetail() {
         <TabsList className="grid w-full grid-cols-3 max-w-xl">
           <TabsTrigger value="info">Informações</TabsTrigger>
           <TabsTrigger value="tasks">Tarefas</TabsTrigger>
-          <TabsTrigger value="docs">Documentos (Automação)</TabsTrigger>
+          <TabsTrigger value="docs">Documentos</TabsTrigger>
         </TabsList>
 
         <TabsContent value="info" className="mt-4 grid gap-6 md:grid-cols-2">
@@ -149,15 +178,19 @@ export default function CaseDetail() {
                 {tasks.map((t) => (
                   <div
                     key={t.id}
-                    className="flex justify-between items-center border p-3 rounded hover:bg-slate-50"
+                    className="flex justify-between items-center border p-3 rounded hover:bg-slate-50 cursor-pointer transition-colors"
+                    onClick={() => setEditingTask(t)}
                   >
                     <div>
-                      <p className="font-semibold text-sm">{t.title}</p>
+                      <p className="font-semibold text-sm hover:underline">{t.title}</p>
                       <p className="text-xs text-muted-foreground">Vencimento: {t.dueDate}</p>
                     </div>
                     <Badge variant="outline">{t.status}</Badge>
                   </div>
                 ))}
+                {tasks.length === 0 && (
+                  <p className="text-sm text-muted-foreground">Nenhuma tarefa vinculada.</p>
+                )}
               </div>
             </CardContent>
           </Card>
