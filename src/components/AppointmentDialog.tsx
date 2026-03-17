@@ -45,6 +45,7 @@ export function AppointmentDialog({
     clientId: 'none',
     processId: 'none',
     description: '',
+    modality: '',
   })
 
   const [fd, setFd] = useState(() =>
@@ -67,6 +68,8 @@ export function AppointmentDialog({
     }
   }, [data, open])
 
+  const isAudience = fd.type === 'Aud.conciliação' || fd.type === 'AIJ'
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -79,8 +82,18 @@ export function AppointmentDialog({
       return
     }
 
+    if (isAudience && !fd.modality) {
+      toast({
+        title: 'Campo Obrigatório',
+        description: 'Por favor, informe a Modalidade para este tipo de evento.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     onSave({
       ...fd,
+      modality: isAudience ? fd.modality : null,
       clientId: fd.clientId === 'none' ? null : fd.clientId,
       processId: fd.processId === 'none' ? null : fd.processId,
     })
@@ -136,7 +149,23 @@ export function AppointmentDialog({
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
+
+            {isAudience && (
+              <div className="space-y-2">
+                <Label>Modalidade *</Label>
+                <Select value={fd.modality} onValueChange={(v) => setFd({ ...fd, modality: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione a Modalidade" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Presencial">Presencial</SelectItem>
+                    <SelectItem value="Virtual">Virtual</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div className={`space-y-2 ${isAudience ? 'col-span-2' : ''}`}>
               <Label>Prioridade *</Label>
               <Select value={fd.priority} onValueChange={(v) => setFd({ ...fd, priority: v })}>
                 <SelectTrigger>
@@ -150,6 +179,7 @@ export function AppointmentDialog({
                 </SelectContent>
               </Select>
             </div>
+
             <div className="space-y-2">
               <Label>Responsável *</Label>
               <Select
@@ -184,7 +214,7 @@ export function AppointmentDialog({
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
+            <div className="col-span-2 space-y-2">
               <Label>Processo</Label>
               <Select value={fd.processId} onValueChange={(v) => setFd({ ...fd, processId: v })}>
                 <SelectTrigger>

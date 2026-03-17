@@ -67,6 +67,7 @@ export interface Appointment {
   responsibleId: string
   clientId: string | null
   processId: string | null
+  modality?: string
 }
 export interface Transaction {
   id: string
@@ -154,7 +155,7 @@ export const initialData: LegalState = {
       { label: 'Trabalhista', color: '#ef4444' },
       { label: 'Família', color: '#8b5cf6' },
     ],
-    appointmentTypes: ['Reunião', 'Feriado', 'Outro'],
+    appointmentTypes: ['Reunião', 'Aud.conciliação', 'Diligência', 'Feriado', 'Outro', 'AIJ'],
     taskStatuses: ['pendente', 'em andamento', 'Concluída'],
     taskTypes: ['Cartórios', 'Petições', 'Recorrer', 'Redigir inicial', 'interna e adm'],
     captacaoOptions: ['Douglas', 'Eduardo', 'Luisito', 'MB', 'Zeno'],

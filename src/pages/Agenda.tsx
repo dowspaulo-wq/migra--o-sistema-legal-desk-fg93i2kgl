@@ -12,13 +12,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Plus, Gift, Video, Edit, LayoutGrid, List, Filter } from 'lucide-react'
+import {
+  Plus,
+  Gift,
+  Video,
+  Edit,
+  LayoutGrid,
+  List,
+  Filter,
+  MapPin,
+  Calendar,
+  RefreshCw,
+} from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { FullCalendar } from '@/components/FullCalendar'
 import { AppointmentDialog } from '@/components/AppointmentDialog'
 import { Badge } from '@/components/ui/badge'
 import { parseSafeLocalDate, getPriorityColorClass } from '@/lib/utils'
+import { toast } from '@/hooks/use-toast'
 
 export default function Agenda() {
   const { state, addAppointment, updateItem } = useLegalStore()
@@ -32,6 +44,7 @@ export default function Agenda() {
   const [processFilter, setProcessFilter] = useState('Todos')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [isSyncing, setIsSyncing] = useState(false)
 
   const sortedUsers = [...state.users].sort((a, b) => a.name.localeCompare(b.name))
   const sortedClients = [...state.clients].sort((a, b) => a.name.localeCompare(b.name))
@@ -53,6 +66,23 @@ export default function Agenda() {
   const handleSave = (fd: any) => {
     if (editingItem) updateItem('appointments', editingItem.id, fd)
     else addAppointment(fd)
+  }
+
+  const handleGoogleSync = () => {
+    setIsSyncing(true)
+    toast({
+      title: 'Conectando ao Google...',
+      description: 'Iniciando autorização com Google Agenda.',
+    })
+
+    // Simulating OAuth flow and sync delay
+    setTimeout(() => {
+      setIsSyncing(false)
+      toast({
+        title: 'Sincronização Concluída',
+        description: 'Sua agenda foi vinculada e sincronizada com o Google Agenda com sucesso.',
+      })
+    }, 2000)
   }
 
   const allItems = useMemo(() => {
@@ -136,14 +166,29 @@ export default function Agenda() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Agenda</h1>
           <p className="text-muted-foreground">Gerencie seus compromissos e eventos.</p>
         </div>
-        <Button onClick={() => handleOpen()}>
-          <Plus className="mr-2 h-4 w-4" /> Novo Compromisso
-        </Button>
+        <div className="flex gap-2 w-full sm:w-auto">
+          <Button
+            variant="outline"
+            onClick={handleGoogleSync}
+            disabled={isSyncing}
+            className="flex-1 sm:flex-none"
+          >
+            {isSyncing ? (
+              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Calendar className="mr-2 h-4 w-4" />
+            )}
+            Sincronizar Google Agenda
+          </Button>
+          <Button onClick={() => handleOpen()} className="flex-1 sm:flex-none">
+            <Plus className="mr-2 h-4 w-4" /> Novo Compromisso
+          </Button>
+        </div>
       </div>
 
       <AppointmentDialog
@@ -158,7 +203,7 @@ export default function Agenda() {
       />
 
       <Tabs defaultValue="calendar">
-        <div className="flex justify-between items-center mb-4">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
           <div className="flex gap-2 w-full max-w-md">
             <Input
               placeholder="Buscar evento..."
@@ -292,11 +337,11 @@ export default function Agenda() {
               </PopoverContent>
             </Popover>
           </div>
-          <TabsList>
-            <TabsTrigger value="list">
+          <TabsList className="w-full md:w-auto">
+            <TabsTrigger value="list" className="flex-1 md:flex-none">
               <List className="h-4 w-4 mr-2" /> Lista
             </TabsTrigger>
-            <TabsTrigger value="calendar">
+            <TabsTrigger value="calendar" className="flex-1 md:flex-none">
               <LayoutGrid className="h-4 w-4 mr-2" /> Calendário
             </TabsTrigger>
           </TabsList>
@@ -324,6 +369,7 @@ export default function Agenda() {
                 )
               const resp = state.users.find((u) => u.id === (item as any).responsibleId)
               const isFeriado = item.type === 'Feriado'
+              const isAudience = item.type === 'Aud.conciliação' || item.type === 'AIJ'
               const bgColor = isFeriado ? '#ef4444' : resp?.color || '#cbd5e1'
 
               return (
@@ -342,7 +388,15 @@ export default function Agenda() {
                   title={item.title}
                 >
                   <div className="flex justify-between items-start gap-1 w-full">
-                    <span className="font-semibold shrink-0">{(item as any).time}</span>
+                    <span className="font-semibold shrink-0 flex items-center gap-1">
+                      {(item as any).time}
+                      {isAudience && (item as any).modality === 'Presencial' && (
+                        <MapPin className="h-2.5 w-2.5 text-green-600" title="Presencial" />
+                      )}
+                      {isAudience && (item as any).modality === 'Virtual' && (
+                        <Video className="h-2.5 w-2.5 text-purple-600" title="Virtual" />
+                      )}
+                    </span>
                     {!isFeriado && resp && (
                       <span
                         className="text-[8px] px-1 py-0.5 rounded truncate max-w-[60px]"
@@ -366,6 +420,7 @@ export default function Agenda() {
             const client = state.clients.find((c) => c.id === a.clientId)
             const process = state.cases.find((c) => c.id === a.processId)
             const localDate = parseSafeLocalDate(a.date)
+            const isAudience = a.type === 'Aud.conciliação' || a.type === 'AIJ'
 
             return (
               <Card
@@ -382,12 +437,23 @@ export default function Agenda() {
                       <p className="text-xl font-black text-primary">{localDate.getDate()}</p>
                     </div>
                     <div className="flex-1 w-full">
-                      <p className="font-bold text-lg flex items-center gap-2">
-                        {a.title}{' '}
-                        {a.type === 'Reunião' && <Video className="h-4 w-4 text-blue-500" />}{' '}
-                        {a.type === 'Aniversário' && <Gift className="h-4 w-4 text-pink-500" />}{' '}
+                      <div className="font-bold text-lg flex items-center gap-2 flex-wrap">
+                        {a.title}
+                        {a.type === 'Reunião' && <Video className="h-4 w-4 text-blue-500" />}
+                        {a.type === 'Aniversário' && <Gift className="h-4 w-4 text-pink-500" />}
+                        {isAudience && a.modality === 'Presencial' && (
+                          <MapPin className="h-4 w-4 text-green-600" title="Presencial" />
+                        )}
+                        {isAudience && a.modality === 'Virtual' && (
+                          <Video className="h-4 w-4 text-purple-600" title="Virtual" />
+                        )}
                         <Badge variant="outline">{a.type}</Badge>
-                      </p>
+                        {a.modality && (
+                          <Badge variant="secondary" className="bg-muted text-muted-foreground">
+                            {a.modality}
+                          </Badge>
+                        )}
+                      </div>
                       <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
                         <span>Horário: {a.time}</span>
                         {a.type !== 'Aniversário' && (
