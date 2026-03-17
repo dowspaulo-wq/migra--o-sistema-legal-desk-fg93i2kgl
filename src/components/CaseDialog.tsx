@@ -16,9 +16,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
-import { Switch } from '@/components/ui/switch'
+import { Toggle } from '@/components/ui/toggle'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Star } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 
@@ -67,6 +68,7 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
     startDate: new Date().toISOString().split('T')[0],
     responsibleId: sortedUsers[0]?.id || '',
     isSpecial: false,
+    isProblematic: false,
     description: '',
     internalNotes: '',
     alerts: '',
@@ -111,7 +113,7 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
             <DialogTitle>{data ? 'Editar' : 'Cadastrar'} Processo</DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            <div className="col-span-2 flex gap-4">
+            <div className="col-span-2 flex gap-4 items-end pb-1">
               <div className="flex-1 space-y-2">
                 <Label>Nº do Processo (CNJ) *</Label>
                 <Input
@@ -120,12 +122,31 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
                   onChange={(e) => setFd({ ...fd, number: e.target.value })}
                 />
               </div>
-              <div className="flex flex-col items-center gap-2 mt-2">
-                <Label>Especial</Label>
-                <Switch
-                  checked={fd.isSpecial}
-                  onCheckedChange={(v) => setFd({ ...fd, isSpecial: v })}
-                />
+              <div className="flex gap-2">
+                <Toggle
+                  pressed={fd.isSpecial}
+                  onPressedChange={(v) => setFd({ ...fd, isSpecial: v })}
+                  variant="outline"
+                  className={fd.isSpecial ? 'bg-yellow-50 border-yellow-200' : ''}
+                  title="Processo Especial"
+                >
+                  <Star
+                    className={`h-4 w-4 ${fd.isSpecial ? 'fill-yellow-400 text-yellow-400' : 'text-slate-400'}`}
+                  />
+                </Toggle>
+                <Toggle
+                  pressed={fd.isProblematic}
+                  onPressedChange={(v) => setFd({ ...fd, isProblematic: v })}
+                  variant="outline"
+                  className={fd.isProblematic ? 'bg-orange-50 border-orange-200' : ''}
+                  title="Processo Problemático"
+                >
+                  <span
+                    className={`text-xl ${fd.isProblematic ? 'opacity-100' : 'opacity-40 grayscale'}`}
+                  >
+                    💩
+                  </span>
+                </Toggle>
               </div>
             </div>
             <div className="space-y-2">

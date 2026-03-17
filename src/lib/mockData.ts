@@ -38,6 +38,7 @@ export interface Case {
   responsibleId: string
   updatedAt: string
   isSpecial: boolean
+  isProblematic?: boolean
   description: string
   internalNotes: string
   alerts: string

@@ -45,7 +45,7 @@ export default function Cases() {
 
   const filtered = state.cases.filter((c) => {
     const mSearch =
-      c.number.toLowerCase().includes(search.toLowerCase()) ||
+      (c.number || '').toString().toLowerCase().includes(search.toLowerCase()) ||
       (c.adverseParty || '').toLowerCase().includes(search.toLowerCase()) ||
       (c.court || '').toLowerCase().includes(search.toLowerCase())
     const mStatus =
@@ -58,8 +58,8 @@ export default function Cases() {
     const mClient =
       clientFilter === 'Todos' ||
       (clientFilter === 'Vazio' ? !c.clientId : c.clientId === clientFilter)
-    const mMin = minVal === '' || c.value >= Number(minVal)
-    const mMax = maxVal === '' || c.value <= Number(maxVal)
+    const mMin = minVal === '' || (c.value || 0) >= Number(minVal)
+    const mMax = maxVal === '' || (c.value || 0) <= Number(maxVal)
     return mSearch && mStatus && mType && mResp && mClient && mMin && mMax
   })
 
@@ -267,7 +267,12 @@ export default function Cases() {
                         </Link>{' '}
                         {c.isSpecial && (
                           <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                        )}{' '}
+                        )}
+                        {c.isProblematic && (
+                          <span className="text-base leading-none" title="Problemático">
+                            💩
+                          </span>
+                        )}
                         <Badge variant="outline">{c.status}</Badge>
                         <Badge
                           style={{ backgroundColor: getTypeColor(c.type) }}
@@ -335,16 +340,23 @@ export default function Cases() {
                       style={{ backgroundColor: typeColor }}
                     />
                     <CardContent className="p-4 pt-5 space-y-3">
-                      <div className="flex justify-between items-start">
+                      <div className="flex justify-between items-start gap-2">
                         <Link
                           to={`/processos/${c.id}`}
                           className="font-bold text-primary hover:underline text-sm break-all"
                         >
                           {c.number}
                         </Link>
-                        {c.isSpecial && (
-                          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400 shrink-0" />
-                        )}
+                        <div className="flex items-center gap-1 shrink-0">
+                          {c.isProblematic && (
+                            <span className="text-base leading-none" title="Problemático">
+                              💩
+                            </span>
+                          )}
+                          {c.isSpecial && (
+                            <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                          )}
+                        </div>
                       </div>
                       <div className="flex gap-2 flex-wrap">
                         <Badge>{c.status}</Badge>

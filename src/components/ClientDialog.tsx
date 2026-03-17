@@ -16,8 +16,9 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
-import { Switch } from '@/components/ui/switch'
+import { Toggle } from '@/components/ui/toggle'
 import { Textarea } from '@/components/ui/textarea'
+import { Star } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 
@@ -87,8 +88,8 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
             <DialogTitle>{client ? 'Editar' : 'Cadastrar'} Cliente</DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2 flex justify-between items-center">
-              <div className="space-y-2 flex-1 mr-4">
+            <div className="col-span-2 flex justify-between items-end gap-4 pb-1">
+              <div className="flex-1 space-y-2">
                 <Label>Nome Completo *</Label>
                 <Input
                   required
@@ -96,12 +97,18 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
                   onChange={(e) => setFd({ ...fd, name: e.target.value })}
                 />
               </div>
-              <div className="flex flex-col items-center gap-2 mt-4">
-                <Label>Especial</Label>
-                <Switch
-                  checked={fd.isSpecial}
-                  onCheckedChange={(v) => setFd({ ...fd, isSpecial: v })}
-                />
+              <div className="flex gap-2">
+                <Toggle
+                  pressed={fd.isSpecial}
+                  onPressedChange={(v) => setFd({ ...fd, isSpecial: v })}
+                  variant="outline"
+                  className={fd.isSpecial ? 'bg-yellow-50 border-yellow-200' : ''}
+                  title="Cliente Especial"
+                >
+                  <Star
+                    className={`h-4 w-4 ${fd.isSpecial ? 'fill-yellow-400 text-yellow-400' : 'text-slate-400'}`}
+                  />
+                </Toggle>
               </div>
             </div>
             <div className="space-y-2">

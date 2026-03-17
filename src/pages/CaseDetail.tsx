@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { ArrowLeft, Scale, Users, CheckSquare, FileText, Download } from 'lucide-react'
+import { ArrowLeft, Scale, Users, CheckSquare, FileText, Download, Star } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 
@@ -64,7 +64,17 @@ export default function CaseDetail() {
           </Link>
         </Button>
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-primary">{c.number}</h1>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-primary flex items-center gap-3">
+            {c.number}
+            {c.isSpecial && (
+              <Star className="h-6 w-6 fill-yellow-400 text-yellow-400" title="Especial" />
+            )}
+            {c.isProblematic && (
+              <span className="text-2xl" title="Problemático">
+                💩
+              </span>
+            )}
+          </h1>
           <p className="text-muted-foreground mt-1">
             <Badge variant="outline">{c.status}</Badge> • Sistema: {c.system}
           </p>
