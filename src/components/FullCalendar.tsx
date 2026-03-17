@@ -19,7 +19,8 @@ export function FullCalendar<T extends { id: string; date: string }>({
 
   const days = Array.from({ length: 42 }, (_, i) => {
     const d = i - firstDay + 1
-    if (d > 0 && d <= daysInMonth) return new Date(year, month, d)
+    // Creating date at 12:00:00 to prevent local timezone offsets moving to the previous day
+    if (d > 0 && d <= daysInMonth) return new Date(year, month, d, 12, 0, 0)
     return null
   })
 

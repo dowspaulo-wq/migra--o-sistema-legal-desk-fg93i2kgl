@@ -23,6 +23,17 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Label } from '@/components/ui/label'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
+import {
   Plus,
   ExternalLink,
   Star,
@@ -39,6 +50,7 @@ import {
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import { ClientDialog } from '@/components/ClientDialog'
+import { normalizeStr } from '@/lib/utils'
 
 export default function Clients() {
   const { state, addClient, updateItem, deleteItem } = useLegalStore()
@@ -59,9 +71,11 @@ export default function Clients() {
   )
 
   const filtered = state.clients.filter((c) => {
+    const normalizedSearch = normalizeStr(searchTerm)
     const matchSearch =
-      c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (c.document || '').includes(searchTerm)
+      normalizeStr(c.name).includes(normalizedSearch) ||
+      normalizeStr(c.document).includes(normalizedSearch)
+
     const matchStatus = statusFilter === 'Todos' || c.status === statusFilter
     const matchType = typeFilter === 'Todos' || c.type === typeFilter
     const matchResp =
@@ -395,25 +409,50 @@ export default function Clients() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
-                          <Button variant="ghost" size="icon" asChild>
+                          <Button variant="ghost" size="icon" asChild title="Abrir">
                             <Link to={`/clientes/${c.id}`}>
                               <ExternalLink className="h-4 w-4" />
                             </Link>
                           </Button>
-                          <Button variant="ghost" size="icon" onClick={() => handleOpen(c)}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleOpen(c)}
+                            title="Editar"
+                          >
                             <Edit className="h-4 w-4" />
                           </Button>
                           {state.currentUser.role === 'Admin' && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="text-red-500"
-                              onClick={() => {
-                                if (confirm('Tem certeza?')) deleteItem('clients', c.id)
-                              }}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="text-red-500 hover:bg-red-50"
+                                  title="Excluir"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Excluir Cliente?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Esta ação é irreversível. Isso removerá o cliente e todo o seu
+                                    histórico (processos, tarefas e agendamentos).
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    className="bg-red-600 hover:bg-red-700"
+                                    onClick={() => deleteItem('clients', c.id)}
+                                  >
+                                    Excluir
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
                           )}
                         </div>
                       </TableCell>
@@ -485,16 +524,36 @@ export default function Clients() {
                           <Edit className="h-4 w-4" />
                         </Button>
                         {state.currentUser.role === 'Admin' && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="text-red-500 hover:bg-red-50"
-                            onClick={() => {
-                              if (confirm('Tem certeza?')) deleteItem('clients', c.id)
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-red-500 hover:bg-red-50"
+                                title="Excluir"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Excluir Cliente?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Esta ação é irreversível. Isso removerá o cliente e todo o seu
+                                  histórico (processos, tarefas e agendamentos).
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                <AlertDialogAction
+                                  className="bg-red-600 hover:bg-red-700"
+                                  onClick={() => deleteItem('clients', c.id)}
+                                >
+                                  Excluir
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
                         )}
                       </div>
                     </CardContent>

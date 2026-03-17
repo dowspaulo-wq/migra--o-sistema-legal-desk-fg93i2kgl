@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -17,6 +18,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { FullCalendar } from '@/components/FullCalendar'
 import { AppointmentDialog } from '@/components/AppointmentDialog'
 import { Badge } from '@/components/ui/badge'
+import { parseSafeLocalDate } from '@/lib/utils'
 
 export default function Agenda() {
   const { state, addAppointment, updateItem } = useLegalStore()
@@ -46,13 +48,6 @@ export default function Agenda() {
   const handleSave = (fd: any) => {
     if (editingItem) updateItem('appointments', editingItem.id, fd)
     else addAppointment(fd)
-  }
-
-  // Helper to safely parse YYYY-MM-DD avoiding timezone offsets
-  const parseLocalDate = (dateStr: string) => {
-    if (!dateStr) return new Date()
-    const [y, m, d] = dateStr.split('T')[0].split('-')
-    return new Date(Number(y), Number(m) - 1, Number(d))
   }
 
   const allItems = state.appointments.map((a) => ({
@@ -298,7 +293,8 @@ export default function Agenda() {
           {filtered.map((a: any) => {
             const resp = state.users.find((u) => u.id === a.responsibleId)
             const client = state.clients.find((c) => c.id === a.clientId)
-            const localDate = parseLocalDate(a.date)
+            const process = state.cases.find((c) => c.id === a.processId)
+            const localDate = parseSafeLocalDate(a.date)
 
             return (
               <Card
@@ -326,6 +322,19 @@ export default function Agenda() {
                       </p>
                       <p className="text-xs text-muted-foreground">
                         Cliente: {client?.name || 'Não vinculado'}
+                        {process && (
+                          <span>
+                            {' '}
+                            • Proc:{' '}
+                            <Link
+                              to={`/processos/${process.id}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="hover:underline text-primary"
+                            >
+                              {process.number}
+                            </Link>
+                          </span>
+                        )}
                       </p>
                     </div>
                   </div>

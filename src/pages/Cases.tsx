@@ -14,10 +14,22 @@ import {
 } from '@/components/ui/select'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Label } from '@/components/ui/label'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { Search, Plus, Edit, Trash2, LayoutGrid, List, Star, Filter } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import { CaseDialog } from '@/components/CaseDialog'
+import { normalizeStr } from '@/lib/utils'
 
 export default function Cases() {
   const { state, addCase, updateItem, deleteItem } = useLegalStore()
@@ -45,12 +57,14 @@ export default function Cases() {
 
   const filtered = state.cases.filter((c) => {
     const client = state.clients.find((cl) => cl.id === c.clientId)
-    const clientName = client ? client.name.toLowerCase() : ''
+    const clientName = client ? client.name : ''
 
+    const normalizedSearch = normalizeStr(search)
     const mSearch =
-      (c.number || '').toString().toLowerCase().includes(search.toLowerCase()) ||
-      (c.adverseParty || '').toLowerCase().includes(search.toLowerCase()) ||
-      clientName.includes(search.toLowerCase())
+      normalizeStr((c.number || '').toString()).includes(normalizedSearch) ||
+      normalizeStr(c.adverseParty).includes(normalizedSearch) ||
+      normalizeStr(clientName).includes(normalizedSearch)
+
     const mStatus =
       statusFilter === 'Todos' || (statusFilter === 'Vazio' ? !c.status : c.status === statusFilter)
     const mType =
@@ -119,7 +133,7 @@ export default function Cases() {
           <div className="flex gap-2 w-full max-w-md">
             <Input
               type="search"
-              placeholder="Buscar por número, cliente ou parte adversa..."
+              placeholder="Buscar por número, cliente ou adversa..."
               className="flex-1"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -320,16 +334,36 @@ export default function Cases() {
                         <Edit className="h-4 w-4" />
                       </Button>
                       {state.currentUser.role === 'Admin' && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="text-red-500 hover:bg-red-50"
-                          onClick={() => {
-                            if (confirm('Excluir?')) deleteItem('cases', c.id)
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-red-500 hover:bg-red-50"
+                              title="Excluir"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Excluir Processo?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Esta ação não pode ser desfeita. Isso excluirá o processo
+                                permanentemente, além de tarefas e compromissos atrelados.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                              <AlertDialogAction
+                                className="bg-red-600 hover:bg-red-700"
+                                onClick={() => deleteItem('cases', c.id)}
+                              >
+                                Excluir
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       )}
                     </div>
                   </div>
@@ -417,6 +451,49 @@ export default function Cases() {
                           ))}
                         </div>
                       )}
+
+                      <div className="flex gap-2 pt-2 border-t mt-3">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                          onClick={() => handleOpen(c)}
+                        >
+                          <Edit className="h-4 w-4 mr-2" /> Editar
+                        </Button>
+                        {state.currentUser.role === 'Admin' && (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-red-500 hover:bg-red-50 shrink-0"
+                                title="Excluir"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Excluir Processo?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Esta ação não pode ser desfeita. Isso excluirá o processo
+                                  permanentemente, além de tarefas e compromissos atrelados.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                <AlertDialogAction
+                                  className="bg-red-600 hover:bg-red-700"
+                                  onClick={() => deleteItem('cases', c.id)}
+                                >
+                                  Excluir
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )}
+                      </div>
                     </CardContent>
                   </Card>
                 )

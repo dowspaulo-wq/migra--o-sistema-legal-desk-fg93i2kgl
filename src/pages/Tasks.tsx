@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -12,11 +13,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { Plus, Trash, Edit, LayoutGrid, List, CheckCircle2, Circle, Filter } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import useLegalStore from '@/stores/useLegalStore'
 import { TaskDialog } from '@/components/TaskDialog'
 import { FullCalendar } from '@/components/FullCalendar'
+import { formatSafeLocalDate } from '@/lib/utils'
 
 export default function Tasks() {
   const { state, updateItem, deleteItem, addTask } = useLegalStore()
@@ -268,7 +281,14 @@ export default function Tasks() {
                       <p className="text-xs text-muted-foreground mt-1">
                         Cliente:{' '}
                         <span className="font-medium">{client?.name || 'Não vinculado'}</span> •
-                        Proc: {c?.number || 'Não vinculado'}
+                        Proc:{' '}
+                        {c ? (
+                          <Link to={`/processos/${c.id}`} className="hover:underline text-primary">
+                            {c.number}
+                          </Link>
+                        ) : (
+                          'Não vinculado'
+                        )}
                       </p>
                       <div className="flex gap-2 text-xs mt-2 items-center">
                         <Badge variant="secondary" className="text-[10px]">
@@ -276,24 +296,50 @@ export default function Tasks() {
                         </Badge>
                         <Badge className="text-[10px]">{t.priority}</Badge>
                         <span className="text-muted-foreground ml-2 font-semibold">
-                          Vence: {new Date(t.dueDate).toLocaleDateString('pt-BR')}
+                          Vence: {formatSafeLocalDate(t.dueDate)}
                         </span>
                       </div>
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <Button variant="ghost" size="icon" onClick={() => handleOpen(t)}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleOpen(t)}
+                      title="Editar"
+                    >
                       <Edit className="h-4 w-4" />
                     </Button>
                     {state.currentUser.role === 'Admin' && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-red-500"
-                        onClick={() => deleteItem('tasks', t.id)}
-                      >
-                        <Trash className="h-4 w-4" />
-                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-red-500"
+                            title="Excluir"
+                          >
+                            <Trash className="h-4 w-4" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Excluir Tarefa?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Esta ação removerá a tarefa permanentemente do sistema.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                            <AlertDialogAction
+                              className="bg-red-600 hover:bg-red-700"
+                              onClick={() => deleteItem('tasks', t.id)}
+                            >
+                              Excluir
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     )}
                   </div>
                 </CardContent>
@@ -303,7 +349,7 @@ export default function Tasks() {
         </TabsContent>
         <TabsContent value="calendar">
           <FullCalendar
-            items={filtered.map((x) => ({ ...x, date: x.dueDate }))}
+            items={filtered.map((x) => ({ ...x, date: x.dueDate || '' }))}
             renderItem={(t) => {
               const resp = state.users.find((u) => u.id === t.responsibleId)
               const c = state.cases.find((x) => x.id === t.relatedProcessId)

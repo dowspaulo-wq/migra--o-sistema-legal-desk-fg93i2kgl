@@ -137,10 +137,26 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
 
   const deleteItem = useCallback(
     async (table: string, id: string) => {
-      setState((prev) => ({
-        ...prev,
-        [table]: (prev[table as keyof LegalState] as any[]).filter((item) => item.id !== id),
-      }))
+      setState((prev) => {
+        const newState = {
+          ...prev,
+          [table]: (prev[table as keyof LegalState] as any[]).filter((item) => item.id !== id),
+        }
+
+        // Cascading deletion locally for immediate UI update
+        if (table === 'clients') {
+          newState.cases = prev.cases.filter((c) => c.clientId !== id)
+          newState.tasks = prev.tasks.filter((t) => t.clientId !== id)
+          newState.appointments = prev.appointments.filter((a) => a.clientId !== id)
+          newState.transactions = prev.transactions.filter((t) => t.clientId !== id)
+        }
+        if (table === 'cases') {
+          newState.tasks = prev.tasks.filter((t) => t.relatedProcessId !== id)
+          newState.appointments = prev.appointments.filter((a) => a.processId !== id)
+          newState.transactions = prev.transactions.filter((t) => t.processId !== id)
+        }
+        return newState
+      })
       await supabase.from(table).delete().eq('id', id)
       addLog('Excluir', table, `Registro ${id} removido`)
     },
@@ -158,7 +174,6 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         if (id && id !== 'default') {
           await supabase.from(table).update(changes).eq('id', id)
         } else {
-          // Automatically insert settings if missing when user updates
           const { data } = await supabase.from(table).insert(changes).select().single()
           if (data) setState((prev) => ({ ...prev, settings: { ...prev.settings, id: data.id } }))
         }
@@ -173,7 +188,6 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         })
         await supabase.from(table).update(changes).eq('id', id)
 
-        // Special handling for Client Birthdays (fetch newly generated appointments from trigger)
         if (
           table === 'clients' &&
           changes.birthday !== undefined &&
@@ -248,7 +262,6 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     toast({ title: 'Cliente adicionado' })
 
     if (client.birthday) {
-      // Refetch appointments in case trigger generated birthdays
       const { data: appts } = await supabase.from('appointments').select('*')
       if (appts) {
         setState((prev) => ({
