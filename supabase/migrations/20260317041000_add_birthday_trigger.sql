@@ -19,6 +19,7 @@ DECLARE
     curr_year int;
     i int;
     bday_date date;
+    parsed_date date;
 BEGIN
     -- If update and birthday hasn't changed, do nothing
     IF TG_OP = 'UPDATE' AND OLD.birthday = NEW.birthday AND OLD."responsibleId" = NEW."responsibleId" AND OLD.name = NEW.name THEN
@@ -34,9 +35,20 @@ BEGIN
         RETURN NEW;
     END IF;
 
+    -- Safely parse the birthday date
+    BEGIN
+        IF NEW.birthday LIKE '%/%/%' THEN
+            parsed_date := to_date(NEW.birthday, 'DD/MM/YYYY');
+        ELSE
+            parsed_date := NEW.birthday::date;
+        END IF;
+    EXCEPTION WHEN OTHERS THEN
+        RETURN NEW; -- skip if date is invalid
+    END;
+
     -- Extract month and day
-    m := extract(month from NEW.birthday::date);
-    d := extract(day from NEW.birthday::date);
+    m := extract(month from parsed_date);
+    d := extract(day from parsed_date);
     curr_year := extract(year from current_date);
 
     -- Insert for current year and next 4 years (5 total)
@@ -88,6 +100,7 @@ DECLARE
     curr_year int;
     i int;
     bday_date date;
+    parsed_date date;
 BEGIN
     curr_year := extract(year from current_date);
 
@@ -95,35 +108,46 @@ BEGIN
     DELETE FROM public.appointments WHERE type = 'Aniversário';
 
     FOR c IN SELECT * FROM public.clients WHERE birthday IS NOT NULL AND birthday != '' LOOP
-        m := extract(month from c.birthday::date);
-        d := extract(day from c.birthday::date);
-
-        FOR i IN 0..4 LOOP
-            y := curr_year + i;
-            IF m = 2 AND d = 29 AND NOT ((y % 4 = 0 AND y % 100 != 0) OR y % 400 = 0) THEN
-                bday_date := make_date(y, 2, 28);
+        -- Safely parse the birthday date
+        BEGIN
+            IF c.birthday LIKE '%/%/%' THEN
+                parsed_date := to_date(c.birthday, 'DD/MM/YYYY');
             ELSE
-                bday_date := make_date(y, m, d);
+                parsed_date := c.birthday::date;
             END IF;
+            
+            m := extract(month from parsed_date);
+            d := extract(day from parsed_date);
 
-            INSERT INTO public.appointments (
-                title,
-                date,
-                time,
-                type,
-                priority,
-                "responsibleId",
-                "clientId"
-            ) VALUES (
-                'Aniversário: ' || c.name,
-                to_char(bday_date, 'YYYY-MM-DD'),
-                '08:00',
-                'Aniversário',
-                'Baixa',
-                c."responsibleId",
-                c.id
-            );
-        END LOOP;
+            FOR i IN 0..4 LOOP
+                y := curr_year + i;
+                IF m = 2 AND d = 29 AND NOT ((y % 4 = 0 AND y % 100 != 0) OR y % 400 = 0) THEN
+                    bday_date := make_date(y, 2, 28);
+                ELSE
+                    bday_date := make_date(y, m, d);
+                END IF;
+
+                INSERT INTO public.appointments (
+                    title,
+                    date,
+                    time,
+                    type,
+                    priority,
+                    "responsibleId",
+                    "clientId"
+                ) VALUES (
+                    'Aniversário: ' || c.name,
+                    to_char(bday_date, 'YYYY-MM-DD'),
+                    '08:00',
+                    'Aniversário',
+                    'Baixa',
+                    c."responsibleId",
+                    c.id
+                );
+            END LOOP;
+        EXCEPTION WHEN OTHERS THEN
+            -- Skip clients with invalid dates silently
+        END;
     END LOOP;
 END;
 $$;
