@@ -89,8 +89,8 @@ export default function CaseDetail() {
           </Link>
         </Button>
         <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-primary flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-primary flex items-center gap-3 break-all">
               {c.number}
               {c.isSpecial && (
                 <Star className="h-6 w-6 fill-yellow-400 text-yellow-400" title="Especial" />
@@ -178,11 +178,14 @@ export default function CaseDetail() {
                 {tasks.map((t) => (
                   <div
                     key={t.id}
-                    className="flex justify-between items-center border p-3 rounded hover:bg-slate-50 cursor-pointer transition-colors"
+                    className="flex justify-between items-center border p-3 rounded hover:bg-slate-50 cursor-pointer transition-colors group"
                     onClick={() => setEditingTask(t)}
                   >
                     <div>
-                      <p className="font-semibold text-sm hover:underline">{t.title}</p>
+                      <p className="font-semibold text-sm group-hover:text-primary transition-colors flex items-center gap-2">
+                        {t.title}
+                        <Edit className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </p>
                       <p className="text-xs text-muted-foreground">Vencimento: {t.dueDate}</p>
                     </div>
                     <Badge variant="outline">{t.status}</Badge>

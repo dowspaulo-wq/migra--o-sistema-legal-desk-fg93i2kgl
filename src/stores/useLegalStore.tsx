@@ -188,22 +188,6 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         })
         await supabase.from(table).update(changes).eq('id', id)
 
-        if (
-          table === 'clients' &&
-          changes.birthday !== undefined &&
-          changes.birthday !== originalItem?.birthday
-        ) {
-          const { data } = await supabase.from('appointments').select('*')
-          if (data) {
-            setState((prev) => ({
-              ...prev,
-              appointments: data.sort(
-                (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-              ),
-            }))
-          }
-        }
-
         if (table === 'appointments' && originalItem) {
           const updatedItem = { ...originalItem, ...changes }
           const wasHoliday = originalItem.type?.toLowerCase() === 'feriado'
@@ -260,18 +244,6 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
     setState((prev) => ({ ...prev, clients: [data, ...prev.clients] }))
     toast({ title: 'Cliente adicionado' })
-
-    if (client.birthday) {
-      const { data: appts } = await supabase.from('appointments').select('*')
-      if (appts) {
-        setState((prev) => ({
-          ...prev,
-          appointments: appts.sort(
-            (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-          ),
-        }))
-      }
-    }
   }, [])
 
   const addTask = useCallback(async (task: Omit<Task, 'id'>) => {

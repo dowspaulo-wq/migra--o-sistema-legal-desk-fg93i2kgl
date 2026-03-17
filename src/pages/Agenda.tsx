@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -41,6 +41,11 @@ export default function Agenda() {
   )
 
   const handleOpen = (item?: any) => {
+    // If it's a virtual birthday, open the client profile instead of an appointment dialog
+    if (item?.itemType === 'birthday') {
+      window.location.href = `/clientes/${item.clientId}`
+      return
+    }
     setEditingItem(item || null)
     setOpen(true)
   }
@@ -50,11 +55,52 @@ export default function Agenda() {
     else addAppointment(fd)
   }
 
-  const allItems = state.appointments.map((a) => ({
-    ...a,
-    itemType: a.type === 'Aniversário' ? ('birthday' as const) : ('appointment' as const),
-    client: state.clients.find((c) => c.id === a.clientId),
-  }))
+  const allItems = useMemo(() => {
+    const currentYear = new Date().getFullYear()
+    const virtualBirthdays: any[] = []
+
+    state.clients.forEach((client) => {
+      if (client.birthday) {
+        const parts = client.birthday.split('T')[0].split('-')
+        if (parts.length === 3) {
+          const m = parts[1]
+          const d = parts[2]
+          const isLeapDay = m === '02' && d === '29'
+
+          for (let y = currentYear - 2; y <= currentYear + 5; y++) {
+            let ny = y
+            let nm = m
+            let nd = d
+            if (isLeapDay && !((ny % 4 === 0 && ny % 100 !== 0) || ny % 400 === 0)) {
+              nd = '28'
+            }
+            virtualBirthdays.push({
+              id: `bday-${client.id}-${ny}`,
+              title: `Aniversário: ${client.name}`,
+              date: `${ny}-${nm}-${nd}`,
+              time: '08:00',
+              type: 'Aniversário',
+              priority: 'Baixa',
+              responsibleId: client.responsibleId,
+              clientId: client.id,
+              processId: null,
+              itemType: 'birthday',
+              client: client,
+            })
+          }
+        }
+      }
+    })
+
+    return [
+      ...state.appointments.map((a) => ({
+        ...a,
+        itemType: 'appointment',
+        client: state.clients.find((c) => c.id === a.clientId),
+      })),
+      ...virtualBirthdays,
+    ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+  }, [state.appointments, state.clients])
 
   const filtered = allItems.filter((i) => {
     const mSearch = i.title.toLowerCase().includes(search.toLowerCase())
@@ -127,6 +173,7 @@ export default function Agenda() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Todos">Todos</SelectItem>
+                      <SelectItem value="Aniversário">Aniversário</SelectItem>
                       {sortedTypes.map((t) => (
                         <SelectItem key={t} value={t}>
                           {t}
@@ -318,7 +365,7 @@ export default function Agenda() {
                         <Badge variant="outline">{a.type}</Badge>
                       </p>
                       <p className="text-sm text-muted-foreground mt-1">
-                        Horário: {a.time} • Resp: {resp?.name}
+                        Horário: {a.time} {resp ? `• Resp: ${resp.name}` : ''}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         Cliente: {client?.name || 'Não vinculado'}
@@ -338,9 +385,11 @@ export default function Agenda() {
                       </p>
                     </div>
                   </div>
-                  <Button variant="ghost" size="icon">
-                    <Edit className="h-4 w-4" />
-                  </Button>
+                  {a.type !== 'Aniversário' && (
+                    <Button variant="ghost" size="icon">
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
             )
