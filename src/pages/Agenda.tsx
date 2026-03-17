@@ -18,7 +18,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { FullCalendar } from '@/components/FullCalendar'
 import { AppointmentDialog } from '@/components/AppointmentDialog'
 import { Badge } from '@/components/ui/badge'
-import { parseSafeLocalDate } from '@/lib/utils'
+import { parseSafeLocalDate, getPriorityColorClass } from '@/lib/utils'
 
 export default function Agenda() {
   const { state, addAppointment, updateItem } = useLegalStore()
@@ -104,13 +104,22 @@ export default function Agenda() {
 
   const filtered = allItems.filter((i) => {
     const mSearch = i.title.toLowerCase().includes(search.toLowerCase())
-    const mType = typeFilter === 'Todos' || i.type === typeFilter
-    const mPriority = priorityFilter === 'Todos' || (i as any).priority === priorityFilter
-    const mResp = respFilter === 'Todos' || (i as any).responsibleId === respFilter
-    const mClient = clientFilter === 'Todos' || (i as any).clientId === clientFilter
-    const mProcess = processFilter === 'Todos' || (i as any).processId === processFilter
+    const mType =
+      typeFilter === 'Todos' || (typeFilter === 'Vazio' ? !i.type : i.type === typeFilter)
+    const mPriority =
+      priorityFilter === 'Todos' ||
+      (priorityFilter === 'Vazio' ? !(i as any).priority : (i as any).priority === priorityFilter)
+    const mResp =
+      respFilter === 'Todos' ||
+      (respFilter === 'Vazio' ? !(i as any).responsibleId : (i as any).responsibleId === respFilter)
+    const mClient =
+      clientFilter === 'Todos' ||
+      (clientFilter === 'Vazio' ? !(i as any).clientId : (i as any).clientId === clientFilter)
+    const mProcess =
+      processFilter === 'Todos' ||
+      (processFilter === 'Vazio' ? !(i as any).processId : (i as any).processId === processFilter)
 
-    if (respFilter !== 'Todos' && i.type === 'Aniversário') return false
+    if (respFilter !== 'Todos' && respFilter !== 'Vazio' && i.type === 'Aniversário') return false
 
     let mDate = true
     const itemDate = i.date.split('T')[0]
@@ -173,6 +182,7 @@ export default function Agenda() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Todos">Todos</SelectItem>
+                      <SelectItem value="Vazio">Não Informado (Vazio)</SelectItem>
                       <SelectItem value="Aniversário">Aniversário</SelectItem>
                       {sortedTypes.map((t) => (
                         <SelectItem key={t} value={t}>
@@ -190,6 +200,7 @@ export default function Agenda() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Todos">Todos</SelectItem>
+                      <SelectItem value="Vazio">Não Informado (Vazio)</SelectItem>
                       <SelectItem value="Baixa">Baixa</SelectItem>
                       <SelectItem value="Média">Média</SelectItem>
                       <SelectItem value="Alta">Alta</SelectItem>
@@ -205,6 +216,7 @@ export default function Agenda() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Todos">Todos</SelectItem>
+                      <SelectItem value="Vazio">Não Atribuído (Vazio)</SelectItem>
                       {sortedUsers.map((u) => (
                         <SelectItem key={u.id} value={u.id}>
                           {u.name}
@@ -221,6 +233,7 @@ export default function Agenda() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Todos">Todos</SelectItem>
+                      <SelectItem value="Vazio">Sem Cliente (Vazio)</SelectItem>
                       {sortedClients.map((c) => (
                         <SelectItem key={c.id} value={c.id}>
                           {c.name}
@@ -237,6 +250,7 @@ export default function Agenda() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Todos">Todos</SelectItem>
+                      <SelectItem value="Vazio">Sem Processo (Vazio)</SelectItem>
                       {sortedCases.map((c) => (
                         <SelectItem key={c.id} value={c.id}>
                           {c.number}
@@ -310,6 +324,8 @@ export default function Agenda() {
                 )
               const resp = state.users.find((u) => u.id === (item as any).responsibleId)
               const isFeriado = item.type === 'Feriado'
+              const bgColor = isFeriado ? '#ef4444' : resp?.color || '#cbd5e1'
+
               return (
                 <div
                   key={item.id}
@@ -317,23 +333,20 @@ export default function Agenda() {
                     e.stopPropagation()
                     handleOpen(item)
                   }}
-                  className={`text-[10px] p-1.5 flex flex-col rounded cursor-pointer mb-1 truncate ${isFeriado ? 'bg-red-500 text-white font-bold' : ''}`}
-                  style={
-                    !isFeriado
-                      ? {
-                          backgroundColor: `${resp?.color}20`,
-                          borderLeft: `3px solid ${resp?.color}`,
-                          color: '#333',
-                        }
-                      : {}
-                  }
+                  className={`text-[10px] p-1.5 flex flex-col rounded cursor-pointer mb-1 truncate ${isFeriado ? 'text-white font-bold' : ''}`}
+                  style={{
+                    backgroundColor: isFeriado ? bgColor : `${bgColor}20`,
+                    borderLeft: `3px solid ${bgColor}`,
+                    color: isFeriado ? '#fff' : '#333',
+                  }}
                   title={item.title}
                 >
                   <div className="flex justify-between items-start gap-1 w-full">
                     <span className="font-semibold shrink-0">{(item as any).time}</span>
                     {!isFeriado && resp && (
                       <span
-                        className="text-[8px] bg-white/60 px-1 rounded truncate max-w-[60px]"
+                        className="text-[8px] px-1 py-0.5 rounded truncate max-w-[60px]"
+                        style={{ backgroundColor: bgColor, color: '#fff' }}
                         title={resp.name}
                       >
                         {resp.name.split(' ')[0]}
@@ -361,24 +374,44 @@ export default function Agenda() {
                 onClick={() => handleOpen(a)}
               >
                 <CardContent className="p-4 flex justify-between items-center">
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-4 w-full">
                     <div className="text-center bg-muted p-2 rounded-lg min-w-[70px]">
                       <p className="text-xs font-bold uppercase">
                         {localDate.toLocaleDateString('pt-BR', { month: 'short' })}
                       </p>
                       <p className="text-xl font-black text-primary">{localDate.getDate()}</p>
                     </div>
-                    <div>
+                    <div className="flex-1 w-full">
                       <p className="font-bold text-lg flex items-center gap-2">
                         {a.title}{' '}
                         {a.type === 'Reunião' && <Video className="h-4 w-4 text-blue-500" />}{' '}
                         {a.type === 'Aniversário' && <Gift className="h-4 w-4 text-pink-500" />}{' '}
                         <Badge variant="outline">{a.type}</Badge>
                       </p>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Horário: {a.time} {resp ? `• Resp: ${resp.name}` : ''}
+                      <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
+                        <span>Horário: {a.time}</span>
+                        {a.type !== 'Aniversário' && (
+                          <Badge
+                            variant="outline"
+                            className={`text-[10px] ${getPriorityColorClass(a.priority)}`}
+                          >
+                            {a.priority || 'Sem prioridade'}
+                          </Badge>
+                        )}
+                        {resp && (
+                          <span
+                            className="text-xs px-2 py-0.5 rounded-full font-medium ml-auto"
+                            style={{
+                              backgroundColor: `${resp.color}20`,
+                              color: resp.color,
+                              border: `1px solid ${resp.color}40`,
+                            }}
+                          >
+                            Resp: {resp.name}
+                          </span>
+                        )}
                       </p>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-xs text-muted-foreground mt-1">
                         Cliente: {client?.name || 'Não vinculado'}
                         {process && (
                           <span>
@@ -397,7 +430,7 @@ export default function Agenda() {
                     </div>
                   </div>
                   {a.type !== 'Aniversário' && (
-                    <Button variant="ghost" size="icon">
+                    <Button variant="ghost" size="icon" className="ml-2">
                       <Edit className="h-4 w-4" />
                     </Button>
                   )}

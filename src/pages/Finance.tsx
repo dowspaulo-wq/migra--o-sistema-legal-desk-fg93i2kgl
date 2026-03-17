@@ -28,7 +28,9 @@ export default function Finance() {
   if (!state.currentUser.canViewFinance) return <Navigate to="/" replace />
 
   const filtered = state.transactions.filter(
-    (t) => filterStatus === 'Todos' || t.status === filterStatus,
+    (t) =>
+      filterStatus === 'Todos' ||
+      (filterStatus === 'Vazio' ? !t.status : t.status === filterStatus),
   )
 
   const income = state.transactions
@@ -86,11 +88,12 @@ export default function Finance() {
         <CardHeader className="flex flex-row items-center justify-between pb-2">
           <CardTitle>Lançamentos</CardTitle>
           <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="w-[180px] bg-white">
+            <SelectTrigger className="w-[200px] bg-white">
               <SelectValue placeholder="Filtrar Status" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="Todos">Todos os Status</SelectItem>
+              <SelectItem value="Vazio">Não Informado (Vazio)</SelectItem>
               <SelectItem value="Pago">Pago</SelectItem>
               <SelectItem value="Pendente">Pendente</SelectItem>
               <SelectItem value="Atrasado">Atrasado</SelectItem>

@@ -76,8 +76,10 @@ export default function Clients() {
       normalizeStr(c.name).includes(normalizedSearch) ||
       normalizeStr(c.document).includes(normalizedSearch)
 
-    const matchStatus = statusFilter === 'Todos' || c.status === statusFilter
-    const matchType = typeFilter === 'Todos' || c.type === typeFilter
+    const matchStatus =
+      statusFilter === 'Todos' || (statusFilter === 'Vazio' ? !c.status : c.status === statusFilter)
+    const matchType =
+      typeFilter === 'Todos' || (typeFilter === 'Vazio' ? !c.type : c.type === typeFilter)
     const matchResp =
       respFilter === 'Todos' ||
       (respFilter === 'Vazio' ? !c.responsibleId : c.responsibleId === respFilter)
@@ -179,6 +181,7 @@ export default function Clients() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Todos">Todos</SelectItem>
+                      <SelectItem value="Vazio">Não Informado (Vazio)</SelectItem>
                       <SelectItem value="Ativo">Ativo</SelectItem>
                       <SelectItem value="Baixado">Baixado</SelectItem>
                     </SelectContent>
@@ -192,6 +195,7 @@ export default function Clients() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Todos">Todos</SelectItem>
+                      <SelectItem value="Vazio">Não Informado (Vazio)</SelectItem>
                       <SelectItem value="PF">Pessoa Física</SelectItem>
                       <SelectItem value="PJ">Pessoa Jurídica</SelectItem>
                     </SelectContent>
@@ -370,92 +374,110 @@ export default function Clients() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {sortedAndFiltered.map((c) => (
-                    <TableRow key={c.id}>
-                      <TableCell className="font-medium">
-                        <div className="flex items-center gap-2">
-                          <Star
-                            className={`h-4 w-4 cursor-pointer ${c.isSpecial ? 'fill-yellow-400 text-yellow-400' : 'text-slate-300'}`}
-                            onClick={() => updateItem('clients', c.id, { isSpecial: !c.isSpecial })}
-                          />{' '}
-                          {c.name}{' '}
-                          <Badge variant="outline" className="text-[10px]">
-                            {c.type}
+                  {sortedAndFiltered.map((c) => {
+                    const resp = state.users.find((u) => u.id === c.responsibleId)
+                    return (
+                      <TableRow key={c.id}>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            <Star
+                              className={`h-4 w-4 cursor-pointer ${c.isSpecial ? 'fill-yellow-400 text-yellow-400' : 'text-slate-300'}`}
+                              onClick={() =>
+                                updateItem('clients', c.id, { isSpecial: !c.isSpecial })
+                              }
+                            />{' '}
+                            {c.name}{' '}
+                            <Badge variant="outline" className="text-[10px]">
+                              {c.type}
+                            </Badge>
+                          </div>
+                        </TableCell>
+                        <TableCell>{c.document}</TableCell>
+                        <TableCell className="text-sm flex items-center gap-2">
+                          {c.phone}{' '}
+                          {c.phone && (
+                            <a
+                              href={`https://wa.me/${c.phone.replace(/\D/g, '')}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-green-500 hover:scale-110 transition-transform"
+                            >
+                              <MessageCircle className="h-4 w-4" />
+                            </a>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {resp ? (
+                            <span
+                              className="text-xs px-2 py-0.5 rounded-full font-medium inline-block"
+                              style={{
+                                backgroundColor: `${resp.color}20`,
+                                color: resp.color,
+                                border: `1px solid ${resp.color}40`,
+                              }}
+                            >
+                              {resp.name}
+                            </span>
+                          ) : (
+                            '—'
+                          )}
+                        </TableCell>
+                        <TableCell>{c.captacao || '—'}</TableCell>
+                        <TableCell>
+                          <Badge variant={c.status === 'Ativo' ? 'default' : 'secondary'}>
+                            {c.status}
                           </Badge>
-                        </div>
-                      </TableCell>
-                      <TableCell>{c.document}</TableCell>
-                      <TableCell className="text-sm flex items-center gap-2">
-                        {c.phone}{' '}
-                        {c.phone && (
-                          <a
-                            href={`https://wa.me/${c.phone.replace(/\D/g, '')}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-green-500 hover:scale-110 transition-transform"
-                          >
-                            <MessageCircle className="h-4 w-4" />
-                          </a>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {state.users.find((u) => u.id === c.responsibleId)?.name || '—'}
-                      </TableCell>
-                      <TableCell>{c.captacao || '—'}</TableCell>
-                      <TableCell>
-                        <Badge variant={c.status === 'Ativo' ? 'default' : 'secondary'}>
-                          {c.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button variant="ghost" size="icon" asChild title="Abrir">
-                            <Link to={`/clientes/${c.id}`}>
-                              <ExternalLink className="h-4 w-4" />
-                            </Link>
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleOpen(c)}
-                            title="Editar"
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="text-red-500 hover:bg-red-50"
-                                title="Excluir"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Excluir Cliente?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  Esta ação é irreversível. Isso removerá o cliente e todo o seu
-                                  histórico (processos, tarefas e agendamentos).
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                <AlertDialogAction
-                                  className="bg-red-600 hover:bg-red-700"
-                                  onClick={() => deleteItem('clients', c.id)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button variant="ghost" size="icon" asChild title="Abrir">
+                              <Link to={`/clientes/${c.id}`}>
+                                <ExternalLink className="h-4 w-4" />
+                              </Link>
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleOpen(c)}
+                              title="Editar"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="text-red-500 hover:bg-red-50"
+                                  title="Excluir"
                                 >
-                                  Excluir
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Excluir Cliente?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Esta ação é irreversível. Isso removerá o cliente e todo o seu
+                                    histórico (processos, tarefas e agendamentos).
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    className="bg-red-600 hover:bg-red-700"
+                                    onClick={() => deleteItem('clients', c.id)}
+                                  >
+                                    Excluir
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
                 </TableBody>
               </Table>
             </TabsContent>
@@ -465,6 +487,7 @@ export default function Clients() {
             >
               {sortedAndFiltered.map((c) => {
                 const caseCount = state.cases.filter((x) => x.clientId === c.id).length
+                const resp = state.users.find((u) => u.id === c.responsibleId)
                 return (
                   <Card key={c.id} className="relative overflow-hidden group">
                     <div
@@ -488,11 +511,22 @@ export default function Clients() {
                         </Badge>
                       </div>
                       <div className="mt-4 space-y-1 text-sm">
-                        <p>
+                        <p className="flex items-center gap-1">
                           Resp:{' '}
-                          <span className="font-medium">
-                            {state.users.find((u) => u.id === c.responsibleId)?.name || '—'}
-                          </span>
+                          {resp ? (
+                            <span
+                              className="text-[10px] px-2 py-0.5 rounded-full font-medium inline-block"
+                              style={{
+                                backgroundColor: `${resp.color}20`,
+                                color: resp.color,
+                                border: `1px solid ${resp.color}40`,
+                              }}
+                            >
+                              {resp.name}
+                            </span>
+                          ) : (
+                            <span className="font-medium">—</span>
+                          )}
                         </p>
                         <p>
                           Captação: <span className="font-medium">{c.captacao || '—'}</span>

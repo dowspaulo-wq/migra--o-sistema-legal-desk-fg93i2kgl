@@ -40,3 +40,15 @@ export function formatSafeLocalDate(dateStr: string | null | undefined): string 
   if (!dateStr) return ''
   return parseSafeLocalDate(dateStr).toLocaleDateString('pt-BR')
 }
+
+/**
+ * Returns Tailwind CSS color classes for a given priority level
+ */
+export function getPriorityColorClass(priority: string | null | undefined): string {
+  const p = (priority || '').toLowerCase()
+  if (p === 'baixa') return 'bg-green-100 text-green-800 border-green-200'
+  if (p === 'média' || p === 'media') return 'bg-yellow-100 text-yellow-800 border-yellow-200'
+  if (p === 'alta') return 'bg-orange-100 text-orange-800 border-orange-200'
+  if (p === 'urgente') return 'bg-red-100 text-red-800 border-red-200'
+  return 'bg-slate-100 text-slate-800 border-slate-200'
+}

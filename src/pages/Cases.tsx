@@ -269,12 +269,14 @@ export default function Cases() {
             <TabsContent value="list" className="grid gap-3">
               {filtered.map((c) => {
                 const client = state.clients.find((cl) => cl.id === c.clientId)
+                const resp = state.users.find((u) => u.id === c.responsibleId)
+
                 return (
                   <div
                     key={c.id}
                     className="border p-4 rounded-lg flex flex-col md:flex-row justify-between gap-4 hover:border-primary/50 transition-colors bg-card"
                   >
-                    <div>
+                    <div className="w-full">
                       <div className="flex items-center gap-2 mb-1">
                         <Link
                           to={`/processos/${c.id}`}
@@ -312,9 +314,23 @@ export default function Cases() {
                         <span className="text-muted-foreground text-xs">({c.position})</span> x{' '}
                         {c.adverseParty}
                       </p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Vara: {c.court} • Tramitando há {getDays(c.startDate)} dias
-                      </p>
+                      <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                        <p>
+                          Vara: {c.court} • Tramitando há {getDays(c.startDate)} dias
+                        </p>
+                        {resp && (
+                          <span
+                            className="px-2 py-0.5 rounded-full font-medium ml-auto"
+                            style={{
+                              backgroundColor: `${resp.color}20`,
+                              color: resp.color,
+                              border: `1px solid ${resp.color}40`,
+                            }}
+                          >
+                            Resp: {resp.name.split(' ')[0]}
+                          </span>
+                        )}
+                      </div>
                       {c.alerts && (
                         <div className="flex gap-1 flex-wrap mt-2">
                           {c.alerts.split(',').map((a) => (
@@ -430,8 +446,22 @@ export default function Cases() {
                         <p>
                           <span className="text-muted-foreground">Adversa:</span> {c.adverseParty}
                         </p>
-                        <p>
-                          <span className="text-muted-foreground">Resp:</span> {resp?.name || '—'}
+                        <p className="flex items-center gap-1">
+                          <span className="text-muted-foreground">Resp:</span>{' '}
+                          {resp ? (
+                            <span
+                              className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                              style={{
+                                backgroundColor: `${resp.color}20`,
+                                color: resp.color,
+                                border: `1px solid ${resp.color}40`,
+                              }}
+                            >
+                              {resp.name}
+                            </span>
+                          ) : (
+                            '—'
+                          )}
                         </p>
                         <p>
                           <span className="text-muted-foreground">Duração:</span>{' '}

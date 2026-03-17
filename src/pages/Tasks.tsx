@@ -29,7 +29,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import useLegalStore from '@/stores/useLegalStore'
 import { TaskDialog } from '@/components/TaskDialog'
 import { FullCalendar } from '@/components/FullCalendar'
-import { formatSafeLocalDate } from '@/lib/utils'
+import { formatSafeLocalDate, getPriorityColorClass } from '@/lib/utils'
 
 export default function Tasks() {
   const { state, updateItem, deleteItem, addTask } = useLegalStore()
@@ -51,11 +51,19 @@ export default function Tasks() {
 
   const filtered = state.tasks.filter((t) => {
     const mSearch = t.title.toLowerCase().includes(search.toLowerCase())
-    const mStatus = statusFilter === 'Todos' || t.status === statusFilter
-    const mType = typeFilter === 'Todos' || t.type === typeFilter
-    const mPriority = priorityFilter === 'Todos' || t.priority === priorityFilter
-    const mResp = respFilter === 'Todos' || t.responsibleId === respFilter
-    const mClient = clientFilter === 'Todos' || t.clientId === clientFilter
+    const mStatus =
+      statusFilter === 'Todos' || (statusFilter === 'Vazio' ? !t.status : t.status === statusFilter)
+    const mType =
+      typeFilter === 'Todos' || (typeFilter === 'Vazio' ? !t.type : t.type === typeFilter)
+    const mPriority =
+      priorityFilter === 'Todos' ||
+      (priorityFilter === 'Vazio' ? !t.priority : t.priority === priorityFilter)
+    const mResp =
+      respFilter === 'Todos' ||
+      (respFilter === 'Vazio' ? !t.responsibleId : t.responsibleId === respFilter)
+    const mClient =
+      clientFilter === 'Todos' ||
+      (clientFilter === 'Vazio' ? !t.clientId : t.clientId === clientFilter)
 
     let mDate = true
     if (dateFrom && dateTo && t.dueDate) {
@@ -126,6 +134,7 @@ export default function Tasks() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Todos">Todos</SelectItem>
+                      <SelectItem value="Vazio">Não Informado (Vazio)</SelectItem>
                       {sortedStatuses.map((s) => (
                         <SelectItem key={s} value={s}>
                           {s}
@@ -142,6 +151,7 @@ export default function Tasks() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Todos">Todos</SelectItem>
+                      <SelectItem value="Vazio">Não Informado (Vazio)</SelectItem>
                       {sortedTypes.map((t) => (
                         <SelectItem key={t} value={t}>
                           {t}
@@ -158,6 +168,7 @@ export default function Tasks() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Todos">Todos</SelectItem>
+                      <SelectItem value="Vazio">Não Informado (Vazio)</SelectItem>
                       <SelectItem value="Baixa">Baixa</SelectItem>
                       <SelectItem value="Média">Média</SelectItem>
                       <SelectItem value="Alta">Alta</SelectItem>
@@ -173,6 +184,7 @@ export default function Tasks() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Todos">Todos</SelectItem>
+                      <SelectItem value="Vazio">Não Atribuído (Vazio)</SelectItem>
                       {sortedUsers.map((u) => (
                         <SelectItem key={u.id} value={u.id}>
                           {u.name}
@@ -189,6 +201,7 @@ export default function Tasks() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Todos">Todos</SelectItem>
+                      <SelectItem value="Vazio">Sem Cliente (Vazio)</SelectItem>
                       {sortedClients.map((c) => (
                         <SelectItem key={c.id} value={c.id}>
                           {c.name}
@@ -257,7 +270,7 @@ export default function Tasks() {
                 className={`shadow-sm border-l-4 ${isDone ? 'opacity-60 border-l-green-500' : 'border-l-primary'}`}
               >
                 <CardContent className="p-4 flex items-center justify-between gap-4">
-                  <div className="flex items-start gap-4">
+                  <div className="flex items-start gap-4 w-full">
                     <button
                       onClick={() =>
                         updateItem('tasks', t.id, { status: isDone ? 'pendente' : 'Concluída' })
@@ -295,16 +308,25 @@ export default function Tasks() {
                         <Badge variant="secondary" className="text-[10px]">
                           {t.status}
                         </Badge>
-                        <Badge className="text-[10px]">{t.priority}</Badge>
+                        <Badge
+                          variant="outline"
+                          className={`text-[10px] ${getPriorityColorClass(t.priority)}`}
+                        >
+                          {t.priority || 'Sem prioridade'}
+                        </Badge>
                         <span className="text-muted-foreground ml-2 font-semibold">
                           Vence: {formatSafeLocalDate(t.dueDate)}
                         </span>
                         {resp && (
-                          <span className="text-muted-foreground ml-auto flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-full">
-                            Resp:{' '}
-                            <span className="font-medium text-slate-700">
-                              {resp.name.split(' ')[0]}
-                            </span>
+                          <span
+                            className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
+                            style={{
+                              backgroundColor: `${resp.color}20`,
+                              color: resp.color,
+                              border: `1px solid ${resp.color}40`,
+                            }}
+                          >
+                            Resp: {resp.name.split(' ')[0]}
                           </span>
                         )}
                       </div>
@@ -362,25 +384,34 @@ export default function Tasks() {
             renderItem={(t) => {
               const resp = state.users.find((u) => u.id === t.responsibleId)
               const c = state.cases.find((x) => x.id === t.relatedProcessId)
+              const bgColor = resp?.color || '#cbd5e1'
+
               return (
                 <div
                   key={t.id}
                   onClick={() => handleOpen(t)}
-                  className="text-[10px] p-1.5 border rounded mb-1 cursor-pointer hover:border-primary/50 bg-white"
-                  style={{ borderLeftWidth: '3px', borderLeftColor: resp?.color || '#000' }}
+                  className="text-[10px] p-1.5 border rounded mb-1 cursor-pointer hover:opacity-90 bg-white"
+                  style={{
+                    backgroundColor: `${bgColor}20`,
+                    borderLeftWidth: '3px',
+                    borderLeftColor: bgColor,
+                    borderColor: `${bgColor}40`,
+                  }}
                 >
                   <div className="font-bold flex justify-between items-start gap-1">
                     <span className="truncate">{t.type}</span>{' '}
-                    <span
-                      className="text-[8px] text-white px-1 py-0.5 rounded truncate max-w-[50px] shrink-0"
-                      style={{ backgroundColor: resp?.color || '#64748b' }}
-                      title={resp?.name}
-                    >
-                      {resp?.name.split(' ')[0] || 'N/A'}
-                    </span>
+                    {resp && (
+                      <span
+                        className="text-[8px] px-1 py-0.5 rounded truncate max-w-[50px] shrink-0"
+                        style={{ backgroundColor: bgColor, color: '#fff' }}
+                        title={resp.name}
+                      >
+                        {resp.name.split(' ')[0]}
+                      </span>
+                    )}
                   </div>
                   <div
-                    className="truncate mt-0.5 text-muted-foreground"
+                    className="truncate mt-0.5 text-muted-foreground font-medium"
                     title={c?.number || t.title}
                   >
                     {c?.number || t.title}
