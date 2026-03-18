@@ -23,26 +23,36 @@ import {
   Edit,
   Plus,
   FolderTree,
+  CalendarDays,
+  Calendar,
+  Clock,
+  Video,
+  MapPin,
 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import { CaseDialog } from '@/components/CaseDialog'
 import { TaskDialog } from '@/components/TaskDialog'
+import { AppointmentDialog } from '@/components/AppointmentDialog'
 import { formatSafeLocalDate } from '@/lib/utils'
 
 export default function CaseDetail() {
   const { id } = useParams<{ id: string }>()
-  const { state, updateItem, addCase, addTask } = useLegalStore()
+  const { state, updateItem, addCase, addTask, addAppointment } = useLegalStore()
   const [selectedTpl, setSelectedTpl] = useState<string>('')
   const [isCaseOpen, setIsCaseOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<any>(null)
   const [creatingTask, setCreatingTask] = useState(false)
   const [creatingSubcase, setCreatingSubcase] = useState(false)
 
+  const [editingAppointment, setEditingAppointment] = useState<any>(null)
+  const [creatingAppointment, setCreatingAppointment] = useState(false)
+
   const c = state.cases.find((x) => x.id === id)
   const client = state.clients.find((cl) => cl.id === c?.clientId)
   const tasks = state.tasks.filter((t) => t.relatedProcessId === id)
   const subcases = state.cases.filter((sc) => sc.parentId === id)
+  const processAppointments = state.appointments.filter((a) => a.processId === id)
 
   if (!c) return <div className="p-8 text-center">Processo não encontrado.</div>
 
@@ -116,6 +126,26 @@ export default function CaseDetail() {
         cases={state.cases}
         settings={state.settings}
       />
+      <AppointmentDialog
+        open={!!editingAppointment}
+        onOpenChange={(v: boolean) => !v && setEditingAppointment(null)}
+        data={editingAppointment}
+        onSave={(d: any) => updateItem('appointments', d.id, d)}
+        users={state.users}
+        clients={state.clients}
+        cases={state.cases}
+        settings={state.settings}
+      />
+      <AppointmentDialog
+        open={creatingAppointment}
+        onOpenChange={setCreatingAppointment}
+        data={{ processId: c.id, clientId: c.clientId, isNew: true }}
+        onSave={(d: any) => addAppointment(d)}
+        users={state.users}
+        clients={state.clients}
+        cases={state.cases}
+        settings={state.settings}
+      />
 
       <div className="flex items-start gap-4">
         <Button variant="outline" size="icon" asChild>
@@ -147,10 +177,11 @@ export default function CaseDetail() {
       </div>
 
       <Tabs defaultValue="info" className="w-full">
-        <TabsList className="grid w-full grid-cols-4 max-w-2xl">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-5 h-auto max-w-3xl gap-1 p-1">
           <TabsTrigger value="info">Informações</TabsTrigger>
           <TabsTrigger value="subprocessos">Subprocessos</TabsTrigger>
           <TabsTrigger value="tasks">Tarefas</TabsTrigger>
+          <TabsTrigger value="agenda">Agenda</TabsTrigger>
           <TabsTrigger value="docs">Documentos</TabsTrigger>
         </TabsList>
 
@@ -284,7 +315,83 @@ export default function CaseDetail() {
                   )
                 })}
                 {tasks.length === 0 && (
-                  <p className="text-sm text-muted-foreground">Nenhuma tarefa vinculada.</p>
+                  <p className="text-sm text-muted-foreground text-center py-6 bg-muted/20 border border-dashed rounded">
+                    Nenhuma tarefa vinculada.
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="agenda" className="mt-4">
+          <Card className="shadow-sm">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <CalendarDays className="h-5 w-5" /> Agenda
+              </CardTitle>
+              <Button size="sm" onClick={() => setCreatingAppointment(true)}>
+                <Plus className="h-4 w-4 mr-2" /> Novo Compromisso
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2 mt-2">
+                {processAppointments.map((a) => {
+                  const resp = state.users.find((u) => u.id === a.responsibleId)
+                  return (
+                    <div
+                      key={a.id}
+                      className="flex justify-between items-center border p-3 rounded hover:bg-slate-50 cursor-pointer transition-colors group"
+                      onClick={() => setEditingAppointment(a)}
+                    >
+                      <div>
+                        <p className="font-semibold text-sm group-hover:text-primary transition-colors flex items-center gap-2">
+                          {a.title}
+                          <Edit className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground" />
+                        </p>
+                        <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1 flex-wrap">
+                          <span className="flex items-center gap-1 font-medium text-slate-700">
+                            <Calendar className="h-3 w-3" />
+                            {formatSafeLocalDate(a.date)}
+                          </span>
+                          <span>•</span>
+                          <span className="flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            {a.time}
+                          </span>
+                          <span>•</span>
+                          <span>{a.type}</span>
+                          {a.modality && (
+                            <>
+                              <span>•</span>
+                              <span className="flex items-center gap-1">
+                                {a.modality === 'Virtual' ? (
+                                  <Video className="h-3 w-3" />
+                                ) : (
+                                  <MapPin className="h-3 w-3" />
+                                )}
+                                {a.modality}
+                              </span>
+                            </>
+                          )}
+                          {resp && (
+                            <>
+                              <span>•</span>
+                              <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">
+                                Resp: <span className="font-medium">{resp.name.split(' ')[0]}</span>
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <Badge variant="outline">{a.status}</Badge>
+                    </div>
+                  )
+                })}
+                {processAppointments.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-6 bg-muted/20 border border-dashed rounded">
+                    Nenhum compromisso vinculado.
+                  </p>
                 )}
               </div>
             </CardContent>
