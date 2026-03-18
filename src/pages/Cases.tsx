@@ -82,8 +82,22 @@ export default function Cases() {
   const sortedStatuses = [...(state.settings.caseStatuses || [])].sort((a, b) => a.localeCompare(b))
 
   const filtered = state.cases.filter((c) => {
-    if (c.parentId) return false
-    if (quickSearch && !normalizeStr(c.number).includes(normalizeStr(quickSearch))) return false
+    const client = state.clients.find((cl) => cl.id === c.clientId)
+    const clientName = client?.name || ''
+
+    // Quick Search matches number, client name, and adverse party. Allows finding sub-processes.
+    if (quickSearch) {
+      const search = normalizeStr(quickSearch)
+      const matchNumber = normalizeStr(c.number).includes(search)
+      const matchAdverse = c.adverseParty && normalizeStr(c.adverseParty).includes(search)
+      const matchClient = normalizeStr(clientName).includes(search)
+
+      if (!matchNumber && !matchAdverse && !matchClient) return false
+    } else {
+      // If not actively searching, hide sub-processes from the main list
+      if (c.parentId) return false
+    }
+
     const f = appliedFilters
     if (f.numero && !normalizeStr(c.number).includes(normalizeStr(f.numero))) return false
     if (f.clienteId !== 'Todos' && c.clientId !== f.clienteId) return false
@@ -138,10 +152,10 @@ export default function Cases() {
           <p className="text-muted-foreground">Gestão de casos judiciais.</p>
         </div>
         <div className="flex flex-col sm:flex-row w-full sm:w-auto items-center gap-2">
-          <div className="relative flex-1 w-full sm:w-64">
+          <div className="relative flex-1 w-full sm:w-80">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Pesquisar número..."
+              placeholder="Pesquisar número, autor ou réu..."
               className="pl-8"
               value={quickSearch}
               onChange={(e) => setQuickSearch(e.target.value)}
@@ -403,7 +417,7 @@ export default function Cases() {
                     className="border p-4 rounded-lg flex flex-col md:flex-row justify-between gap-4 hover:border-primary/50 transition-colors bg-card"
                   >
                     <div className="w-full">
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <Link
                           to={`/processos/${c.id}`}
                           className="text-lg font-bold text-primary hover:underline"
@@ -425,6 +439,11 @@ export default function Cases() {
                         >
                           {c.type}
                         </Badge>
+                        {c.parentId && (
+                          <Badge variant="secondary" className="text-[10px]">
+                            Subprocesso
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-sm font-medium mt-1">
                         {client ? (
@@ -554,6 +573,11 @@ export default function Cases() {
                         >
                           {c.type}
                         </Badge>
+                        {c.parentId && (
+                          <Badge variant="secondary" className="text-[10px]">
+                            Subprocesso
+                          </Badge>
+                        )}
                       </div>
                       <div className="text-sm space-y-1">
                         <p>

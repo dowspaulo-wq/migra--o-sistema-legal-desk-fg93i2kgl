@@ -101,10 +101,13 @@ export function TaskDialog({
       return
     }
 
+    // Strip out `isNew` to prevent inserting a non-existent column into Supabase
+    const { isNew, ...payload } = fd
+
     onSave({
-      ...fd,
-      clientId: fd.clientId || null,
-      relatedProcessId: fd.relatedProcessId,
+      ...payload,
+      clientId: payload.clientId || null,
+      relatedProcessId: payload.relatedProcessId,
     })
     onOpenChange(false)
   }

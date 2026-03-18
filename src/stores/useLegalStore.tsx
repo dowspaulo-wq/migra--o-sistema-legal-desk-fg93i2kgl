@@ -247,8 +247,12 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const addTask = useCallback(async (task: Omit<Task, 'id'>) => {
-    const { data } = await supabase.from('tasks').insert(task).select().single()
-    if (data) setState((prev) => ({ ...prev, tasks: [data, ...prev.tasks] }))
+    const { data, error } = await supabase.from('tasks').insert(task).select().single()
+    if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
+    if (data) {
+      setState((prev) => ({ ...prev, tasks: [data, ...prev.tasks] }))
+      toast({ title: 'Tarefa adicionada com sucesso!' })
+    }
   }, [])
 
   const addCase = useCallback(async (newCase: Omit<Case, 'id' | 'updatedAt'>) => {
