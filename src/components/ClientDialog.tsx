@@ -52,19 +52,10 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (
-      !fd.birthday ||
-      !fd.email ||
-      !fd.phone ||
-      !fd.responsibleId ||
-      !fd.captacao ||
-      !fd.type ||
-      !fd.status
-    ) {
+    if (!fd.name || !fd.type || !fd.status || !fd.responsibleId) {
       toast({
         title: 'Campos Obrigatórios',
-        description:
-          'Nascimento, E-mail, WhatsApp, Tipo, Status, Responsável e Captação são de preenchimento obrigatório.',
+        description: 'Nome, Tipo, Status e Responsável são de preenchimento obrigatório.',
         variant: 'destructive',
       })
       return
@@ -73,7 +64,9 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
     const isDupName = state.clients.some(
       (c) => c.name.toLowerCase() === fd.name.toLowerCase() && c.id !== client?.id,
     )
-    const isDupDoc = state.clients.some((c) => c.document === fd.document && c.id !== client?.id)
+    const isDupDoc = fd.document
+      ? state.clients.some((c) => c.document === fd.document && c.id !== client?.id)
+      : false
 
     if (isDupName || isDupDoc) {
       toast({
@@ -84,7 +77,8 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
       return
     }
 
-    onSave(fd)
+    const { isNew, ...payload } = fd
+    onSave(payload)
     onOpenChange(false)
   }
 
@@ -120,9 +114,8 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
               </div>
             </div>
             <div className="space-y-2">
-              <Label>CPF/CNPJ *</Label>
+              <Label>CPF/CNPJ</Label>
               <Input
-                required
                 value={fd.document}
                 onChange={(e) => setFd({ ...fd, document: e.target.value })}
               />
@@ -140,10 +133,9 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Nascimento *</Label>
+              <Label>Nascimento</Label>
               <Input
                 type="date"
-                required
                 value={fd.birthday}
                 onChange={(e) => setFd({ ...fd, birthday: e.target.value })}
               />
@@ -161,21 +153,16 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>E-mail *</Label>
+              <Label>E-mail</Label>
               <Input
                 type="email"
-                required
                 value={fd.email}
                 onChange={(e) => setFd({ ...fd, email: e.target.value })}
               />
             </div>
             <div className="space-y-2">
-              <Label>WhatsApp *</Label>
-              <Input
-                required
-                value={fd.phone}
-                onChange={(e) => setFd({ ...fd, phone: e.target.value })}
-              />
+              <Label>WhatsApp</Label>
+              <Input value={fd.phone} onChange={(e) => setFd({ ...fd, phone: e.target.value })} />
             </div>
             <div className="space-y-2">
               <Label>Responsável *</Label>
@@ -196,7 +183,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Captação *</Label>
+              <Label>Captação</Label>
               <Select value={fd.captacao} onValueChange={(v) => setFd({ ...fd, captacao: v })}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione a Captação" />

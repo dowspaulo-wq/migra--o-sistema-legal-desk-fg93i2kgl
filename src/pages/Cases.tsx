@@ -82,6 +82,7 @@ export default function Cases() {
   const sortedStatuses = [...(state.settings.caseStatuses || [])].sort((a, b) => a.localeCompare(b))
 
   const filtered = state.cases.filter((c) => {
+    if (c.parentId) return false
     if (quickSearch && !normalizeStr(c.number).includes(normalizeStr(quickSearch))) return false
     const f = appliedFilters
     if (f.numero && !normalizeStr(c.number).includes(normalizeStr(f.numero))) return false

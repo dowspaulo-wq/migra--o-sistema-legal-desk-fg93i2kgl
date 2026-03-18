@@ -100,6 +100,7 @@ export default function CaseDetail() {
         open={creatingSubcase}
         onOpenChange={setCreatingSubcase}
         data={{ parentId: c.id, clientId: c.clientId, isNew: true }}
+        lockedClientId={c.clientId}
         onSave={(d: any) => addCase(d)}
         users={state.users}
         clients={state.clients}

@@ -35,7 +35,16 @@ const PREDEFINED_ALERTS = [
   '⏰ Perda de prazo',
 ]
 
-export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, settings }: any) {
+export function CaseDialog({
+  open,
+  onOpenChange,
+  data,
+  onSave,
+  users,
+  clients,
+  settings,
+  lockedClientId,
+}: any) {
   const { state } = useLegalStore()
   const sortedUsers = [...users].sort((a: any, b: any) => a.name.localeCompare(b.name))
   const sortedClients = [...clients].sort((a: any, b: any) => a.name.localeCompare(b.name))
@@ -53,7 +62,7 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
 
   const getInitial = () => ({
     number: '',
-    clientId: data?.clientId || '',
+    clientId: lockedClientId || data?.clientId || '',
     position: '',
     adverseParty: '',
     type: '',
@@ -80,15 +89,16 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
     if (open) {
       setFd(data && !data.isNew ? data : getInitial())
     }
-  }, [data, open])
+  }, [data, open, lockedClientId])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!fd.clientId || !fd.type || !fd.status || !fd.responsibleId) {
+    if (!fd.number || !fd.clientId || !fd.type || !fd.status || !fd.responsibleId) {
       toast({
         title: 'Campos Obrigatórios',
-        description: 'Por favor, preencha Cliente, Tipo, Status e Responsável.',
+        description:
+          'Número, Cliente, Tipo, Status e Responsável são de preenchimento obrigatório.',
         variant: 'destructive',
       })
       return
@@ -104,7 +114,8 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
       return
     }
 
-    onSave(fd)
+    const { isNew, ...payload } = fd
+    onSave(payload)
     onOpenChange(false)
   }
 
@@ -164,7 +175,11 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
             </div>
             <div className="space-y-2">
               <Label>Cliente *</Label>
-              <Select value={fd.clientId} onValueChange={(v) => setFd({ ...fd, clientId: v })}>
+              <Select
+                value={fd.clientId}
+                onValueChange={(v) => setFd({ ...fd, clientId: v })}
+                disabled={!!lockedClientId}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione o Cliente" />
                 </SelectTrigger>
@@ -244,11 +259,7 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
             </div>
             <div className="space-y-2">
               <Label>Vara / Juízo</Label>
-              <Input
-                required
-                value={fd.court}
-                onChange={(e) => setFd({ ...fd, court: e.target.value })}
-              />
+              <Input value={fd.court} onChange={(e) => setFd({ ...fd, court: e.target.value })} />
             </div>
             <div className="space-y-2">
               <Label>Comarca / UF</Label>
@@ -268,7 +279,6 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
               <Label>Valor da Causa</Label>
               <Input
                 type="number"
-                required
                 value={fd.value}
                 onChange={(e) => setFd({ ...fd, value: Number(e.target.value) })}
               />
@@ -277,7 +287,6 @@ export function CaseDialog({ open, onOpenChange, data, onSave, users, clients, s
               <Label>Data Início</Label>
               <Input
                 type="date"
-                required
                 value={fd.startDate}
                 onChange={(e) => setFd({ ...fd, startDate: e.target.value })}
               />

@@ -14,18 +14,30 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
-import { ArrowLeft, User, MapPin, Mail, MessageCircle, FileText, Trash2, Edit } from 'lucide-react'
+import {
+  ArrowLeft,
+  User,
+  MapPin,
+  Mail,
+  MessageCircle,
+  FileText,
+  Trash2,
+  Edit,
+  Plus,
+} from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { ClientDialog } from '@/components/ClientDialog'
+import { CaseDialog } from '@/components/CaseDialog'
 
 export default function ClientDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { state, updateItem, deleteItem } = useLegalStore()
+  const { state, updateItem, deleteItem, addCase } = useLegalStore()
   const [isEditOpen, setIsEditOpen] = useState(false)
+  const [isCreatingCase, setIsCreatingCase] = useState(false)
 
   const client = state.clients.find((c) => c.id === id)
-  const cases = state.cases.filter((c) => c.clientId === id)
+  const cases = state.cases.filter((c) => c.clientId === id && !c.parentId)
 
   if (!client) return <div className="p-8 text-center">Cliente não encontrado.</div>
 
@@ -45,6 +57,17 @@ export default function ClientDetail() {
         settings={state.settings}
       />
 
+      <CaseDialog
+        open={isCreatingCase}
+        onOpenChange={setIsCreatingCase}
+        data={{ clientId: client.id, isNew: true }}
+        lockedClientId={client.id}
+        onSave={(d: any) => addCase(d)}
+        users={state.users}
+        clients={state.clients}
+        settings={state.settings}
+      />
+
       <div className="flex items-start gap-4">
         <Button variant="outline" size="icon" asChild>
           <Link to="/clientes">
@@ -58,6 +81,9 @@ export default function ClientDetail() {
             </h1>
             <Button variant="outline" size="sm" onClick={() => setIsEditOpen(true)}>
               <Edit className="h-4 w-4 mr-2" /> Editar
+            </Button>
+            <Button variant="default" size="sm" onClick={() => setIsCreatingCase(true)}>
+              <Plus className="h-4 w-4 mr-2" /> Cadastrar novo processo
             </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
