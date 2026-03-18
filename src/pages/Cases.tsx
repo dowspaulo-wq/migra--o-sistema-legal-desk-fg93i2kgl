@@ -64,6 +64,7 @@ export default function Cases() {
   const { state, addCase, updateItem, deleteItem } = useLegalStore()
   const [filters, setFilters] = useState(initialFilters)
   const [appliedFilters, setAppliedFilters] = useState(initialFilters)
+  const [quickSearch, setQuickSearch] = useState('')
   const [searchOpen, setSearchOpen] = useState(true)
   const [open, setOpen] = useState(false)
   const [editingCase, setEditingCase] = useState<any>(null)
@@ -81,6 +82,7 @@ export default function Cases() {
   const sortedStatuses = [...(state.settings.caseStatuses || [])].sort((a, b) => a.localeCompare(b))
 
   const filtered = state.cases.filter((c) => {
+    if (quickSearch && !normalizeStr(c.number).includes(normalizeStr(quickSearch))) return false
     const f = appliedFilters
     if (f.numero && !normalizeStr(c.number).includes(normalizeStr(f.numero))) return false
     if (f.clienteId !== 'Todos' && c.clientId !== f.clienteId) return false
@@ -129,14 +131,25 @@ export default function Cases() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center gap-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Processos</h1>
           <p className="text-muted-foreground">Gestão de casos judiciais.</p>
         </div>
-        <Button onClick={() => handleOpen()}>
-          <Plus className="mr-2 h-4 w-4" /> Novo Processo
-        </Button>
+        <div className="flex flex-col sm:flex-row w-full sm:w-auto items-center gap-2">
+          <div className="relative flex-1 w-full sm:w-64">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Pesquisar número..."
+              className="pl-8"
+              value={quickSearch}
+              onChange={(e) => setQuickSearch(e.target.value)}
+            />
+          </div>
+          <Button onClick={() => handleOpen()} className="w-full sm:w-auto shrink-0">
+            <Plus className="mr-2 h-4 w-4" /> Novo Processo
+          </Button>
+        </div>
       </div>
 
       <CaseDialog
@@ -347,6 +360,7 @@ export default function Cases() {
               onClick={() => {
                 setFilters(initialFilters)
                 setAppliedFilters(initialFilters)
+                setQuickSearch('')
               }}
             >
               <X className="mr-2 h-4 w-4" /> Limpar Filtros

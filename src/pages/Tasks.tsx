@@ -62,6 +62,7 @@ export default function Tasks() {
   const { state, updateItem, deleteItem, addTask } = useLegalStore()
   const [filters, setFilters] = useState(initialFilters)
   const [appliedFilters, setAppliedFilters] = useState(initialFilters)
+  const [quickSearch, setQuickSearch] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [open, setOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<any>(null)
@@ -72,6 +73,7 @@ export default function Tasks() {
   const sortedStatuses = [...(state.settings.taskStatuses || [])].sort((a, b) => a.localeCompare(b))
 
   const filtered = state.tasks.filter((t) => {
+    if (quickSearch && !normalizeStr(t.title).includes(normalizeStr(quickSearch))) return false
     const f = appliedFilters
     if (f.titulo && !normalizeStr(t.title).includes(normalizeStr(f.titulo))) return false
     if (f.status.length > 0 && !f.status.includes(t.status)) return false
@@ -99,14 +101,25 @@ export default function Tasks() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Tarefas</h1>
           <p className="text-muted-foreground">Controle de atividades e prazos.</p>
         </div>
-        <Button onClick={() => handleOpen()}>
-          <Plus className="mr-2 h-4 w-4" /> Nova Tarefa
-        </Button>
+        <div className="flex flex-col sm:flex-row w-full sm:w-auto items-center gap-2">
+          <div className="relative flex-1 w-full sm:w-64">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Pesquisar título..."
+              className="pl-8"
+              value={quickSearch}
+              onChange={(e) => setQuickSearch(e.target.value)}
+            />
+          </div>
+          <Button onClick={() => handleOpen()} className="w-full sm:w-auto shrink-0">
+            <Plus className="mr-2 h-4 w-4" /> Nova Tarefa
+          </Button>
+        </div>
       </div>
 
       <TaskDialog
@@ -267,6 +280,7 @@ export default function Tasks() {
               onClick={() => {
                 setFilters(initialFilters)
                 setAppliedFilters(initialFilters)
+                setQuickSearch('')
               }}
             >
               <X className="mr-2 h-4 w-4" /> Limpar Filtros

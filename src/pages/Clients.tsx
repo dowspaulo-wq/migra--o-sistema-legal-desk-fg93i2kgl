@@ -71,6 +71,7 @@ export default function Clients() {
   const { state, addClient, updateItem, deleteItem } = useLegalStore()
   const [filters, setFilters] = useState(initialFilters)
   const [appliedFilters, setAppliedFilters] = useState(initialFilters)
+  const [quickSearch, setQuickSearch] = useState('')
   const [searchOpen, setSearchOpen] = useState(true)
   const [open, setOpen] = useState(false)
   const [editingClient, setEditingClient] = useState<any>(null)
@@ -81,6 +82,10 @@ export default function Clients() {
   const sortedUsers = [...state.users].sort((a, b) => a.name.localeCompare(b.name))
 
   const filtered = state.clients.filter((c) => {
+    if (quickSearch) {
+      const q = normalizeStr(quickSearch)
+      if (!normalizeStr(c.name).includes(q) && !normalizeStr(c.document).includes(q)) return false
+    }
     const f = appliedFilters
     if (f.nome && !normalizeStr(c.name).includes(normalizeStr(f.nome))) return false
     if (f.documento && !normalizeStr(c.document).includes(normalizeStr(f.documento))) return false
@@ -148,9 +153,20 @@ export default function Clients() {
           <h1 className="text-3xl font-bold tracking-tight">Clientes</h1>
           <p className="text-muted-foreground">Gestão completa da carteira.</p>
         </div>
-        <Button onClick={() => handleOpen()}>
-          <Plus className="mr-2 h-4 w-4" /> Novo Cliente
-        </Button>
+        <div className="flex flex-col sm:flex-row w-full sm:w-auto items-center gap-2">
+          <div className="relative flex-1 w-full sm:w-64">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Pesquisar nome ou doc..."
+              className="pl-8"
+              value={quickSearch}
+              onChange={(e) => setQuickSearch(e.target.value)}
+            />
+          </div>
+          <Button onClick={() => handleOpen()} className="w-full sm:w-auto shrink-0">
+            <Plus className="mr-2 h-4 w-4" /> Novo Cliente
+          </Button>
+        </div>
       </div>
 
       <ClientDialog
@@ -290,6 +306,7 @@ export default function Clients() {
               onClick={() => {
                 setFilters(initialFilters)
                 setAppliedFilters(initialFilters)
+                setQuickSearch('')
               }}
             >
               <X className="mr-2 h-4 w-4" /> Limpar Filtros

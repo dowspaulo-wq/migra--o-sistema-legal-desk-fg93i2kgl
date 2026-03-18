@@ -68,6 +68,7 @@ export default function Agenda() {
   const { state, addAppointment, updateItem, deleteItem } = useLegalStore()
   const [filters, setFilters] = useState(initialFilters)
   const [appliedFilters, setAppliedFilters] = useState(initialFilters)
+  const [quickSearch, setQuickSearch] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [open, setOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<any>(null)
@@ -161,6 +162,7 @@ export default function Agenda() {
   }, [state.appointments, state.clients])
 
   const filtered = allItems.filter((i) => {
+    if (quickSearch && !normalizeStr(i.title).includes(normalizeStr(quickSearch))) return false
     const f = appliedFilters
     if (f.titulo && !normalizeStr(i.title).includes(normalizeStr(f.titulo))) return false
     const itemType = i.type || 'Vazio'
@@ -194,7 +196,16 @@ export default function Agenda() {
           <h1 className="text-3xl font-bold tracking-tight">Agenda</h1>
           <p className="text-muted-foreground">Gerencie seus compromissos e eventos.</p>
         </div>
-        <div className="flex gap-2 w-full sm:w-auto">
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <div className="relative flex-1 sm:w-56">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Pesquisar título..."
+              className="pl-8"
+              value={quickSearch}
+              onChange={(e) => setQuickSearch(e.target.value)}
+            />
+          </div>
           <Button
             variant="outline"
             onClick={handleGoogleSync}
@@ -206,9 +217,9 @@ export default function Agenda() {
             ) : (
               <Calendar className="mr-2 h-4 w-4" />
             )}
-            Sincronizar Google Agenda
+            Sincronizar
           </Button>
-          <Button onClick={() => handleOpen()} className="flex-1 sm:flex-none">
+          <Button onClick={() => handleOpen()} className="flex-1 sm:flex-none shrink-0">
             <Plus className="mr-2 h-4 w-4" /> Novo Compromisso
           </Button>
         </div>
@@ -380,6 +391,7 @@ export default function Agenda() {
               onClick={() => {
                 setFilters(initialFilters)
                 setAppliedFilters(initialFilters)
+                setQuickSearch('')
               }}
             >
               <X className="mr-2 h-4 w-4" /> Limpar Filtros
