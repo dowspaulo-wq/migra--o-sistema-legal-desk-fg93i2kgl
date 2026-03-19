@@ -28,6 +28,7 @@ import {
   Clock,
   Video,
   MapPin,
+  AlertCircle,
 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
@@ -35,6 +36,15 @@ import { CaseDialog } from '@/components/CaseDialog'
 import { TaskDialog } from '@/components/TaskDialog'
 import { AppointmentDialog } from '@/components/AppointmentDialog'
 import { formatSafeLocalDate } from '@/lib/utils'
+
+const getAlertLabel = (alert: string) => {
+  const trimmed = alert.trim()
+  if (trimmed === 'Cobrar astreites' || trimmed === '💸 Cobrar astreites')
+    return '💸 Cobrar astreites'
+  if (trimmed === 'Litigância de má-fé' || trimmed === '🛑 Litigância de má-fé')
+    return '🛑 Litigância de má-fé'
+  return trimmed
+}
 
 export default function CaseDetail() {
   const { id } = useParams<{ id: string }>()
@@ -154,7 +164,7 @@ export default function CaseDetail() {
             <ArrowLeft className="h-4 w-4" />
           </Link>
         </Button>
-        <div>
+        <div className="flex-1">
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-primary flex items-center gap-3 break-all">
               {c.number}
@@ -171,9 +181,44 @@ export default function CaseDetail() {
               <Edit className="h-4 w-4 mr-2" /> Editar
             </Button>
           </div>
-          <p className="text-muted-foreground mt-1">
-            <Badge variant="outline">{c.status}</Badge> • Sistema: {c.system}
+          <p className="text-muted-foreground mt-1 mb-4">
+            <Badge variant="outline">{c.status}</Badge> • Sistema: {c.system || 'Não informado'}
           </p>
+
+          {(c.alerts || c.description) && (
+            <div className="space-y-4 mb-2 bg-slate-50/80 p-4 rounded-lg border border-slate-100 max-w-4xl">
+              {c.alerts && (
+                <div>
+                  <span className="text-sm font-semibold text-slate-700 block mb-2 flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 text-red-500" />
+                    Alertas Importantes
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    {c.alerts
+                      .split(',')
+                      .filter(Boolean)
+                      .map((alert, idx) => (
+                        <Badge
+                          key={idx}
+                          variant="outline"
+                          className="bg-red-50 text-red-700 border-red-200"
+                        >
+                          {getAlertLabel(alert)}
+                        </Badge>
+                      ))}
+                  </div>
+                </div>
+              )}
+              {c.description && (
+                <div>
+                  <span className="text-sm font-semibold text-slate-700 block mb-1">
+                    Descrição do Caso
+                  </span>
+                  <div className="text-sm text-slate-600 whitespace-pre-wrap">{c.description}</div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -187,6 +232,55 @@ export default function CaseDetail() {
         </TabsList>
 
         <TabsContent value="info" className="mt-4 grid gap-6 md:grid-cols-2">
+          <div className="col-span-full">
+            <Card className="shadow-sm border-slate-200">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <FileText className="h-5 w-5" /> Descrição e Alertas
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                {c.alerts && (
+                  <div>
+                    <Label className="text-muted-foreground mb-2 block font-semibold flex items-center gap-2">
+                      <AlertCircle className="h-4 w-4 text-red-500" />
+                      Alertas do Processo
+                    </Label>
+                    <div className="flex flex-wrap gap-2">
+                      {c.alerts
+                        .split(',')
+                        .filter(Boolean)
+                        .map((alert, idx) => (
+                          <Badge
+                            key={idx}
+                            variant="outline"
+                            className="bg-red-50 text-red-700 border-red-200 px-2.5 py-1"
+                          >
+                            {getAlertLabel(alert)}
+                          </Badge>
+                        ))}
+                    </div>
+                  </div>
+                )}
+                {c.description && (
+                  <div>
+                    <Label className="text-muted-foreground mb-2 block font-semibold">
+                      Descrição
+                    </Label>
+                    <div className="text-sm bg-muted/30 p-3.5 rounded-md border border-border/50 whitespace-pre-wrap leading-relaxed text-slate-700">
+                      {c.description}
+                    </div>
+                  </div>
+                )}
+                {!c.alerts && !c.description && (
+                  <p className="text-sm text-muted-foreground italic">
+                    Nenhuma descrição ou alerta cadastrado para este processo.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
           <Card className="shadow-sm">
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
