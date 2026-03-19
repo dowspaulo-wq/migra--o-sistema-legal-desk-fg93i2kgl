@@ -33,6 +33,8 @@ const PREDEFINED_ALERTS = [
   '✅ JG deferida',
   '⚠️ Revelia',
   '⏰ Perda de prazo',
+  '💸 Cobrar astreites',
+  '🛑 Litigância de má-fé',
 ]
 
 const SUBPROCESS_TYPES = ['Recurso', 'Precatória', 'Incidente', 'Outros']

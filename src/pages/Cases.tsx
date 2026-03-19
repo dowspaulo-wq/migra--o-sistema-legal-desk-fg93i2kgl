@@ -476,6 +476,14 @@ export default function Cases() {
                           </span>
                         )}
                       </div>
+                      {c.description && (
+                        <p
+                          className="text-sm text-muted-foreground mt-2 line-clamp-2"
+                          title={c.description}
+                        >
+                          {c.description}
+                        </p>
+                      )}
                       {c.alerts && (
                         <div className="flex gap-1 flex-wrap mt-2">
                           {c.alerts.split(',').map((a) => (
@@ -617,6 +625,14 @@ export default function Cases() {
                           <span className="text-muted-foreground">Duração:</span>{' '}
                           {getDays(c.startDate)} dias
                         </p>
+                        {c.description && (
+                          <p
+                            className="text-xs text-muted-foreground line-clamp-2 mt-1"
+                            title={c.description}
+                          >
+                            {c.description}
+                          </p>
+                        )}
                       </div>
                       {c.alerts && (
                         <div className="flex gap-1 flex-wrap pt-1">
