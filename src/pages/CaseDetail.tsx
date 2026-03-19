@@ -288,30 +288,39 @@ export default function CaseDetail() {
               </Button>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2 mt-2">
+              <div className="space-y-3 mt-2">
                 {tasks.map((t) => {
                   const resp = state.users.find((u) => u.id === t.responsibleId)
                   return (
                     <div
                       key={t.id}
-                      className="flex justify-between items-center border p-3 rounded hover:bg-slate-50 cursor-pointer transition-colors group"
+                      className="flex flex-col border p-3 rounded-lg hover:bg-slate-50 hover:border-primary/30 cursor-pointer transition-all group"
                       onClick={() => setEditingTask(t)}
                     >
-                      <div>
-                        <p className="font-semibold text-sm group-hover:text-primary transition-colors flex items-center gap-2">
-                          {t.title}
-                          <Edit className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground" />
-                        </p>
-                        <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
-                          <span>Vencimento: {formatSafeLocalDate(t.dueDate)}</span>
-                          {resp && (
-                            <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">
-                              Resp: <span className="font-medium">{resp.name.split(' ')[0]}</span>
-                            </span>
-                          )}
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <p className="font-semibold text-sm group-hover:text-primary transition-colors flex items-center gap-2">
+                            {t.title}
+                            <Edit className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground" />
+                          </p>
+                          <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
+                            <span>Vencimento: {formatSafeLocalDate(t.dueDate)}</span>
+                            {resp && (
+                              <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">
+                                Resp: <span className="font-medium">{resp.name.split(' ')[0]}</span>
+                              </span>
+                            )}
+                          </div>
                         </div>
+                        <Badge variant="outline" className="shrink-0">
+                          {t.status}
+                        </Badge>
                       </div>
-                      <Badge variant="outline">{t.status}</Badge>
+                      {t.description && (
+                        <div className="text-sm text-muted-foreground bg-muted/30 p-2.5 rounded-md border border-border/50 line-clamp-3 whitespace-pre-wrap mt-2">
+                          {t.description}
+                        </div>
+                      )}
                     </div>
                   )
                 })}

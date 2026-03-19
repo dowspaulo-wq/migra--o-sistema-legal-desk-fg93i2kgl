@@ -35,6 +35,8 @@ const PREDEFINED_ALERTS = [
   '⏰ Perda de prazo',
 ]
 
+const SUBPROCESS_TYPES = ['Recurso', 'Precatória', 'Incidente', 'Outros']
+
 export function CaseDialog({
   open,
   onOpenChange,
@@ -83,6 +85,7 @@ export function CaseDialog({
 
   const [fd, setFd] = useState(() => (data && !data.isNew ? data : getInitial()))
 
+  const isSubprocess = !!fd.parentId
   const selectedAlerts = fd.alerts ? fd.alerts.split(',').filter(Boolean) : []
 
   useEffect(() => {
@@ -132,14 +135,14 @@ export function CaseDialog({
         <form onSubmit={handleSubmit} className="grid gap-4">
           <DialogHeader>
             <DialogTitle>
-              {data && !data.isNew ? 'Editar' : 'Cadastrar'} Processo{' '}
-              {fd.parentId && '(Subprocesso)'}
+              {data && !data.isNew ? 'Editar' : 'Cadastrar'}{' '}
+              {isSubprocess ? 'Subprocesso' : 'Processo'}
             </DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <div className="col-span-2 flex gap-4 items-end pb-1">
               <div className="flex-1 space-y-2">
-                <Label>Nº do Processo (CNJ) *</Label>
+                <Label>Nº do {isSubprocess ? 'Subprocesso' : 'Processo'} (CNJ) *</Label>
                 <Input
                   required
                   value={fd.number}
@@ -152,7 +155,7 @@ export function CaseDialog({
                   onPressedChange={(v) => setFd({ ...fd, isSpecial: v })}
                   variant="outline"
                   className={fd.isSpecial ? 'bg-yellow-50 border-yellow-200' : ''}
-                  title="Processo Especial"
+                  title="Especial"
                 >
                   <Star
                     className={`h-4 w-4 ${fd.isSpecial ? 'fill-yellow-400 text-yellow-400' : 'text-slate-400'}`}
@@ -163,7 +166,7 @@ export function CaseDialog({
                   onPressedChange={(v) => setFd({ ...fd, isProblematic: v })}
                   variant="outline"
                   className={fd.isProblematic ? 'bg-orange-50 border-orange-200' : ''}
-                  title="Processo Problemático"
+                  title="Problemático"
                 >
                   <span
                     className={`text-xl ${fd.isProblematic ? 'opacity-100' : 'opacity-40 grayscale'}`}
@@ -199,14 +202,20 @@ export function CaseDialog({
                   <SelectValue placeholder="Selecione o Tipo" />
                 </SelectTrigger>
                 <SelectContent>
-                  {sortedTypes.map((t: any) => {
-                    const label = typeof t === 'string' ? t : t.label
-                    return (
-                      <SelectItem key={label} value={label}>
-                        {label}
-                      </SelectItem>
-                    )
-                  })}
+                  {isSubprocess
+                    ? SUBPROCESS_TYPES.map((t) => (
+                        <SelectItem key={t} value={t}>
+                          {t}
+                        </SelectItem>
+                      ))
+                    : sortedTypes.map((t: any) => {
+                        const label = typeof t === 'string' ? t : t.label
+                        return (
+                          <SelectItem key={label} value={label}>
+                            {label}
+                          </SelectItem>
+                        )
+                      })}
                 </SelectContent>
               </Select>
             </div>
@@ -243,20 +252,26 @@ export function CaseDialog({
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label>Posição do Cliente</Label>
-              <Input
-                value={fd.position}
-                onChange={(e) => setFd({ ...fd, position: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Parte Adversa</Label>
-              <Input
-                value={fd.adverseParty}
-                onChange={(e) => setFd({ ...fd, adverseParty: e.target.value })}
-              />
-            </div>
+
+            {!isSubprocess && (
+              <>
+                <div className="space-y-2">
+                  <Label>Posição do Cliente</Label>
+                  <Input
+                    value={fd.position}
+                    onChange={(e) => setFd({ ...fd, position: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Parte Adversa</Label>
+                  <Input
+                    value={fd.adverseParty}
+                    onChange={(e) => setFd({ ...fd, adverseParty: e.target.value })}
+                  />
+                </div>
+              </>
+            )}
+
             <div className="space-y-2">
               <Label>Vara / Juízo</Label>
               <Input value={fd.court} onChange={(e) => setFd({ ...fd, court: e.target.value })} />
@@ -275,40 +290,45 @@ export function CaseDialog({
                 />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label>Valor da Causa</Label>
-              <Input
-                type="number"
-                value={fd.value}
-                onChange={(e) => setFd({ ...fd, value: Number(e.target.value) })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Data Início</Label>
-              <Input
-                type="date"
-                value={fd.startDate}
-                onChange={(e) => setFd({ ...fd, startDate: e.target.value })}
-              />
-            </div>
 
-            <div className="col-span-full space-y-2">
-              <Label>Alertas do Processo</Label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 border p-4 rounded-lg bg-slate-50">
-                {PREDEFINED_ALERTS.map((alert) => (
-                  <label
-                    key={alert}
-                    className="flex items-center gap-2 text-sm cursor-pointer border p-2 rounded bg-white hover:border-primary transition-colors"
-                  >
-                    <Checkbox
-                      checked={selectedAlerts.includes(alert)}
-                      onCheckedChange={(checked) => toggleAlert(alert, checked as boolean)}
-                    />
-                    <span className="leading-none">{alert}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
+            {!isSubprocess && (
+              <>
+                <div className="space-y-2">
+                  <Label>Valor da Causa</Label>
+                  <Input
+                    type="number"
+                    value={fd.value}
+                    onChange={(e) => setFd({ ...fd, value: Number(e.target.value) })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Data Início</Label>
+                  <Input
+                    type="date"
+                    value={fd.startDate}
+                    onChange={(e) => setFd({ ...fd, startDate: e.target.value })}
+                  />
+                </div>
+
+                <div className="col-span-full space-y-2">
+                  <Label>Alertas do Processo</Label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 border p-4 rounded-lg bg-slate-50">
+                    {PREDEFINED_ALERTS.map((alert) => (
+                      <label
+                        key={alert}
+                        className="flex items-center gap-2 text-sm cursor-pointer border p-2 rounded bg-white hover:border-primary transition-colors"
+                      >
+                        <Checkbox
+                          checked={selectedAlerts.includes(alert)}
+                          onCheckedChange={(checked) => toggleAlert(alert, checked as boolean)}
+                        />
+                        <span className="leading-none">{alert}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
 
             <div className="col-span-full md:col-span-2 space-y-2">
               <Label>Descrição</Label>
