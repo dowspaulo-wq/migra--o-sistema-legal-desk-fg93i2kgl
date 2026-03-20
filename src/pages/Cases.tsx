@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -62,10 +62,48 @@ const initialFilters = {
 
 export default function Cases() {
   const { state, addCase, updateItem, deleteItem } = useLegalStore()
-  const [filters, setFilters] = useState(initialFilters)
-  const [appliedFilters, setAppliedFilters] = useState(initialFilters)
-  const [quickSearch, setQuickSearch] = useState('')
-  const [searchOpen, setSearchOpen] = useState(true)
+
+  const [filters, setFilters] = useState(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem('cases_filters') || 'null') || initialFilters
+    } catch {
+      return initialFilters
+    }
+  })
+
+  const [appliedFilters, setAppliedFilters] = useState(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem('cases_appliedFilters') || 'null') || initialFilters
+    } catch {
+      return initialFilters
+    }
+  })
+
+  const [quickSearch, setQuickSearch] = useState(() => {
+    return sessionStorage.getItem('cases_quickSearch') || ''
+  })
+
+  const [searchOpen, setSearchOpen] = useState(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem('cases_searchOpen') || 'null') ?? true
+    } catch {
+      return true
+    }
+  })
+
+  useEffect(() => {
+    sessionStorage.setItem('cases_filters', JSON.stringify(filters))
+  }, [filters])
+  useEffect(() => {
+    sessionStorage.setItem('cases_appliedFilters', JSON.stringify(appliedFilters))
+  }, [appliedFilters])
+  useEffect(() => {
+    sessionStorage.setItem('cases_quickSearch', quickSearch)
+  }, [quickSearch])
+  useEffect(() => {
+    sessionStorage.setItem('cases_searchOpen', JSON.stringify(searchOpen))
+  }, [searchOpen])
+
   const [open, setOpen] = useState(false)
   const [editingCase, setEditingCase] = useState<any>(null)
 

@@ -236,7 +236,7 @@ export default function CaseDetail() {
             <Card className="shadow-sm border-slate-200">
               <CardHeader className="pb-3">
                 <CardTitle className="text-lg flex items-center gap-2">
-                  <FileText className="h-5 w-5" /> Descrição e Alertas
+                  <FileText className="h-5 w-5" /> Detalhes, Notas e Alertas
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-5">
@@ -272,9 +272,19 @@ export default function CaseDetail() {
                     </div>
                   </div>
                 )}
-                {!c.alerts && !c.description && (
+                {c.internalNotes && (
+                  <div>
+                    <Label className="text-muted-foreground mb-2 block font-semibold">
+                      Notas Internas
+                    </Label>
+                    <div className="text-sm bg-yellow-50/40 p-3.5 rounded-md border border-yellow-200/50 whitespace-pre-wrap leading-relaxed text-slate-700">
+                      {c.internalNotes}
+                    </div>
+                  </div>
+                )}
+                {!c.alerts && !c.description && !c.internalNotes && (
                   <p className="text-sm text-muted-foreground italic">
-                    Nenhuma descrição ou alerta cadastrado para este processo.
+                    Nenhuma descrição, nota interna ou alerta cadastrado para este processo.
                   </p>
                 )}
               </CardContent>
