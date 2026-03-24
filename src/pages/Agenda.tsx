@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useMemo, useEffect } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -66,6 +66,7 @@ const initialFilters = {
 
 export default function Agenda() {
   const { state, addAppointment, updateItem, deleteItem } = useLegalStore()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [filters, setFilters] = useState(initialFilters)
   const [appliedFilters, setAppliedFilters] = useState(initialFilters)
   const [quickSearch, setQuickSearch] = useState('')
@@ -74,6 +75,22 @@ export default function Agenda() {
   const [editingItem, setEditingItem] = useState<any>(null)
   const [isSyncing, setIsSyncing] = useState(false)
   const [calendarDate, setCalendarDate] = useState(new Date())
+
+  useEffect(() => {
+    if (searchParams.size > 0) {
+      const newFilters = { ...initialFilters }
+      if (searchParams.has('resp')) newFilters.responsavelId = searchParams.get('resp')!
+      if (searchParams.has('dateFrom')) newFilters.dataEventoDe = searchParams.get('dateFrom')!
+      if (searchParams.has('dateUntil')) newFilters.dataEventoAte = searchParams.get('dateUntil')!
+      if (searchParams.has('type')) newFilters.tipo = searchParams.get('type')!.split(',')
+
+      setFilters(newFilters)
+      setAppliedFilters(newFilters)
+      setSearchOpen(true)
+
+      setSearchParams({}, { replace: true })
+    }
+  }, [searchParams, setSearchParams])
 
   const sortedUsers = [...state.users].sort((a, b) => a.name.localeCompare(b.name))
   const sortedClients = [...state.clients].sort((a, b) => a.name.localeCompare(b.name))

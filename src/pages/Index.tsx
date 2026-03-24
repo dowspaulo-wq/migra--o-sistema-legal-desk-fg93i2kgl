@@ -15,7 +15,7 @@ import {
   Gift,
 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
 import { Badge } from '@/components/ui/badge'
@@ -41,6 +41,7 @@ const renderLabel = ({ name, value, percent }: any) => {
 
 export default function Index() {
   const { state } = useLegalStore()
+  const navigate = useNavigate()
   const [isTasksOpen, setIsTasksOpen] = useState(true)
   const [isAgendaOpen, setIsAgendaOpen] = useState(true)
 
@@ -96,6 +97,10 @@ export default function Index() {
 
   const now = new Date()
   const todayStr = getLocalDateStr(now)
+
+  const tomorrow = new Date(now)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  const tomorrowStr = getLocalDateStr(tomorrow)
 
   const todayAppts = state.appointments.filter((a) => a.date === todayStr)
 
@@ -244,7 +249,14 @@ export default function Index() {
 
                 <div className="space-y-2 mb-4">
                   {stat.todayCount > 0 && (
-                    <div className="flex items-center gap-2 bg-green-100/80 text-green-800 border border-green-200 rounded p-2 text-sm font-medium">
+                    <div
+                      onClick={() =>
+                        navigate(
+                          `/agenda?resp=${stat.user.id}&dateFrom=${todayStr}&dateUntil=${todayStr}`,
+                        )
+                      }
+                      className="flex items-center gap-2 bg-green-100/80 text-green-800 border border-green-200 rounded p-2 text-sm font-medium cursor-pointer hover:bg-green-200 transition-colors"
+                    >
                       <Calendar className="h-4 w-4" />
                       {stat.todayCount} compromissos HOJE
                     </div>
@@ -252,13 +264,29 @@ export default function Index() {
                 </div>
 
                 <div className="space-y-1.5 mb-4 border-b pb-4 text-sm">
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">Hoje:</span>
-                    <span className="font-medium text-green-600">{stat.todayCount}</span>
+                  <div
+                    onClick={() =>
+                      navigate(
+                        `/agenda?resp=${stat.user.id}&dateFrom=${todayStr}&dateUntil=${todayStr}`,
+                      )
+                    }
+                    className="flex justify-between items-center cursor-pointer hover:bg-slate-50 p-1 -mx-1 rounded transition-colors group"
+                  >
+                    <span className="text-muted-foreground group-hover:text-slate-800">Hoje:</span>
+                    <span className="font-medium text-green-600 group-hover:underline">
+                      {stat.todayCount}
+                    </span>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">Próximos:</span>
-                    <span className="font-medium text-blue-600">{stat.futureCount}</span>
+                  <div
+                    onClick={() => navigate(`/agenda?resp=${stat.user.id}&dateFrom=${tomorrowStr}`)}
+                    className="flex justify-between items-center cursor-pointer hover:bg-slate-50 p-1 -mx-1 rounded transition-colors group"
+                  >
+                    <span className="text-muted-foreground group-hover:text-slate-800">
+                      Próximos:
+                    </span>
+                    <span className="font-medium text-blue-600 group-hover:underline">
+                      {stat.futureCount}
+                    </span>
                   </div>
                 </div>
 
@@ -268,8 +296,16 @@ export default function Index() {
                   </h4>
                   <div className="space-y-1">
                     {stat.types.map(([type, count]) => (
-                      <div key={type} className="flex justify-between items-center text-sm">
-                        <span className="text-slate-700 dark:text-slate-300 capitalize-first flex items-center gap-1.5">
+                      <div
+                        key={type}
+                        onClick={() =>
+                          navigate(
+                            `/agenda?resp=${stat.user.id}&dateFrom=${todayStr}&type=${encodeURIComponent(type)}`,
+                          )
+                        }
+                        className="flex justify-between items-center text-sm cursor-pointer hover:bg-slate-50 p-1 -mx-1 rounded transition-colors group"
+                      >
+                        <span className="text-slate-700 dark:text-slate-300 capitalize-first flex items-center gap-1.5 group-hover:underline">
                           {type === 'Aniversário' && <Gift className="h-3 w-3 text-pink-500" />}
                           {type}
                         </span>
@@ -342,13 +378,27 @@ export default function Index() {
 
                 <div className="space-y-2 mb-4">
                   {stat.delayedDeadlines > 0 && (
-                    <div className="flex items-center gap-2 bg-red-100/80 text-red-700 border border-red-200 rounded p-2 text-sm font-medium">
+                    <div
+                      onClick={() =>
+                        navigate(
+                          `/tarefas?resp=${stat.user.id}&statusNot=${encodeURIComponent('concluída')}&dateUntil=${todayStr}&typeNot=${encodeURIComponent('atualização,interna e adm')}`,
+                        )
+                      }
+                      className="flex items-center gap-2 bg-red-100/80 text-red-700 border border-red-200 rounded p-2 text-sm font-medium cursor-pointer hover:bg-red-200 transition-colors"
+                    >
                       <AlertTriangle className="h-4 w-4" />
                       {stat.delayedDeadlines} prazos atrasados!
                     </div>
                   )}
                   {stat.delayedUpdates > 0 && (
-                    <div className="flex items-center gap-2 bg-orange-100/80 text-orange-800 border border-orange-200 rounded p-2 text-sm font-medium">
+                    <div
+                      onClick={() =>
+                        navigate(
+                          `/tarefas?resp=${stat.user.id}&statusNot=${encodeURIComponent('concluída')}&dateUntil=${todayStr}&typeIn=${encodeURIComponent('atualização,interna e adm')}`,
+                        )
+                      }
+                      className="flex items-center gap-2 bg-orange-100/80 text-orange-800 border border-orange-200 rounded p-2 text-sm font-medium cursor-pointer hover:bg-orange-200 transition-colors"
+                    >
                       <Clock className="h-4 w-4" />
                       {stat.delayedUpdates} atualizações atrasadas
                     </div>
@@ -356,21 +406,44 @@ export default function Index() {
                 </div>
 
                 <div className="space-y-1.5 mb-4 border-b pb-4 text-sm">
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">Pendentes:</span>
-                    <span className="font-medium text-orange-600">
+                  <div
+                    onClick={() => navigate(`/tarefas?resp=${stat.user.id}&status=pendente`)}
+                    className="flex justify-between items-center cursor-pointer hover:bg-slate-50 p-1 -mx-1 rounded transition-colors group"
+                  >
+                    <span className="text-muted-foreground group-hover:text-slate-800">
+                      Pendentes:
+                    </span>
+                    <span className="font-medium text-orange-600 group-hover:underline">
                       {stat.statusCounts.Pendentes}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">Atualização:</span>
-                    <span className="font-medium text-blue-600">
+                  <div
+                    onClick={() =>
+                      navigate(
+                        `/tarefas?resp=${stat.user.id}&status=${encodeURIComponent('atualização')}`,
+                      )
+                    }
+                    className="flex justify-between items-center cursor-pointer hover:bg-slate-50 p-1 -mx-1 rounded transition-colors group"
+                  >
+                    <span className="text-muted-foreground group-hover:text-slate-800">
+                      Atualização:
+                    </span>
+                    <span className="font-medium text-blue-600 group-hover:underline">
                       {stat.statusCounts.Atualização}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">Concluídas:</span>
-                    <span className="font-medium text-green-600">
+                  <div
+                    onClick={() =>
+                      navigate(
+                        `/tarefas?resp=${stat.user.id}&status=${encodeURIComponent('concluída')}`,
+                      )
+                    }
+                    className="flex justify-between items-center cursor-pointer hover:bg-slate-50 p-1 -mx-1 rounded transition-colors group"
+                  >
+                    <span className="text-muted-foreground group-hover:text-slate-800">
+                      Concluídas:
+                    </span>
+                    <span className="font-medium text-green-600 group-hover:underline">
                       {stat.statusCounts.Concluídas}
                     </span>
                   </div>
@@ -382,8 +455,14 @@ export default function Index() {
                   </h4>
                   <div className="space-y-1">
                     {stat.types.map(([type, count]) => (
-                      <div key={type} className="flex justify-between items-center text-sm">
-                        <span className="text-blue-700 dark:text-blue-400 capitalize-first">
+                      <div
+                        key={type}
+                        onClick={() =>
+                          navigate(`/tarefas?resp=${stat.user.id}&type=${encodeURIComponent(type)}`)
+                        }
+                        className="flex justify-between items-center text-sm cursor-pointer hover:bg-slate-50 p-1 -mx-1 rounded transition-colors group"
+                      >
+                        <span className="text-blue-700 dark:text-blue-400 capitalize-first group-hover:underline">
                           {type}
                         </span>
                         <span className="bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 px-2 py-0.5 rounded text-xs font-medium">

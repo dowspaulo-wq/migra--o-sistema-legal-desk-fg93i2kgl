@@ -29,12 +29,14 @@ import {
   Video,
   MapPin,
   AlertCircle,
+  DollarSign,
 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import { CaseDialog } from '@/components/CaseDialog'
 import { TaskDialog } from '@/components/TaskDialog'
 import { AppointmentDialog } from '@/components/AppointmentDialog'
+import { TransactionDialog } from '@/components/TransactionDialog'
 import { formatSafeLocalDate } from '@/lib/utils'
 
 const getAlertLabel = (alert: string) => {
@@ -48,21 +50,34 @@ const getAlertLabel = (alert: string) => {
 
 export default function CaseDetail() {
   const { id } = useParams<{ id: string }>()
-  const { state, updateItem, addCase, addTask, addAppointment } = useLegalStore()
+  const { state, updateItem, addCase, addTask, addAppointment, addTransaction } = useLegalStore()
   const [selectedTpl, setSelectedTpl] = useState<string>('')
   const [isCaseOpen, setIsCaseOpen] = useState(false)
+
   const [editingTask, setEditingTask] = useState<any>(null)
   const [creatingTask, setCreatingTask] = useState(false)
+
   const [creatingSubcase, setCreatingSubcase] = useState(false)
 
   const [editingAppointment, setEditingAppointment] = useState<any>(null)
   const [creatingAppointment, setCreatingAppointment] = useState(false)
+
+  const [editingTransaction, setEditingTransaction] = useState<any>(null)
+  const [creatingTransaction, setCreatingTransaction] = useState(false)
 
   const c = state.cases.find((x) => x.id === id)
   const client = state.clients.find((cl) => cl.id === c?.clientId)
   const tasks = state.tasks.filter((t) => t.relatedProcessId === id)
   const subcases = state.cases.filter((sc) => sc.parentId === id)
   const processAppointments = state.appointments.filter((a) => a.processId === id)
+
+  const processTransactions = state.transactions.filter((t) => t.processId === id)
+  const income = processTransactions
+    .filter((t) => t.type === 'income')
+    .reduce((acc, t) => acc + t.amount, 0)
+  const expense = processTransactions
+    .filter((t) => t.type === 'expense')
+    .reduce((acc, t) => acc + t.amount, 0)
 
   if (!c) return <div className="p-8 text-center">Processo não encontrado.</div>
 
@@ -157,6 +172,19 @@ export default function CaseDetail() {
         cases={state.cases}
         settings={state.settings}
       />
+      <TransactionDialog
+        open={!!editingTransaction}
+        onOpenChange={(v: boolean) => !v && setEditingTransaction(null)}
+        data={editingTransaction}
+        onSave={(d: any) => updateItem('transactions', editingTransaction.id, d)}
+      />
+      <TransactionDialog
+        open={creatingTransaction}
+        onOpenChange={setCreatingTransaction}
+        lockedProcessId={c.id}
+        lockedClientId={c.clientId}
+        onSave={(d: any) => addTransaction(d)}
+      />
 
       <div className="flex items-start gap-4">
         <Button variant="outline" size="icon" asChild>
@@ -223,11 +251,12 @@ export default function CaseDetail() {
       </div>
 
       <Tabs defaultValue="info" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-5 h-auto max-w-3xl gap-1 p-1">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-6 h-auto max-w-4xl gap-1 p-1">
           <TabsTrigger value="info">Informações</TabsTrigger>
           <TabsTrigger value="subprocessos">Subprocessos</TabsTrigger>
           <TabsTrigger value="tasks">Tarefas</TabsTrigger>
           <TabsTrigger value="agenda">Agenda</TabsTrigger>
+          <TabsTrigger value="despesas">Despesas</TabsTrigger>
           <TabsTrigger value="docs">Documentos</TabsTrigger>
         </TabsList>
 
@@ -505,6 +534,106 @@ export default function CaseDetail() {
                 {processAppointments.length === 0 && (
                   <p className="text-sm text-muted-foreground text-center py-6 bg-muted/20 border border-dashed rounded">
                     Nenhum compromisso vinculado.
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="despesas" className="mt-4">
+          <div className="grid gap-4 md:grid-cols-3 mb-4">
+            <Card className="shadow-sm bg-slate-50">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-slate-600">
+                  Saldo do Processo
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  R$ {(income - expense).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="shadow-sm bg-red-50 border-red-100">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-red-800">
+                  Despesas / Custas
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-red-700">
+                  R$ {expense.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="shadow-sm bg-green-50 border-green-100">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-green-800">
+                  Receitas / Alvarás
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-green-700">
+                  R$ {income.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card className="shadow-sm">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <DollarSign className="h-5 w-5" /> Movimentações Financeiras
+              </CardTitle>
+              <Button size="sm" onClick={() => setCreatingTransaction(true)}>
+                <Plus className="h-4 w-4 mr-2" /> Novo Lançamento
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2 mt-2">
+                {processTransactions.map((t) => (
+                  <div
+                    key={t.id}
+                    className="flex justify-between items-center border p-3 rounded hover:bg-slate-50 cursor-pointer transition-colors group"
+                    onClick={() => setEditingTransaction(t)}
+                  >
+                    <div>
+                      <p className="font-semibold text-sm group-hover:text-primary flex items-center gap-2">
+                        {t.description}
+                        <Edit className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground" />
+                      </p>
+                      <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
+                        <span>{formatSafeLocalDate(t.date)}</span>
+                        <span>•</span>
+                        <span>{t.category}</span>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p
+                        className={`font-bold ${t.type === 'income' ? 'text-green-600' : 'text-red-600'}`}
+                      >
+                        {t.type === 'income' ? '+' : '-'} R${' '}
+                        {t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </p>
+                      <Badge
+                        variant="outline"
+                        className={`mt-1 text-[10px] ${
+                          t.status === 'Pago'
+                            ? 'border-green-200 text-green-700 bg-green-50'
+                            : t.status === 'Atrasado'
+                              ? 'border-red-200 text-red-700 bg-red-50'
+                              : 'border-orange-200 text-orange-700 bg-orange-50'
+                        }`}
+                      >
+                        {t.status}
+                      </Badge>
+                    </div>
+                  </div>
+                ))}
+                {processTransactions.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-6 bg-muted/20 border border-dashed rounded">
+                    Nenhuma movimentação financeira vinculada a este processo.
                   </p>
                 )}
               </div>

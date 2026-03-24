@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -56,16 +56,43 @@ const initialFilters = {
   numeroProcesso: '',
   dataVencimentoDe: '',
   dataVencimentoAte: '',
+  statusNot: [] as string[],
+  typeIn: [] as string[],
+  typeNot: [] as string[],
 }
 
 export default function Tasks() {
   const { state, updateItem, deleteItem, addTask } = useLegalStore()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [filters, setFilters] = useState(initialFilters)
   const [appliedFilters, setAppliedFilters] = useState(initialFilters)
   const [quickSearch, setQuickSearch] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [open, setOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<any>(null)
+
+  useEffect(() => {
+    if (searchParams.size > 0) {
+      const newFilters = { ...initialFilters } as any
+
+      if (searchParams.has('resp')) newFilters.responsavelId = searchParams.get('resp')!
+      if (searchParams.has('status')) newFilters.status = searchParams.get('status')!.split(',')
+      if (searchParams.has('statusNot'))
+        newFilters.statusNot = searchParams.get('statusNot')!.split(',')
+      if (searchParams.has('type')) newFilters.tipo = searchParams.get('type')!
+      if (searchParams.has('typeIn')) newFilters.typeIn = searchParams.get('typeIn')!.split(',')
+      if (searchParams.has('typeNot')) newFilters.typeNot = searchParams.get('typeNot')!.split(',')
+      if (searchParams.has('dateUntil'))
+        newFilters.dataVencimentoAte = searchParams.get('dateUntil')!
+      if (searchParams.has('dateFrom')) newFilters.dataVencimentoDe = searchParams.get('dateFrom')!
+
+      setFilters(newFilters)
+      setAppliedFilters(newFilters)
+      setSearchOpen(true)
+
+      setSearchParams({}, { replace: true })
+    }
+  }, [searchParams, setSearchParams])
 
   const sortedUsers = [...state.users].sort((a, b) => a.name.localeCompare(b.name))
   const sortedClients = [...state.clients].sort((a, b) => a.name.localeCompare(b.name))
@@ -74,11 +101,33 @@ export default function Tasks() {
 
   const filtered = state.tasks.filter((t) => {
     if (quickSearch && !normalizeStr(t.title).includes(normalizeStr(quickSearch))) return false
-    const f = appliedFilters
+    const f = appliedFilters as any
     if (f.titulo && !normalizeStr(t.title).includes(normalizeStr(f.titulo))) return false
-    if (f.status.length > 0 && !f.status.includes(t.status)) return false
+
+    if (f.status && f.status.length > 0 && !f.status.includes(t.status)) return false
+    if (
+      f.statusNot &&
+      f.statusNot.length > 0 &&
+      f.statusNot.some((s: string) => t.status.toLowerCase() === s.toLowerCase())
+    )
+      return false
+
     if (f.prioridade !== 'Todos' && t.priority !== f.prioridade) return false
+
     if (f.tipo !== 'Todos' && t.type !== f.tipo) return false
+    if (
+      f.typeIn &&
+      f.typeIn.length > 0 &&
+      !f.typeIn.some((s: string) => t.type.toLowerCase() === s.toLowerCase())
+    )
+      return false
+    if (
+      f.typeNot &&
+      f.typeNot.length > 0 &&
+      f.typeNot.some((s: string) => t.type.toLowerCase() === s.toLowerCase())
+    )
+      return false
+
     if (f.responsavelId !== 'Todos' && t.responsibleId !== f.responsavelId) return false
     if (f.clienteId !== 'Todos' && t.clientId !== f.clienteId) return false
     if (f.numeroProcesso) {

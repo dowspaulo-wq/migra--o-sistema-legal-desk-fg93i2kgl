@@ -6,7 +6,16 @@ import React, {
   ReactNode,
   useCallback,
 } from 'react'
-import { LegalState, initialData, Client, Case, Task, Appointment, User } from '../lib/mockData'
+import {
+  LegalState,
+  initialData,
+  Client,
+  Case,
+  Task,
+  Appointment,
+  User,
+  Transaction,
+} from '../lib/mockData'
 import { toast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/hooks/use-auth'
@@ -20,6 +29,7 @@ interface LegalContextType {
   addCase: (newCase: Omit<Case, 'id' | 'updatedAt'>) => void
   addTask: (task: Omit<Task, 'id'>) => void
   addAppointment: (app: Omit<Appointment, 'id'>) => void
+  addTransaction: (t: Omit<Transaction, 'id'>) => void
   updateUser: (id: string, changes: Partial<User>) => void
   addUser: (user: any) => void
 }
@@ -298,6 +308,20 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     toast({ title: 'Agenda atualizada' })
   }, [])
 
+  const addTransaction = useCallback(async (t: Omit<Transaction, 'id'>) => {
+    const { data, error } = await supabase.from('transactions').insert(t).select().single()
+    if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
+    if (data) {
+      setState((prev) => ({
+        ...prev,
+        transactions: [data, ...prev.transactions].sort(
+          (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+        ),
+      }))
+      toast({ title: 'Lançamento adicionado com sucesso!' })
+    }
+  }, [])
+
   const updateUser = useCallback(async (id: string, changes: Partial<User>) => {
     setState((prev) => ({
       ...prev,
@@ -323,6 +347,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         addCase,
         addTask,
         addAppointment,
+        addTransaction,
         updateUser,
         addUser,
       }}
