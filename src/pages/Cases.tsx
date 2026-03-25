@@ -117,13 +117,43 @@ export default function Cases() {
     return labelA.localeCompare(labelB)
   })
 
-  const sortedStatuses = [...(state.settings.caseStatuses || [])].sort((a, b) => a.localeCompare(b))
+  const caseStatusesSettings = state.settings.caseStatuses || []
+  const sortedStatuses = [...caseStatusesSettings].sort((a: any, b: any) => {
+    const labelA = typeof a === 'string' ? a : a.label
+    const labelB = typeof b === 'string' ? b : b.label
+    return labelA.localeCompare(labelB)
+  })
+
+  const getStatusColor = (status: string) => {
+    const s = caseStatusesSettings.find(
+      (x: any) => (typeof x === 'string' ? x : x.label) === status,
+    ) as any
+    if (typeof s === 'object' && s.color) return s.color
+
+    const lower = status.toLowerCase()
+    if (lower === 'em andamento') return '#22c55e'
+    if (lower === 'concluído' || lower === 'concluido') return '#f1f5f9'
+    if (lower === 'suspenso') return '#eab308'
+    if (lower === 'aguardando documentos') return '#ef4444'
+    if (lower === 'pendente') return '#f97316'
+
+    return '#cbd5e1'
+  }
+
+  const getStatusStyle = (status: string | null | undefined) => {
+    if (!status) return {}
+    const color = getStatusColor(status)
+    const isVeryLight = color.toLowerCase() === '#f1f5f9' || color.toLowerCase() === '#ffffff'
+    return {
+      backgroundColor: isVeryLight ? color : color + '15',
+      borderLeft: `4px solid ${color}`,
+    }
+  }
 
   const filtered = state.cases.filter((c) => {
     const client = state.clients.find((cl) => cl.id === c.clientId)
     const clientName = client?.name || ''
 
-    // Quick Search matches number, client name, and adverse party. Allows finding sub-processes.
     if (quickSearch) {
       const search = normalizeStr(quickSearch)
       const matchNumber = normalizeStr(c.number).includes(search)
@@ -132,7 +162,6 @@ export default function Cases() {
 
       if (!matchNumber && !matchAdverse && !matchClient) return false
     } else {
-      // If not actively searching, hide sub-processes from the main list
       if (c.parentId) return false
     }
 
@@ -295,11 +324,14 @@ export default function Cases() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="Todos">Todos os status</SelectItem>
-                  {sortedStatuses.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s}
-                    </SelectItem>
-                  ))}
+                  {sortedStatuses.map((s: any) => {
+                    const label = typeof s === 'string' ? s : s.label
+                    return (
+                      <SelectItem key={label} value={label}>
+                        {label}
+                      </SelectItem>
+                    )
+                  })}
                 </SelectContent>
               </Select>
             </div>
@@ -452,7 +484,8 @@ export default function Cases() {
                 return (
                   <div
                     key={c.id}
-                    className="border p-4 rounded-lg flex flex-col md:flex-row justify-between gap-4 hover:border-primary/50 transition-colors bg-card"
+                    className="border p-4 rounded-lg flex flex-col md:flex-row justify-between gap-4 hover:opacity-90 transition-colors bg-card"
+                    style={getStatusStyle(c.status)}
                   >
                     <div className="w-full">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -546,7 +579,7 @@ export default function Cases() {
                             <Button
                               variant="outline"
                               size="sm"
-                              className="text-red-500 hover:bg-red-50"
+                              className="text-red-500 hover:bg-red-50 bg-white"
                               title="Excluir"
                             >
                               <Trash2 className="h-4 w-4" />
@@ -587,11 +620,11 @@ export default function Cases() {
                 const typeColor = getTypeColor(c.type)
 
                 return (
-                  <Card key={c.id} className="relative overflow-hidden group">
-                    <div
-                      className="absolute top-0 left-0 w-full h-1"
-                      style={{ backgroundColor: typeColor }}
-                    />
+                  <Card
+                    key={c.id}
+                    className="relative overflow-hidden group border"
+                    style={getStatusStyle(c.status)}
+                  >
                     <CardContent className="p-4 pt-5 space-y-3">
                       <div className="flex justify-between items-start gap-2">
                         <Link
@@ -612,7 +645,7 @@ export default function Cases() {
                         </div>
                       </div>
                       <div className="flex gap-2 flex-wrap">
-                        <Badge>{c.status}</Badge>
+                        <Badge variant="outline">{c.status}</Badge>
                         <Badge
                           style={{ backgroundColor: typeColor }}
                           className="text-white border-0 hover:opacity-90"
@@ -690,7 +723,7 @@ export default function Cases() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="w-full"
+                          className="w-full bg-white"
                           onClick={() => handleOpen(c)}
                         >
                           <Edit className="h-4 w-4 mr-2" /> Editar
@@ -701,7 +734,7 @@ export default function Cases() {
                               <Button
                                 variant="outline"
                                 size="sm"
-                                className="text-red-500 hover:bg-red-50 shrink-0"
+                                className="text-red-500 hover:bg-red-50 shrink-0 bg-white"
                                 title="Excluir"
                               >
                                 <Trash2 className="h-4 w-4" />

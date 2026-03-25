@@ -198,13 +198,7 @@ export default function Agenda() {
     return true
   })
 
-  const calendarYear = calendarDate.getFullYear()
-  const calendarMonth = calendarDate.getMonth()
-
-  const listItems = filtered.filter((i) => {
-    const d = parseSafeLocalDate(i.date)
-    return d.getFullYear() === calendarYear && d.getMonth() === calendarMonth
-  })
+  const listItems = filtered
 
   return (
     <div className="space-y-6">
@@ -510,11 +504,7 @@ export default function Agenda() {
         <TabsContent value="list" className="grid gap-3">
           {listItems.length === 0 ? (
             <div className="text-center p-8 text-muted-foreground bg-muted/20 rounded-lg border border-dashed mt-4">
-              Nenhum compromisso encontrado para{' '}
-              <span className="capitalize">
-                {calendarDate.toLocaleString('pt-BR', { month: 'long', year: 'numeric' })}
-              </span>
-              .
+              Nenhum compromisso encontrado com os filtros atuais.
             </div>
           ) : (
             listItems.map((a: any) => {

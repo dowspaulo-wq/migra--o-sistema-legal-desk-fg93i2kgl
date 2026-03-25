@@ -113,6 +113,9 @@ export default function Clients() {
     } else if (key === 'captacao') {
       valA = valA || ''
       valB = valB || ''
+    } else if (key === 'casesCount') {
+      valA = state.cases.filter((x) => x.clientId === a.id).length
+      valB = state.cases.filter((x) => x.clientId === b.id).length
     } else if (typeof valA === 'string' && typeof valB === 'string') {
       valA = valA.toLowerCase()
       valB = valB.toLowerCase()
@@ -443,12 +446,30 @@ export default function Clients() {
                         )}
                       </div>
                     </TableHead>
+                    <TableHead
+                      onClick={() => handleSort('casesCount')}
+                      className="cursor-pointer select-none hover:bg-slate-50 transition-colors text-center"
+                    >
+                      <div className="flex items-center justify-center gap-2">
+                        Processos
+                        {sortConfig?.key === 'casesCount' ? (
+                          sortConfig.direction === 'asc' ? (
+                            <ArrowUp className="h-3 w-3" />
+                          ) : (
+                            <ArrowDown className="h-3 w-3" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="h-3 w-3 opacity-20" />
+                        )}
+                      </div>
+                    </TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {sortedAndFiltered.map((c) => {
                     const resp = state.users.find((u) => u.id === c.responsibleId)
+                    const caseCount = state.cases.filter((x) => x.clientId === c.id).length
                     return (
                       <TableRow key={c.id}>
                         <TableCell className="font-medium">
@@ -500,6 +521,9 @@ export default function Clients() {
                           <Badge variant={c.status === 'Ativo' ? 'default' : 'secondary'}>
                             {c.status}
                           </Badge>
+                        </TableCell>
+                        <TableCell className="text-center font-bold text-muted-foreground">
+                          {caseCount}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">

@@ -100,12 +100,16 @@ export interface CaseType {
   label: string
   color: string
 }
+export interface CaseStatusType {
+  label: string
+  color: string
+}
 export interface Settings {
   id: string
   showFinanceDashboard: boolean
   themeColor: string
   logoUrl: string
-  caseStatuses: string[]
+  caseStatuses: (string | CaseStatusType)[]
   caseTypes: (string | CaseType)[]
   appointmentTypes: string[]
   taskStatuses: string[]
@@ -151,7 +155,13 @@ export const initialData: LegalState = {
     showFinanceDashboard: true,
     themeColor: 'blue',
     logoUrl: '',
-    caseStatuses: ['Em andamento', 'Pendente', 'Concluído'],
+    caseStatuses: [
+      { label: 'Em andamento', color: '#22c55e' },
+      { label: 'Pendente', color: '#f97316' },
+      { label: 'Suspenso', color: '#eab308' },
+      { label: 'Aguardando documentos', color: '#ef4444' },
+      { label: 'Concluído', color: '#f1f5f9' },
+    ],
     caseTypes: [
       { label: 'Cível', color: '#3b82f6' },
       { label: 'Trabalhista', color: '#ef4444' },

@@ -60,9 +60,12 @@ export function CaseDialog({
     return labelA.localeCompare(labelB)
   })
 
-  const sortedStatuses = [...(settings.caseStatuses || [])].sort((a: string, b: string) =>
-    a.localeCompare(b),
-  )
+  const caseStatusesSettings = settings.caseStatuses || []
+  const sortedStatuses = [...caseStatusesSettings].sort((a: any, b: any) => {
+    const labelA = typeof a === 'string' ? a : a.label
+    const labelB = typeof b === 'string' ? b : b.label
+    return labelA.localeCompare(labelB)
+  })
 
   const getInitial = () => ({
     number: '',
@@ -73,7 +76,7 @@ export function CaseDialog({
     status: '',
     court: '',
     comarca: '',
-    state: 'SP',
+    state: '',
     value: 0,
     startDate: new Date().toISOString().split('T')[0],
     responsibleId: '',
@@ -228,11 +231,14 @@ export function CaseDialog({
                   <SelectValue placeholder="Selecione o Status" />
                 </SelectTrigger>
                 <SelectContent>
-                  {sortedStatuses.map((t: string) => (
-                    <SelectItem key={t} value={t}>
-                      {t}
-                    </SelectItem>
-                  ))}
+                  {sortedStatuses.map((t: any) => {
+                    const label = typeof t === 'string' ? t : t.label
+                    return (
+                      <SelectItem key={label} value={label}>
+                        {label}
+                      </SelectItem>
+                    )
+                  })}
                 </SelectContent>
               </Select>
             </div>

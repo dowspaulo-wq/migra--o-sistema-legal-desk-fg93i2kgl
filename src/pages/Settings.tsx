@@ -108,8 +108,19 @@ function EditableList({
 function EditableColorList({ title, items, onSave }: any) {
   const [val, setVal] = useState('')
   const [color, setColor] = useState('#3b82f6')
+
+  const getFallbackColor = (label: string) => {
+    const lower = label.toLowerCase()
+    if (lower === 'em andamento') return '#22c55e'
+    if (lower === 'concluído' || lower === 'concluido') return '#f1f5f9'
+    if (lower === 'suspenso') return '#eab308'
+    if (lower === 'aguardando documentos') return '#ef4444'
+    if (lower === 'pendente') return '#f97316'
+    return '#3b82f6'
+  }
+
   const normalized = items.map((i: any) =>
-    typeof i === 'string' ? { label: i, color: '#3b82f6' } : i,
+    typeof i === 'string' ? { label: i, color: getFallbackColor(i) } : i,
   )
 
   const add = () => {
@@ -148,19 +159,27 @@ function EditableColorList({ title, items, onSave }: any) {
           </Button>
         </div>
         <div className="flex flex-wrap gap-2">
-          {normalized.map((i: any) => (
-            <div
-              key={i.label}
-              className="flex items-center gap-2 px-2 py-1 rounded text-sm border text-white font-medium"
-              style={{ backgroundColor: i.color, borderColor: i.color }}
-            >
-              <span>{i.label}</span>
-              <Trash2
-                className="h-3 w-3 cursor-pointer opacity-70 hover:opacity-100 transition-opacity"
-                onClick={() => remove(i.label)}
-              />
-            </div>
-          ))}
+          {normalized.map((i: any) => {
+            const isLight =
+              i.color.toLowerCase() === '#f1f5f9' || i.color.toLowerCase() === '#ffffff'
+            return (
+              <div
+                key={i.label}
+                className="flex items-center gap-2 px-2 py-1 rounded text-sm border font-medium"
+                style={{
+                  backgroundColor: i.color,
+                  borderColor: isLight ? '#e2e8f0' : i.color,
+                  color: isLight ? '#333' : '#fff',
+                }}
+              >
+                <span>{i.label}</span>
+                <Trash2
+                  className="h-3 w-3 cursor-pointer opacity-70 hover:opacity-100 transition-opacity"
+                  onClick={() => remove(i.label)}
+                />
+              </div>
+            )
+          })}
         </div>
       </CardContent>
     </Card>
@@ -314,10 +333,10 @@ export default function Settings() {
         {isAdmin && (
           <>
             <TabsContent value="options" className="grid md:grid-cols-2 gap-4">
-              <EditableList
-                title="Status de Processos"
+              <EditableColorList
+                title="Status de Processos (Com Cores)"
                 items={s.caseStatuses || []}
-                onSave={(items) => updateItem('settings', s.id, { caseStatuses: items })}
+                onSave={(items: any[]) => updateItem('settings', s.id, { caseStatuses: items })}
               />
               <EditableColorList
                 title="Tipos de Processos (Com Cores)"
