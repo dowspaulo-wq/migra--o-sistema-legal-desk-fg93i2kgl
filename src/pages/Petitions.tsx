@@ -56,10 +56,10 @@ export default function Petitions() {
         </Card>
 
         <div className="flex-1 flex flex-col gap-4 h-full">
-          <Card className="bg-blue-50 border-blue-200">
+          <Card className="bg-primary/10 border-primary/20">
             <CardContent className="p-4 flex items-start gap-3">
-              <Info className="h-5 w-5 text-blue-500 mt-0.5" />
-              <div className="text-sm text-blue-800 space-y-1">
+              <Info className="h-5 w-5 text-primary mt-0.5" />
+              <div className="text-sm text-primary space-y-1">
                 <p>
                   <strong>Variáveis disponíveis:</strong>
                 </p>

@@ -642,9 +642,9 @@ export default function CaseDetail() {
         </TabsContent>
 
         <TabsContent value="docs" className="mt-4">
-          <Card className="shadow-sm border-blue-200 bg-blue-50/30">
+          <Card className="shadow-sm border-primary/20 bg-primary/5">
             <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2 text-blue-800">
+              <CardTitle className="text-lg flex items-center gap-2 text-primary">
                 <FileText className="h-5 w-5" /> Automação de Petições
               </CardTitle>
               <CardDescription>

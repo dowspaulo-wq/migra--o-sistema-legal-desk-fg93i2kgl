@@ -201,7 +201,7 @@ export default function Index() {
       <Collapsible
         open={isAgendaOpen}
         onOpenChange={setIsAgendaOpen}
-        className="bg-white dark:bg-slate-900 rounded-xl border shadow-sm"
+        className="bg-card rounded-xl border shadow-sm"
       >
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <div className="flex items-center gap-2 text-primary font-semibold">
@@ -227,7 +227,7 @@ export default function Index() {
                   'border rounded-xl p-5 shadow-sm transition-colors',
                   stat.todayCount > 0
                     ? 'border-green-300 bg-green-50/30'
-                    : 'border-slate-200 bg-white dark:bg-slate-950',
+                    : 'border-slate-200 bg-card',
                 )}
               >
                 <div className="flex items-center gap-3 mb-4">
@@ -284,7 +284,7 @@ export default function Index() {
                     <span className="text-muted-foreground group-hover:text-slate-800">
                       Próximos:
                     </span>
-                    <span className="font-medium text-blue-600 group-hover:underline">
+                    <span className="font-medium text-primary group-hover:underline">
                       {stat.futureCount}
                     </span>
                   </div>
@@ -330,7 +330,7 @@ export default function Index() {
       <Collapsible
         open={isTasksOpen}
         onOpenChange={setIsTasksOpen}
-        className="bg-white dark:bg-slate-900 rounded-xl border shadow-sm"
+        className="bg-card rounded-xl border shadow-sm"
       >
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <div className="flex items-center gap-2 text-primary font-semibold">
@@ -358,7 +358,7 @@ export default function Index() {
                     ? 'border-red-300 bg-red-50/30'
                     : stat.delayedUpdates > 0
                       ? 'border-orange-300 bg-orange-50/30'
-                      : 'border-slate-200 bg-white dark:bg-slate-950',
+                      : 'border-slate-200 bg-card',
                 )}
               >
                 <div className="flex items-center gap-3 mb-4">
@@ -428,7 +428,7 @@ export default function Index() {
                     <span className="text-muted-foreground group-hover:text-slate-800">
                       Atualização:
                     </span>
-                    <span className="font-medium text-blue-600 group-hover:underline">
+                    <span className="font-medium text-primary group-hover:underline">
                       {stat.statusCounts.Atualização}
                     </span>
                   </div>
@@ -443,7 +443,7 @@ export default function Index() {
                     <span className="text-muted-foreground group-hover:text-slate-800">
                       Concluídas:
                     </span>
-                    <span className="font-medium text-green-600 group-hover:underline">
+                    <span className="font-medium text-secondary group-hover:underline">
                       {stat.statusCounts.Concluídas}
                     </span>
                   </div>
@@ -462,10 +462,10 @@ export default function Index() {
                         }
                         className="flex justify-between items-center text-sm cursor-pointer hover:bg-slate-50 p-1 -mx-1 rounded transition-colors group"
                       >
-                        <span className="text-blue-700 dark:text-blue-400 capitalize-first group-hover:underline">
+                        <span className="text-primary dark:text-primary capitalize-first group-hover:underline">
                           {type}
                         </span>
-                        <span className="bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 px-2 py-0.5 rounded text-xs font-medium">
+                        <span className="bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary-foreground px-2 py-0.5 rounded text-xs font-medium">
                           {count}
                         </span>
                       </div>
@@ -540,7 +540,7 @@ export default function Index() {
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">
+              <div className="text-2xl font-bold text-secondary">
                 R$ {totalIncome.toLocaleString('pt-BR')}
               </div>
             </CardContent>
