@@ -33,7 +33,7 @@ CREATE POLICY "authenticated_delete_whatsapp_messages" ON public.whatsapp_messag
   FOR DELETE TO authenticated USING (true);
 
 -- Update caseTypes in settings based on user request to fix missing types
-DO $
+DO $$
 DECLARE
   settings_id uuid;
   default_case_types jsonb := '[
@@ -60,4 +60,4 @@ BEGIN
   ELSE
     UPDATE public.settings SET "caseTypes" = default_case_types WHERE id = settings_id;
   END IF;
-END $;
+END $$;
