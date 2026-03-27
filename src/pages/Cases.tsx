@@ -58,6 +58,7 @@ const initialFilters = {
   dataInicioAte: '',
   responsavelId: 'Todos',
   especial: 'Todos',
+  classificacao: 'Todos',
 }
 
 export default function Cases() {
@@ -178,6 +179,7 @@ export default function Cases() {
     if (f.dataInicioDe && (!c.startDate || c.startDate < f.dataInicioDe)) return false
     if (f.dataInicioAte && (!c.startDate || c.startDate > f.dataInicioAte)) return false
     if (f.responsavelId !== 'Todos' && c.responsibleId !== f.responsavelId) return false
+    if (f.classificacao !== 'Todos' && (c.classification || 'SB') !== f.classificacao) return false
     if (f.especial !== 'Todos') {
       const isEspecial = f.especial === 'Sim'
       if (!!c.isSpecial !== isEspecial) return false
@@ -332,6 +334,22 @@ export default function Cases() {
                       </SelectItem>
                     )
                   })}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">Classificação</Label>
+              <Select
+                value={filters.classificacao}
+                onValueChange={(v) => setFilters({ ...filters, classificacao: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Todos">Todos</SelectItem>
+                  <SelectItem value="SB">SB</SelectItem>
+                  <SelectItem value="DPS">DPS</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -504,6 +522,9 @@ export default function Cases() {
                           </span>
                         )}
                         <Badge variant="outline">{c.status}</Badge>
+                        <Badge variant="secondary" className="text-[10px]">
+                          {c.classification || 'SB'}
+                        </Badge>
                         <Badge
                           style={{ backgroundColor: getTypeColor(c.type) }}
                           className="text-white border-0 hover:opacity-90"
@@ -646,6 +667,9 @@ export default function Cases() {
                       </div>
                       <div className="flex gap-2 flex-wrap">
                         <Badge variant="outline">{c.status}</Badge>
+                        <Badge variant="secondary" className="text-[10px]">
+                          {c.classification || 'SB'}
+                        </Badge>
                         <Badge
                           style={{ backgroundColor: typeColor }}
                           className="text-white border-0 hover:opacity-90"

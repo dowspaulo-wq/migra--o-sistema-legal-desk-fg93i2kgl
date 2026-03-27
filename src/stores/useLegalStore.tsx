@@ -167,7 +167,10 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         }
         return newState
       })
-      await supabase.from(table).delete().eq('id', id)
+      await supabase
+        .from(table as any)
+        .delete()
+        .eq('id', id)
       addLog('Excluir', table, `Registro ${id} removido`)
     },
     [addLog],
@@ -182,9 +185,16 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       if (table === 'settings') {
         setState((prev) => ({ ...prev, settings: { ...prev.settings, ...changes } }))
         if (id && id !== 'default') {
-          await supabase.from(table).update(changes).eq('id', id)
+          await supabase
+            .from(table as any)
+            .update(changes as any)
+            .eq('id', id)
         } else {
-          const { data } = await supabase.from(table).insert(changes).select().single()
+          const { data } = await supabase
+            .from(table as any)
+            .insert(changes as any)
+            .select()
+            .single()
           if (data) setState((prev) => ({ ...prev, settings: { ...prev.settings, id: data.id } }))
         }
       } else {
@@ -196,7 +206,10 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
             [table]: arr?.map((item) => (item.id === id ? { ...item, ...changes } : item)),
           }
         })
-        await supabase.from(table).update(changes).eq('id', id)
+        await supabase
+          .from(table as any)
+          .update(changes as any)
+          .eq('id', id)
 
         if (table === 'appointments' && originalItem) {
           const updatedItem = { ...originalItem, ...changes }
@@ -250,14 +263,22 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
   )
 
   const addClient = useCallback(async (client: Omit<Client, 'id'>) => {
-    const { data, error } = await supabase.from('clients').insert(client).select().single()
+    const { data, error } = await supabase
+      .from('clients')
+      .insert(client as any)
+      .select()
+      .single()
     if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
     setState((prev) => ({ ...prev, clients: [data, ...prev.clients] }))
     toast({ title: 'Cliente adicionado' })
   }, [])
 
   const addTask = useCallback(async (task: Omit<Task, 'id'>) => {
-    const { data, error } = await supabase.from('tasks').insert(task).select().single()
+    const { data, error } = await supabase
+      .from('tasks')
+      .insert(task as any)
+      .select()
+      .single()
     if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
     if (data) {
       setState((prev) => ({ ...prev, tasks: [data, ...prev.tasks] }))
@@ -267,7 +288,11 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
 
   const addCase = useCallback(async (newCase: Omit<Case, 'id' | 'updatedAt'>) => {
     const fullCase = { ...newCase, updatedAt: new Date().toISOString().split('T')[0] }
-    const { data, error } = await supabase.from('cases').insert(fullCase).select().single()
+    const { data, error } = await supabase
+      .from('cases')
+      .insert(fullCase as any)
+      .select()
+      .single()
     if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
     setState((prev) => ({ ...prev, cases: [data, ...prev.cases] }))
     toast({ title: 'Processo adicionado' })
@@ -297,7 +322,10 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    const { data, error } = await supabase.from('appointments').insert(toInsert).select()
+    const { data, error } = await supabase
+      .from('appointments')
+      .insert(toInsert as any)
+      .select()
     if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
     setState((prev) => ({
       ...prev,
@@ -309,7 +337,11 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const addTransaction = useCallback(async (t: Omit<Transaction, 'id'>) => {
-    const { data, error } = await supabase.from('transactions').insert(t).select().single()
+    const { data, error } = await supabase
+      .from('transactions')
+      .insert(t as any)
+      .select()
+      .single()
     if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
     if (data) {
       setState((prev) => ({
@@ -329,7 +361,10 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       currentUser:
         prev.currentUser.id === id ? { ...prev.currentUser, ...changes } : prev.currentUser,
     }))
-    await supabase.from('profiles').update(changes).eq('id', id)
+    await supabase
+      .from('profiles')
+      .update(changes as any)
+      .eq('id', id)
   }, [])
 
   const addUser = useCallback((newUser: any) => {

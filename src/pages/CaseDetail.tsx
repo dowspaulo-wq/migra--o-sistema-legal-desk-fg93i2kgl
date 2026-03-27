@@ -213,6 +213,7 @@ export default function CaseDetail() {
 
           <div className="flex items-center gap-2 flex-wrap text-muted-foreground mt-1 mb-4 text-sm">
             <Badge variant="outline">{c.status}</Badge>
+            <Badge variant="secondary">{c.classification || 'SB'}</Badge>
             <span>•</span>
             <span>Sistema: {c.system || 'Não informado'}</span>
             {parentProcess && (

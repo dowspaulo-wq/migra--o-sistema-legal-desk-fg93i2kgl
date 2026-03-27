@@ -42,6 +42,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
     observacoes: '',
     responsibleId: '',
     captacao: '',
+    classification: 'SB',
   }
   const [fd, setFd] = useState(initial)
 
@@ -77,8 +78,9 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
       return
     }
 
-    const { isNew, ...payload } = fd
-    onSave(payload)
+    const payload = { ...fd, classification: fd.classification || 'SB' }
+    const { isNew, ...finalPayload } = payload
+    onSave(finalPayload)
     onOpenChange(false)
   }
 
@@ -194,6 +196,21 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
                       {c}
                     </SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Classificação *</Label>
+              <Select
+                value={fd.classification || 'SB'}
+                onValueChange={(v) => setFd({ ...fd, classification: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione a Classificação" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="SB">SB</SelectItem>
+                  <SelectItem value="DPS">DPS</SelectItem>
                 </SelectContent>
               </Select>
             </div>

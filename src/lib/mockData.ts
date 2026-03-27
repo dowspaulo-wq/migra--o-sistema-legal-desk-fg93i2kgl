@@ -20,6 +20,7 @@ export interface Client {
   isSpecial: boolean
   observacoes: string
   captacao?: string
+  classification?: string
 }
 export interface Case {
   id: string
@@ -43,6 +44,7 @@ export interface Case {
   internalNotes: string
   alerts: string
   parentId?: string | null
+  classification?: string
 }
 export interface Task {
   id: string

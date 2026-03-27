@@ -1,0 +1,3 @@
+ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS classification TEXT DEFAULT 'SB';
+ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS classification TEXT DEFAULT 'SB';
+

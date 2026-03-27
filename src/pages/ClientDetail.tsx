@@ -112,6 +112,7 @@ export default function ClientDetail() {
             <Badge variant={client.status === 'Ativo' ? 'default' : 'secondary'}>
               {client.status}
             </Badge>
+            <Badge variant="secondary">{client.classification || 'SB'}</Badge>
             {client.type} - {client.document}
           </p>
         </div>

@@ -86,16 +86,23 @@ export function CaseDialog({
     internalNotes: '',
     alerts: '',
     parentId: data?.parentId || null,
+    classification: 'SB',
   })
 
-  const [fd, setFd] = useState(() => (data && !data.isNew ? data : getInitial()))
+  const [fd, setFd] = useState(() =>
+    data && !data.isNew ? { ...data, classification: data.classification || 'SB' } : getInitial(),
+  )
 
   const isSubprocess = !!fd.parentId
   const selectedAlerts = fd.alerts ? fd.alerts.split(',').filter(Boolean) : []
 
   useEffect(() => {
     if (open) {
-      setFd(data && !data.isNew ? data : getInitial())
+      setFd(
+        data && !data.isNew
+          ? { ...data, classification: data.classification || 'SB' }
+          : getInitial(),
+      )
     }
   }, [data, open, lockedClientId])
 
@@ -122,8 +129,9 @@ export function CaseDialog({
       return
     }
 
-    const { isNew, ...payload } = fd
-    onSave(payload)
+    const payload = { ...fd, classification: fd.classification || 'SB' }
+    const { isNew, ...finalPayload } = payload
+    onSave(finalPayload)
     onOpenChange(false)
   }
 
@@ -239,6 +247,21 @@ export function CaseDialog({
                       </SelectItem>
                     )
                   })}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Classificação *</Label>
+              <Select
+                value={fd.classification || 'SB'}
+                onValueChange={(v) => setFd({ ...fd, classification: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione a Classificação" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="SB">SB</SelectItem>
+                  <SelectItem value="DPS">DPS</SelectItem>
                 </SelectContent>
               </Select>
             </div>
