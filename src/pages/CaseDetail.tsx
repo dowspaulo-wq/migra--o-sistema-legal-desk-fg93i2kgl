@@ -70,6 +70,7 @@ export default function CaseDetail() {
   const tasks = state.tasks.filter((t) => t.relatedProcessId === id)
   const subcases = state.cases.filter((sc) => sc.parentId === id)
   const processAppointments = state.appointments.filter((a) => a.processId === id)
+  const parentProcess = c?.parentId ? state.cases.find((x) => x.id === c.parentId) : null
 
   const processTransactions = state.transactions.filter((t) => t.processId === id)
   const income = processTransactions
@@ -209,9 +210,26 @@ export default function CaseDetail() {
               <Edit className="h-4 w-4 mr-2" /> Editar
             </Button>
           </div>
-          <p className="text-muted-foreground mt-1 mb-4">
-            <Badge variant="outline">{c.status}</Badge> • Sistema: {c.system || 'Não informado'}
-          </p>
+
+          <div className="flex items-center gap-2 flex-wrap text-muted-foreground mt-1 mb-4 text-sm">
+            <Badge variant="outline">{c.status}</Badge>
+            <span>•</span>
+            <span>Sistema: {c.system || 'Não informado'}</span>
+            {parentProcess && (
+              <>
+                <span>•</span>
+                <span className="flex items-center gap-1">
+                  Vinculado ao principal:
+                  <Link
+                    to={`/processos/${parentProcess.id}`}
+                    className="font-medium text-primary hover:underline flex items-center gap-1"
+                  >
+                    {parentProcess.number}
+                  </Link>
+                </span>
+              </>
+            )}
+          </div>
 
           {(c.alerts || c.description) && (
             <div className="space-y-4 mb-2 bg-slate-50/80 p-4 rounded-lg border border-slate-100 max-w-4xl">

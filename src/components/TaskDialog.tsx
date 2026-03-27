@@ -18,6 +18,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/hooks/use-toast'
+import { normalizeStr } from '@/lib/utils'
 
 export function TaskDialog({
   open,
@@ -32,25 +33,37 @@ export function TaskDialog({
 }: any) {
   const sortedUsers = [...users].sort((a: any, b: any) => a.name.localeCompare(b.name))
   const sortedClients = [...clients].sort((a: any, b: any) => a.name.localeCompare(b.name))
-  const sortedStatuses = [...(settings.taskStatuses || [])].sort((a: string, b: string) =>
+  const sortedStatuses = [...(settings?.taskStatuses || [])].sort((a: string, b: string) =>
     a.localeCompare(b),
   )
-  const sortedTypes = [...(settings.taskTypes || [])].sort((a: string, b: string) =>
+  const sortedTypes = [...(settings?.taskTypes || [])].sort((a: string, b: string) =>
     a.localeCompare(b),
   )
 
-  const getInitial = () => ({
-    title: '',
-    description: '',
-    internalNotes: '',
-    dueDate: new Date().toISOString().split('T')[0],
-    status: '',
-    priority: '',
-    responsibleId: '',
-    type: '',
-    clientId: '',
-    relatedProcessId: lockedProcessId || '',
-  })
+  const getInitial = () => {
+    const douglasUser = users.find((u: any) => normalizeStr(u.name).includes('douglas'))
+
+    // Find predefined values in settings or fallback
+    const defaultStatus =
+      (settings?.taskStatuses || []).find((s: string) => normalizeStr(s) === 'pendente') ||
+      'pendente'
+    const defaultType =
+      (settings?.taskTypes || []).find((s: string) => normalizeStr(s) === 'interna e adm') ||
+      'interna e adm'
+
+    return {
+      title: '',
+      description: '',
+      internalNotes: '',
+      dueDate: new Date().toISOString().split('T')[0],
+      status: defaultStatus,
+      priority: 'Baixa',
+      responsibleId: douglasUser ? douglasUser.id : '',
+      type: defaultType,
+      clientId: '',
+      relatedProcessId: lockedProcessId || '',
+    }
+  }
 
   const [fd, setFd] = useState(() =>
     data
