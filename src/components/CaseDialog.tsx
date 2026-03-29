@@ -189,6 +189,7 @@ export function CaseDialog({
                 </Toggle>
               </div>
             </div>
+
             <div className="space-y-2">
               <Label>Cliente *</Label>
               <Select
@@ -208,6 +209,7 @@ export function CaseDialog({
                 </SelectContent>
               </Select>
             </div>
+
             <div className="space-y-2">
               <Label>Tipo *</Label>
               <Select value={fd.type} onValueChange={(v) => setFd({ ...fd, type: v })}>
@@ -232,6 +234,7 @@ export function CaseDialog({
                 </SelectContent>
               </Select>
             </div>
+
             <div className="space-y-2">
               <Label>Status *</Label>
               <Select value={fd.status} onValueChange={(v) => setFd({ ...fd, status: v })}>
@@ -250,13 +253,14 @@ export function CaseDialog({
                 </SelectContent>
               </Select>
             </div>
+
             <div className="space-y-2">
-              <Label>Classificação *</Label>
+              <Label className="text-primary font-bold">Classificação *</Label>
               <Select
                 value={fd.classification || 'SB'}
                 onValueChange={(v) => setFd({ ...fd, classification: v })}
               >
-                <SelectTrigger>
+                <SelectTrigger className="border-primary/50">
                   <SelectValue placeholder="Selecione a Classificação" />
                 </SelectTrigger>
                 <SelectContent>
@@ -265,6 +269,7 @@ export function CaseDialog({
                 </SelectContent>
               </Select>
             </div>
+
             <div className="space-y-2">
               <Label>Responsável *</Label>
               <Select
@@ -285,28 +290,30 @@ export function CaseDialog({
             </div>
 
             {!isSubprocess && (
-              <>
-                <div className="space-y-2">
-                  <Label>Posição do Cliente</Label>
-                  <Input
-                    value={fd.position}
-                    onChange={(e) => setFd({ ...fd, position: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Parte Adversa</Label>
-                  <Input
-                    value={fd.adverseParty}
-                    onChange={(e) => setFd({ ...fd, adverseParty: e.target.value })}
-                  />
-                </div>
-              </>
+              <div className="space-y-2">
+                <Label>Posição do Cliente</Label>
+                <Input
+                  value={fd.position}
+                  onChange={(e) => setFd({ ...fd, position: e.target.value })}
+                />
+              </div>
+            )}
+
+            {!isSubprocess && (
+              <div className="space-y-2">
+                <Label>Parte Adversa</Label>
+                <Input
+                  value={fd.adverseParty}
+                  onChange={(e) => setFd({ ...fd, adverseParty: e.target.value })}
+                />
+              </div>
             )}
 
             <div className="space-y-2">
               <Label>Vara / Juízo</Label>
               <Input value={fd.court} onChange={(e) => setFd({ ...fd, court: e.target.value })} />
             </div>
+
             <div className="space-y-2">
               <Label>Comarca / UF</Label>
               <div className="flex gap-2">

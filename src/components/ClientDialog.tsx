@@ -115,6 +115,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
                 </Toggle>
               </div>
             </div>
+
             <div className="space-y-2">
               <Label>CPF/CNPJ</Label>
               <Input
@@ -122,6 +123,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
                 onChange={(e) => setFd({ ...fd, document: e.target.value })}
               />
             </div>
+
             <div className="space-y-2">
               <Label>Tipo *</Label>
               <Select value={fd.type} onValueChange={(v) => setFd({ ...fd, type: v })}>
@@ -134,14 +136,23 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
                 </SelectContent>
               </Select>
             </div>
+
             <div className="space-y-2">
-              <Label>Nascimento</Label>
-              <Input
-                type="date"
-                value={fd.birthday}
-                onChange={(e) => setFd({ ...fd, birthday: e.target.value })}
-              />
+              <Label className="text-primary font-bold">Classificação *</Label>
+              <Select
+                value={fd.classification || 'SB'}
+                onValueChange={(v) => setFd({ ...fd, classification: v })}
+              >
+                <SelectTrigger className="border-primary/50">
+                  <SelectValue placeholder="Selecione a Classificação" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="SB">SB</SelectItem>
+                  <SelectItem value="DPS">DPS</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
+
             <div className="space-y-2">
               <Label>Status *</Label>
               <Select value={fd.status} onValueChange={(v) => setFd({ ...fd, status: v })}>
@@ -154,18 +165,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label>E-mail</Label>
-              <Input
-                type="email"
-                value={fd.email}
-                onChange={(e) => setFd({ ...fd, email: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>WhatsApp</Label>
-              <Input value={fd.phone} onChange={(e) => setFd({ ...fd, phone: e.target.value })} />
-            </div>
+
             <div className="space-y-2">
               <Label>Responsável *</Label>
               <Select
@@ -184,6 +184,30 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
                 </SelectContent>
               </Select>
             </div>
+
+            <div className="space-y-2">
+              <Label>Nascimento</Label>
+              <Input
+                type="date"
+                value={fd.birthday}
+                onChange={(e) => setFd({ ...fd, birthday: e.target.value })}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>E-mail</Label>
+              <Input
+                type="email"
+                value={fd.email}
+                onChange={(e) => setFd({ ...fd, email: e.target.value })}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>WhatsApp</Label>
+              <Input value={fd.phone} onChange={(e) => setFd({ ...fd, phone: e.target.value })} />
+            </div>
+
             <div className="space-y-2">
               <Label>Captação</Label>
               <Select value={fd.captacao} onValueChange={(v) => setFd({ ...fd, captacao: v })}>
@@ -199,21 +223,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label>Classificação *</Label>
-              <Select
-                value={fd.classification || 'SB'}
-                onValueChange={(v) => setFd({ ...fd, classification: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione a Classificação" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="SB">SB</SelectItem>
-                  <SelectItem value="DPS">DPS</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+
             <div className="col-span-2 space-y-2">
               <Label>Observações</Label>
               <Textarea
