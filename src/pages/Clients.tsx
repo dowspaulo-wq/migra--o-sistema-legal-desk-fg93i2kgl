@@ -65,7 +65,6 @@ const initialFilters = {
   telefone: '',
   responsavelId: 'Todos',
   especial: 'Todos',
-  classificacao: 'Todos',
 }
 
 export default function Clients() {
@@ -95,7 +94,6 @@ export default function Clients() {
     if (f.email && !normalizeStr(c.email).includes(normalizeStr(f.email))) return false
     if (f.telefone && !normalizeStr(c.phone).includes(normalizeStr(f.telefone))) return false
     if (f.responsavelId !== 'Todos' && c.responsibleId !== f.responsavelId) return false
-    if (f.classificacao !== 'Todos' && (c.classification || 'SB') !== f.classificacao) return false
     if (f.especial !== 'Todos') {
       const isEspecial = f.especial === 'Sim'
       if (!!c.isSpecial !== isEspecial) return false
@@ -246,22 +244,6 @@ export default function Clients() {
                   <SelectItem value="Todos">Todos os status</SelectItem>
                   <SelectItem value="Ativo">Ativo</SelectItem>
                   <SelectItem value="Baixado">Inativo (Baixado)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold text-muted-foreground">Classificação</Label>
-              <Select
-                value={filters.classificacao}
-                onValueChange={(v) => setFilters({ ...filters, classificacao: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Todos" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Todos">Todos</SelectItem>
-                  <SelectItem value="SB">SB</SelectItem>
-                  <SelectItem value="DPS">DPS</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -502,9 +484,6 @@ export default function Clients() {
                             <Badge variant="outline" className="text-[10px]">
                               {c.type}
                             </Badge>
-                            <Badge variant="secondary" className="text-[10px]">
-                              {c.classification || 'SB'}
-                            </Badge>
                           </div>
                         </TableCell>
                         <TableCell>{c.document}</TableCell>
@@ -621,7 +600,7 @@ export default function Clients() {
                             )}
                           </h3>
                           <p className="text-xs text-muted-foreground">
-                            {c.classification || 'SB'} • {c.type} • {c.document}
+                            {c.type} • {c.document}
                           </p>
                         </div>
                         <Badge variant={c.status === 'Ativo' ? 'default' : 'secondary'}>
