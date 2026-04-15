@@ -16,7 +16,7 @@ import { useAuth } from '@/hooks/use-auth'
 import { Link } from 'react-router-dom'
 import { toast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase/client'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 
 const verses = [
   'O Senhor é o meu pastor; nada me faltará. - Salmos 23:1',
