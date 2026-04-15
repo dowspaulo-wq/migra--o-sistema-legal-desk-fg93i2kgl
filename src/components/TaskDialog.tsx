@@ -25,6 +25,7 @@ export function TaskDialog({
   onOpenChange,
   data,
   onSave,
+  onDelete,
   users,
   clients,
   cases,
@@ -260,7 +261,23 @@ export function TaskDialog({
               />
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex justify-between items-center sm:justify-between w-full">
+            {data && !data.isNew && onDelete ? (
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => {
+                  if (confirm('Tem certeza que deseja excluir esta tarefa?')) {
+                    onDelete(data.id)
+                    onOpenChange(false)
+                  }
+                }}
+              >
+                Excluir
+              </Button>
+            ) : (
+              <div />
+            )}
             <Button type="submit">Salvar</Button>
           </DialogFooter>
         </form>

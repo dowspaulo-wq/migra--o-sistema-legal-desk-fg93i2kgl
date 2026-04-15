@@ -86,11 +86,11 @@ export function CaseDialog({
     internalNotes: '',
     alerts: '',
     parentId: data?.parentId || null,
-    classification: 'SB',
+    classification: 'DPS',
   })
 
   const [fd, setFd] = useState(() =>
-    data && !data.isNew ? { ...data, classification: data.classification || 'SB' } : getInitial(),
+    data && !data.isNew ? { ...data, classification: data.classification || 'DPS' } : getInitial(),
   )
 
   const isSubprocess = !!fd.parentId
@@ -100,7 +100,7 @@ export function CaseDialog({
     if (open) {
       setFd(
         data && !data.isNew
-          ? { ...data, classification: data.classification || 'SB' }
+          ? { ...data, classification: data.classification || 'DPS' }
           : getInitial(),
       )
     }
@@ -129,7 +129,7 @@ export function CaseDialog({
       return
     }
 
-    const payload = { ...fd, classification: fd.classification || 'SB' }
+    const payload = { ...fd, classification: fd.classification || 'DPS' }
     const { isNew, ...finalPayload } = payload
     onSave(finalPayload)
     onOpenChange(false)
@@ -257,7 +257,7 @@ export function CaseDialog({
             <div className="space-y-2">
               <Label className="text-primary font-bold">Classificação *</Label>
               <Select
-                value={fd.classification || 'SB'}
+                value={fd.classification || 'DPS'}
                 onValueChange={(v) => setFd({ ...fd, classification: v })}
               >
                 <SelectTrigger className="border-primary/50">

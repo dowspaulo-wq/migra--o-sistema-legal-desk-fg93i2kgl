@@ -50,7 +50,8 @@ const getAlertLabel = (alert: string) => {
 
 export default function CaseDetail() {
   const { id } = useParams<{ id: string }>()
-  const { state, updateItem, addCase, addTask, addAppointment, addTransaction } = useLegalStore()
+  const { state, updateItem, deleteItem, addCase, addTask, addAppointment, addTransaction } =
+    useLegalStore()
   const [selectedTpl, setSelectedTpl] = useState<string>('')
   const [isCaseOpen, setIsCaseOpen] = useState(false)
 
@@ -137,6 +138,7 @@ export default function CaseDetail() {
         onOpenChange={(v: boolean) => !v && setEditingTask(null)}
         data={editingTask}
         onSave={(d: any) => updateItem('tasks', d.id, d)}
+        onDelete={(id: string) => deleteItem('tasks', id)}
         users={state.users}
         clients={state.clients}
         cases={state.cases}

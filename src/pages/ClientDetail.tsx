@@ -169,20 +169,34 @@ export default function ClientDetail() {
               {cases.map((c) => (
                 <div
                   key={c.id}
-                  className="flex justify-between items-center border p-3 rounded-lg hover:bg-slate-50"
+                  className="flex justify-between items-center border p-4 rounded-lg hover:bg-slate-50"
                 >
-                  <div>
-                    <Link
-                      to={`/processos/${c.id}`}
-                      className="font-bold text-primary hover:underline"
-                    >
-                      {c.number}
-                    </Link>
-                    <p className="text-sm text-muted-foreground">
-                      {c.type} • {c.court} • {c.comarca}/{c.state}
-                    </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 w-full">
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Número do Processo</p>
+                      <Link
+                        to={`/processos/${c.id}`}
+                        className="font-bold text-primary hover:underline block truncate"
+                        title={c.number}
+                      >
+                        {c.number}
+                      </Link>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Assunto / Tipo</p>
+                      <p className="text-sm font-medium truncate" title={c.type}>
+                        {c.type || 'Não informado'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Status</p>
+                      <Badge variant="outline">{c.status}</Badge>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Classificação</p>
+                      <Badge variant="secondary">{c.classification || 'SB'}</Badge>
+                    </div>
                   </div>
-                  <Badge variant="outline">{c.status}</Badge>
                 </div>
               ))}
               {cases.length === 0 && (
