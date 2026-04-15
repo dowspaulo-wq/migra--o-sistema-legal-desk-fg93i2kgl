@@ -75,6 +75,13 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
               : 'User',
         }
 
+        if (currentUser.role === 'Inativo') {
+          supabase.auth.signOut().then(() => {
+            window.location.href = '/login'
+          })
+          return
+        }
+
         const dbSettings = results[8].data?.[0]
         const mergedSettings = {
           ...initialData.settings,

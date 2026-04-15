@@ -1,4 +1,4 @@
-import { Bell, Search, AlertCircle, LogOut, Upload } from 'lucide-react'
+import { Bell, Search, AlertCircle, LogOut, Upload, WifiOff } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
@@ -32,7 +32,22 @@ export default function Header() {
   const { state, updateUser } = useLegalStore()
   const { signOut } = useAuth()
   const [isUploading, setIsUploading] = useState(false)
+  const [isOffline, setIsOffline] = useState(false)
   const pendingProtocol = state.tasks.filter((t) => t.status === 'Aguarda protocolo').length
+
+  useEffect(() => {
+    const checkConnection = async () => {
+      try {
+        const { error } = await supabase.from('settings').select('id').limit(1)
+        setIsOffline(!!error)
+      } catch (err) {
+        setIsOffline(true)
+      }
+    }
+    checkConnection()
+    const interval = setInterval(checkConnection, 15000)
+    return () => clearInterval(interval)
+  }, [])
 
   const dailyVerse = useMemo(() => {
     const dayOfYear = Math.floor(
@@ -68,81 +83,89 @@ export default function Header() {
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b bg-white px-4 shadow-sm md:px-6">
-      <div className="flex items-center gap-4 flex-1">
-        <SidebarTrigger className="md:hidden text-slate-500 hover:text-primary" />
-        <div className="hidden md:block flex-1">
-          <p className="text-sm font-semibold text-slate-800">
-            Bem vindo, {state.currentUser.name.split(' ')[0]}
-          </p>
-          <p className="text-xs text-muted-foreground italic max-w-lg truncate">{dailyVerse}</p>
+    <>
+      {isOffline && (
+        <div className="bg-destructive text-destructive-foreground font-bold p-3 text-center w-full flex items-center justify-center gap-2 z-50">
+          <WifiOff className="h-6 w-6 animate-pulse" />
+          <span>ATENÇÃO: PERDA DE CONEXÃO COM O BANCO DE DADOS DETECTADA!</span>
         </div>
-      </div>
-      <div className="flex items-center gap-4">
-        {pendingProtocol > 0 && (
-          <Link
-            to="/tarefas?status=Aguarda+protocolo"
-            className="hidden md:flex items-center text-xs font-semibold text-destructive bg-destructive/10 px-3 py-1.5 rounded-full animate-pulse hover:bg-destructive/20 transition-colors"
-          >
-            <AlertCircle className="h-4 w-4 mr-1" /> {pendingProtocol} Protocolos Pendentes
-          </Link>
-        )}
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              className="relative h-9 w-9 rounded-full border-2 p-0 overflow-hidden"
-              style={{ borderColor: state.currentUser.color }}
+      )}
+      <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b bg-white px-4 shadow-sm md:px-6">
+        <div className="flex items-center gap-4 flex-1">
+          <SidebarTrigger className="md:hidden text-slate-500 hover:text-primary" />
+          <div className="hidden md:block flex-1">
+            <p className="text-sm font-semibold text-slate-800">
+              Bem vindo, {state.currentUser.name.split(' ')[0]}
+            </p>
+            <p className="text-xs text-muted-foreground italic max-w-lg truncate">{dailyVerse}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-4">
+          {pendingProtocol > 0 && (
+            <Link
+              to="/tarefas?status=Aguarda+protocolo"
+              className="hidden md:flex items-center text-xs font-semibold text-destructive bg-destructive/10 px-3 py-1.5 rounded-full animate-pulse hover:bg-destructive/20 transition-colors"
             >
-              <Avatar className="h-full w-full">
-                <AvatarImage
-                  src={
-                    state.currentUser.avatar_url ||
-                    `https://img.usecurling.com/ppl/thumbnail?gender=male&seed=${state.currentUser.id}`
-                  }
-                  alt="User"
-                  className="object-cover"
-                />
-                <AvatarFallback>
-                  {state.currentUser.name.substring(0, 2).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent className="w-56" align="end" forceMount>
-            <DropdownMenuLabel className="font-normal">
-              <div className="flex flex-col space-y-1">
-                <p className="text-sm font-medium leading-none">{state.currentUser.name}</p>
-                <p className="text-xs leading-none text-muted-foreground">
-                  {state.currentUser.role}
-                </p>
-              </div>
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem asChild>
-              <label className="cursor-pointer flex items-center w-full">
-                <Upload className="mr-2 h-4 w-4" />
-                {isUploading ? 'Enviando...' : 'Alterar Foto'}
-                <input
-                  type="file"
-                  className="hidden"
-                  accept="image/*"
-                  onChange={uploadAvatar}
-                  disabled={isUploading}
-                />
-              </label>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link to="/configuracoes">Perfil & Ajustes</Link>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-destructive cursor-pointer" onClick={signOut}>
-              <LogOut className="mr-2 h-4 w-4" /> Sair
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-    </header>
+              <AlertCircle className="h-4 w-4 mr-1" /> {pendingProtocol} Protocolos Pendentes
+            </Link>
+          )}
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                className="relative h-9 w-9 rounded-full border-2 p-0 overflow-hidden"
+                style={{ borderColor: state.currentUser.color }}
+              >
+                <Avatar className="h-full w-full">
+                  <AvatarImage
+                    src={
+                      state.currentUser.avatar_url ||
+                      `https://img.usecurling.com/ppl/thumbnail?gender=male&seed=${state.currentUser.id}`
+                    }
+                    alt="User"
+                    className="object-cover"
+                  />
+                  <AvatarFallback>
+                    {state.currentUser.name.substring(0, 2).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-56" align="end" forceMount>
+              <DropdownMenuLabel className="font-normal">
+                <div className="flex flex-col space-y-1">
+                  <p className="text-sm font-medium leading-none">{state.currentUser.name}</p>
+                  <p className="text-xs leading-none text-muted-foreground">
+                    {state.currentUser.role}
+                  </p>
+                </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <label className="cursor-pointer flex items-center w-full">
+                  <Upload className="mr-2 h-4 w-4" />
+                  {isUploading ? 'Enviando...' : 'Alterar Foto'}
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="image/*"
+                    onChange={uploadAvatar}
+                    disabled={isUploading}
+                  />
+                </label>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link to="/configuracoes">Perfil & Ajustes</Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="text-destructive cursor-pointer" onClick={signOut}>
+                <LogOut className="mr-2 h-4 w-4" /> Sair
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </header>
+    </>
   )
 }

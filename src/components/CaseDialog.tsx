@@ -67,27 +67,42 @@ export function CaseDialog({
     return labelA.localeCompare(labelB)
   })
 
-  const getInitial = () => ({
-    number: '',
-    clientId: lockedClientId || data?.clientId || '',
-    position: '',
-    adverseParty: '',
-    type: '',
-    status: '',
-    court: '',
-    comarca: '',
-    state: '',
-    value: 0,
-    startDate: new Date().toISOString().split('T')[0],
-    responsibleId: '',
-    isSpecial: false,
-    isProblematic: false,
-    description: '',
-    internalNotes: '',
-    alerts: '',
-    parentId: data?.parentId || null,
-    classification: 'DPS',
-  })
+  const getInitial = () => {
+    const defaultState = {
+      number: '',
+      clientId: lockedClientId || data?.clientId || '',
+      position: '',
+      adverseParty: '',
+      type: '',
+      status: '',
+      court: '',
+      comarca: '',
+      state: '',
+      value: 0,
+      startDate: new Date().toISOString().split('T')[0],
+      responsibleId: '',
+      isSpecial: false,
+      isProblematic: false,
+      description: '',
+      internalNotes: '',
+      alerts: '',
+      parentId: data?.parentId || null,
+      classification: 'DPS',
+    }
+
+    if (!data || data.isNew) {
+      try {
+        const saved = localStorage.getItem('case_draft')
+        if (saved) {
+          const parsed = JSON.parse(saved)
+          return { ...defaultState, ...parsed, clientId: lockedClientId || parsed.clientId || '' }
+        }
+      } catch (e) {
+        // ignore error
+      }
+    }
+    return defaultState
+  }
 
   const [fd, setFd] = useState(() =>
     data && !data.isNew ? { ...data, classification: data.classification || 'DPS' } : getInitial(),
@@ -105,6 +120,12 @@ export function CaseDialog({
       )
     }
   }, [data, open, lockedClientId])
+
+  useEffect(() => {
+    if (open && (!data || data.isNew)) {
+      localStorage.setItem('case_draft', JSON.stringify(fd))
+    }
+  }, [fd, open, data])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -132,6 +153,9 @@ export function CaseDialog({
     const payload = { ...fd, classification: fd.classification || 'DPS' }
     const { isNew, ...finalPayload } = payload
     onSave(finalPayload)
+    if (!data || data.isNew) {
+      localStorage.removeItem('case_draft')
+    }
     onOpenChange(false)
   }
 
@@ -144,7 +168,10 @@ export function CaseDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent
+        className="max-w-3xl max-h-[90vh] overflow-y-auto"
+        onInteractOutside={(e) => e.preventDefault()}
+      >
         <form onSubmit={handleSubmit} className="grid gap-4">
           <DialogHeader>
             <DialogTitle>
