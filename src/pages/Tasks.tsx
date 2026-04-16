@@ -43,6 +43,8 @@ import useLegalStore from '@/stores/useLegalStore'
 import { TaskDialog } from '@/components/TaskDialog'
 import { FullCalendar } from '@/components/FullCalendar'
 import { formatSafeLocalDate, getPriorityColorClass, normalizeStr } from '@/lib/utils'
+import { downloadCSV } from '@/lib/export'
+import { Download } from 'lucide-react'
 import { DatePicker } from '@/components/ui/date-picker'
 import { MultiSelect } from '@/components/ui/multi-select'
 
@@ -165,6 +167,32 @@ export default function Tasks() {
               onChange={(e) => setQuickSearch(e.target.value)}
             />
           </div>
+          <Button
+            variant="outline"
+            onClick={() => {
+              const exportData = filtered.map((t) => {
+                const client = state.clients.find((c) => c.id === t.clientId)
+                const c = state.cases.find((x) => x.id === t.relatedProcessId)
+                const resp = state.users.find((u) => u.id === t.responsibleId)
+                return {
+                  Título: t.title,
+                  Tipo: t.type,
+                  Status: t.status,
+                  Prioridade: t.priority,
+                  Vencimento: t.dueDate || '',
+                  Cliente: client?.name || '',
+                  Processo: c?.number || '',
+                  Responsável: resp?.name || '',
+                  Descrição: t.description || '',
+                  'Notas Internas': t.internalNotes || '',
+                }
+              })
+              downloadCSV(exportData, 'tarefas.csv')
+            }}
+            className="w-full sm:w-auto shrink-0"
+          >
+            <Download className="mr-2 h-4 w-4" /> Exportar
+          </Button>
           <Button onClick={() => handleOpen()} className="w-full sm:w-auto shrink-0">
             <Plus className="mr-2 h-4 w-4" /> Nova Tarefa
           </Button>

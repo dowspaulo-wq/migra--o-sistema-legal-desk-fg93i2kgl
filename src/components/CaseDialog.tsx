@@ -68,6 +68,7 @@ export function CaseDialog({
   })
 
   const getInitial = () => {
+    const douglasUser = users.find((u: any) => u.name && u.name.toLowerCase().includes('douglas'))
     const defaultState = {
       number: '',
       clientId: lockedClientId || data?.clientId || '',
@@ -80,7 +81,7 @@ export function CaseDialog({
       state: '',
       value: 0,
       startDate: new Date().toISOString().split('T')[0],
-      responsibleId: '',
+      responsibleId: douglasUser ? douglasUser.id : '',
       isSpecial: false,
       isProblematic: false,
       description: '',

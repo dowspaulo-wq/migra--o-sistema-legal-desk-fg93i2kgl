@@ -17,9 +17,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Plus, ArrowUpRight, ArrowDownRight } from 'lucide-react'
+import { Plus, ArrowUpRight, ArrowDownRight, Download } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { Navigate } from 'react-router-dom'
+import { downloadCSV } from '@/lib/export'
 
 export default function Finance() {
   const { state } = useLegalStore()
@@ -48,9 +49,29 @@ export default function Finance() {
           <h1 className="text-3xl font-bold tracking-tight">Financeiro</h1>
           <p className="text-muted-foreground">Controle de honorários e despesas.</p>
         </div>
-        <Button>
-          <Plus className="mr-2 h-4 w-4" /> Novo Lançamento
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => {
+              const exportData = filtered.map((t) => {
+                return {
+                  Data: t.date,
+                  Descrição: t.description,
+                  Categoria: t.category,
+                  Status: t.status,
+                  Tipo: t.type === 'income' ? 'Entrada' : 'Saída',
+                  Valor: t.amount,
+                }
+              })
+              downloadCSV(exportData, 'financeiro.csv')
+            }}
+          >
+            <Download className="mr-2 h-4 w-4" /> Exportar
+          </Button>
+          <Button>
+            <Plus className="mr-2 h-4 w-4" /> Novo Lançamento
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">

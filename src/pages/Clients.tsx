@@ -55,6 +55,8 @@ import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import { ClientDialog } from '@/components/ClientDialog'
 import { normalizeStr } from '@/lib/utils'
+import { downloadCSV } from '@/lib/export'
+import { Download } from 'lucide-react'
 
 const initialFilters = {
   nome: '',
@@ -166,6 +168,30 @@ export default function Clients() {
               onChange={(e) => setQuickSearch(e.target.value)}
             />
           </div>
+          <Button
+            variant="outline"
+            onClick={() => {
+              const exportData = sortedAndFiltered.map((c) => {
+                const resp = state.users.find((u) => u.id === c.responsibleId)
+                return {
+                  Nome: c.name,
+                  Documento: c.document || '',
+                  Tipo: c.type || '',
+                  'E-mail': c.email || '',
+                  Telefone: c.phone || '',
+                  Status: c.status || '',
+                  Captação: c.captacao || '',
+                  Responsável: resp?.name || '',
+                  Especial: c.isSpecial ? 'Sim' : 'Não',
+                  Processos: state.cases.filter((x) => x.clientId === c.id).length,
+                }
+              })
+              downloadCSV(exportData, 'clientes.csv')
+            }}
+            className="w-full sm:w-auto shrink-0"
+          >
+            <Download className="mr-2 h-4 w-4" /> Exportar
+          </Button>
           <Button onClick={() => handleOpen()} className="w-full sm:w-auto shrink-0">
             <Plus className="mr-2 h-4 w-4" /> Novo Cliente
           </Button>

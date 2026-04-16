@@ -43,6 +43,8 @@ import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import { CaseDialog } from '@/components/CaseDialog'
 import { normalizeStr } from '@/lib/utils'
+import { downloadCSV } from '@/lib/export'
+import { Download } from 'lucide-react'
 
 const initialFilters = {
   numero: '',
@@ -203,8 +205,12 @@ export default function Cases() {
     }
   }
 
-  const getDays = (start: string) =>
-    start ? Math.floor((new Date().getTime() - new Date(start).getTime()) / (1000 * 3600 * 24)) : 0
+  const getDays = (start: string, end?: string, status?: string) => {
+    if (!start) return 0
+    const isConcluido = status && normalizeStr(status).includes('concluido')
+    const endDate = isConcluido && end ? new Date(end) : new Date()
+    return Math.floor((endDate.getTime() - new Date(start).getTime()) / (1000 * 3600 * 24))
+  }
 
   const getTypeColor = (type: string) => {
     const t = caseTypesSettings.find(
@@ -230,6 +236,35 @@ export default function Cases() {
               onChange={(e) => setQuickSearch(e.target.value)}
             />
           </div>
+          <Button
+            variant="outline"
+            onClick={() => {
+              const exportData = filtered.map((c) => {
+                const client = state.clients.find((cl) => cl.id === c.clientId)
+                const resp = state.users.find((u) => u.id === c.responsibleId)
+                return {
+                  Número: c.number,
+                  Cliente: client?.name || '',
+                  'Parte Adversa': c.adverseParty || '',
+                  Tipo: c.type || '',
+                  Status: c.status || '',
+                  Classificação: c.classification || 'SB',
+                  Vara: c.court || '',
+                  Comarca: c.comarca || '',
+                  Estado: c.state || '',
+                  Valor: c.value || 0,
+                  'Data Início': c.startDate || '',
+                  Responsável: resp?.name || '',
+                  Especial: c.isSpecial ? 'Sim' : 'Não',
+                  Descrição: c.description || '',
+                }
+              })
+              downloadCSV(exportData, 'processos.csv')
+            }}
+            className="w-full sm:w-auto shrink-0"
+          >
+            <Download className="mr-2 h-4 w-4" /> Exportar
+          </Button>
           <Button onClick={() => handleOpen()} className="w-full sm:w-auto shrink-0">
             <Plus className="mr-2 h-4 w-4" /> Novo Processo
           </Button>
@@ -553,7 +588,11 @@ export default function Cases() {
                       </p>
                       <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
                         <p>
-                          Vara: {c.court} • Tramitando há {getDays(c.startDate)} dias
+                          Vara: {c.court} •{' '}
+                          {c.status && normalizeStr(c.status).includes('concluido')
+                            ? `Tramitou durante ${getDays(c.startDate, c.updatedAt, c.status)}`
+                            : `Tramitando há ${getDays(c.startDate, c.updatedAt, c.status)}`}{' '}
+                          dias
                         </p>
                         {resp && (
                           <span
@@ -717,8 +756,12 @@ export default function Cases() {
                           )}
                         </p>
                         <p>
-                          <span className="text-muted-foreground">Duração:</span>{' '}
-                          {getDays(c.startDate)} dias
+                          <span className="text-muted-foreground">
+                            {c.status && normalizeStr(c.status).includes('concluido')
+                              ? 'Tramitou durante:'
+                              : 'Duração:'}
+                          </span>{' '}
+                          {getDays(c.startDate, c.updatedAt, c.status)} dias
                         </p>
                         {c.description && (
                           <p

@@ -51,6 +51,8 @@ import { parseSafeLocalDate, getPriorityColorClass, normalizeStr } from '@/lib/u
 import { DatePicker } from '@/components/ui/date-picker'
 import { MultiSelect } from '@/components/ui/multi-select'
 import { toast } from '@/hooks/use-toast'
+import { downloadCSV } from '@/lib/export'
+import { Download } from 'lucide-react'
 
 const initialFilters = {
   titulo: '',
@@ -229,6 +231,33 @@ export default function Agenda() {
               <Calendar className="mr-2 h-4 w-4" />
             )}
             Sincronizar
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              const exportData = filtered.map((a) => {
+                const resp = state.users.find((u) => u.id === (a as any).responsibleId)
+                const client = state.clients.find((c) => c.id === (a as any).clientId)
+                const process = state.cases.find((c) => c.id === (a as any).processId)
+                return {
+                  Título: a.title,
+                  Data: a.date,
+                  Hora: (a as any).time || '',
+                  Tipo: a.type || '',
+                  Modalidade: (a as any).modality || '',
+                  Prioridade: (a as any).priority || '',
+                  Status: a.status || '',
+                  Cliente: client?.name || '',
+                  Processo: process?.number || '',
+                  Responsável: resp?.name || '',
+                  Descrição: (a as any).description || '',
+                }
+              })
+              downloadCSV(exportData, 'agenda.csv')
+            }}
+            className="flex-1 sm:flex-none shrink-0"
+          >
+            <Download className="mr-2 h-4 w-4" /> Exportar
           </Button>
           <Button onClick={() => handleOpen()} className="flex-1 sm:flex-none shrink-0">
             <Plus className="mr-2 h-4 w-4" /> Novo Compromisso

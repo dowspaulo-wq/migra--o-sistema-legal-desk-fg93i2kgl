@@ -19,6 +19,7 @@ import {
 import { toast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/hooks/use-auth'
+import { normalizeStr } from '@/lib/utils'
 
 interface LegalContextType {
   state: LegalState
@@ -205,17 +206,31 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           if (data) setState((prev) => ({ ...prev, settings: { ...prev.settings, id: data.id } }))
         }
       } else {
+        let finalChanges = { ...changes }
+
         setState((prev) => {
           const arr = prev[table as keyof LegalState] as any[]
           originalItem = arr?.find((item) => item.id === id)
+
+          if (table === 'cases' && changes.status) {
+            const isConcluidoNew = normalizeStr(changes.status).includes('concluido')
+            const isConcluidoOld = originalItem?.status
+              ? normalizeStr(originalItem.status).includes('concluido')
+              : false
+            if (isConcluidoNew && !isConcluidoOld) {
+              finalChanges.updatedAt = new Date().toISOString().split('T')[0]
+            }
+          }
+
           return {
             ...prev,
-            [table]: arr?.map((item) => (item.id === id ? { ...item, ...changes } : item)),
+            [table]: arr?.map((item) => (item.id === id ? { ...item, ...finalChanges } : item)),
           }
         })
+
         await supabase
           .from(table as any)
-          .update(changes as any)
+          .update(finalChanges as any)
           .eq('id', id)
 
         if (table === 'appointments' && originalItem) {

@@ -29,25 +29,46 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
     a.localeCompare(b),
   )
 
-  const initial = client || {
-    name: '',
-    document: '',
-    type: '',
-    email: '',
-    phone: '',
-    address: '',
-    birthday: '',
-    status: '',
-    isSpecial: false,
-    observacoes: '',
-    responsibleId: '',
-    captacao: '',
-  }
-  const [fd, setFd] = useState(initial)
+  const [fd, setFd] = useState(() => {
+    if (client) return client
+    const douglasUser = users.find((u: any) => u.name && u.name.toLowerCase().includes('douglas'))
+    return {
+      name: '',
+      document: '',
+      type: '',
+      email: '',
+      phone: '',
+      address: '',
+      birthday: '',
+      status: '',
+      isSpecial: false,
+      observacoes: '',
+      responsibleId: douglasUser ? douglasUser.id : '',
+      captacao: '',
+    }
+  })
 
   useEffect(() => {
-    setFd(client || initial)
-  }, [client, open])
+    if (client) {
+      setFd(client)
+    } else {
+      const douglasUser = users.find((u: any) => u.name && u.name.toLowerCase().includes('douglas'))
+      setFd({
+        name: '',
+        document: '',
+        type: '',
+        email: '',
+        phone: '',
+        address: '',
+        birthday: '',
+        status: '',
+        isSpecial: false,
+        observacoes: '',
+        responsibleId: douglasUser ? douglasUser.id : '',
+        captacao: '',
+      })
+    }
+  }, [client, open, users])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
