@@ -17,6 +17,7 @@ import Logs from './pages/Logs'
 import Settings from './pages/Settings'
 import NotFound from './pages/NotFound'
 import Login from './pages/Login'
+import GoogleCallback from './pages/GoogleCallback'
 import { LegalStoreProvider } from './stores/useLegalStore'
 import { AuthProvider } from './hooks/use-auth'
 
@@ -29,6 +30,7 @@ const App = () => (
           <Sonner />
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/google-callback" element={<GoogleCallback />} />
             <Route element={<Layout />}>
               <Route path="/" element={<Index />} />
               <Route path="/clientes" element={<Clients />} />

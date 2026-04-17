@@ -53,6 +53,7 @@ import { MultiSelect } from '@/components/ui/multi-select'
 import { toast } from '@/hooks/use-toast'
 import { downloadCSV } from '@/lib/export'
 import { Download } from 'lucide-react'
+import { supabase } from '@/lib/supabase/client'
 
 const initialFilters = {
   titulo: '',
@@ -117,19 +118,43 @@ export default function Agenda() {
     else addAppointment(fd)
   }
 
-  const handleGoogleSync = () => {
+  const handleGoogleSync = async () => {
     setIsSyncing(true)
-    toast({
-      title: 'Conectando ao Google...',
-      description: 'Iniciando autorização com Google Agenda.',
-    })
-    setTimeout(() => {
-      setIsSyncing(false)
-      toast({
-        title: 'Sincronização Concluída',
-        description: 'Sua agenda foi vinculada e sincronizada com o Google Agenda com sucesso.',
+    try {
+      if ((state.settings as any).googleCalendarTokens) {
+        const { data, error } = await supabase.functions.invoke('google-calendar', {
+          body: { action: 'sync' },
+        })
+        if (error) throw error
+        if (data?.error) throw new Error(data.error)
+
+        toast({
+          title: 'Sincronização Concluída',
+          description: data.message || 'Sua agenda foi sincronizada com o Google Calendar.',
+        })
+        setIsSyncing(false)
+        return
+      }
+
+      const redirectUri = `${window.location.origin}/google-callback`
+      const { data, error } = await supabase.functions.invoke('google-calendar', {
+        body: { action: 'getAuthUrl', redirectUri },
       })
-    }, 2000)
+
+      if (error) throw error
+      if (data?.error) throw new Error(data.error)
+
+      if (data?.url) {
+        window.location.href = data.url
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Erro de Integração',
+        description: err.message || 'Falha ao conectar com Google.',
+        variant: 'destructive',
+      })
+      setIsSyncing(false)
+    }
   }
 
   const allItems = useMemo(() => {
