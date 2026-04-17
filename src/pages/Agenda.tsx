@@ -116,6 +116,16 @@ export default function Agenda() {
   const handleSave = (fd: any) => {
     if (editingItem) updateItem('appointments', editingItem.id, fd)
     else addAppointment(fd)
+
+    setTimeout(() => {
+      if ((state.settings as any).googleCalendarTokens) {
+        supabase.functions
+          .invoke('google-calendar', {
+            body: { action: 'sync' },
+          })
+          .catch((err) => console.error('Erro no auto-sync:', err))
+      }
+    }, 1500)
   }
 
   const handleGoogleSync = async () => {
@@ -127,7 +137,10 @@ export default function Agenda() {
         })
         if (error) throw error
         if (data?.error) {
-          if (data.error.includes('Sessão expirada')) {
+          if (
+            data.error.includes('Sessão expirada') ||
+            data.error.includes('Conta do Google não conectada')
+          ) {
             const redirectUri = `${window.location.origin}/google-callback`
             const { data: authData, error: authError } = await supabase.functions.invoke(
               'google-calendar',

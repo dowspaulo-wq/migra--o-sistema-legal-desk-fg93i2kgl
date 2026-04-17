@@ -18,7 +18,7 @@ export default function GoogleCallback() {
     if (!user) {
       toast({
         title: 'Sessão inválida',
-        description: 'Por favor, faça login novamente.',
+        description: 'Autenticação perdida no retorno. Por favor, faça login e tente novamente.',
         variant: 'destructive',
       })
       navigate('/login', { replace: true })
