@@ -128,6 +128,17 @@ export default function Agenda() {
     }, 1500)
   }
 
+  const handleDelete = (item: any) => {
+    deleteItem('appointments', item.id)
+    if (item.googleEventId && (state.settings as any).googleCalendarTokens) {
+      supabase.functions
+        .invoke('google-calendar', {
+          body: { action: 'deleteEvent', eventId: item.googleEventId },
+        })
+        .catch((err) => console.error('Erro ao excluir no Google:', err))
+    }
+  }
+
   const handleGoogleSync = async () => {
     setIsSyncing(true)
     try {
@@ -330,6 +341,7 @@ export default function Agenda() {
         onOpenChange={setOpen}
         data={editingItem}
         onSave={handleSave}
+        onDelete={handleDelete}
         users={state.users}
         clients={state.clients}
         cases={state.cases}
@@ -733,7 +745,7 @@ export default function Agenda() {
                               <AlertDialogCancel>Cancelar</AlertDialogCancel>
                               <AlertDialogAction
                                 className="bg-red-600 hover:bg-red-700"
-                                onClick={() => deleteItem('appointments', a.id)}
+                                onClick={() => handleDelete(a)}
                               >
                                 Excluir
                               </AlertDialogAction>

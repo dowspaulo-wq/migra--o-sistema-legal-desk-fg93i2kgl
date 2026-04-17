@@ -19,11 +19,14 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/hooks/use-toast'
 
+import { Trash } from 'lucide-react'
+
 export function AppointmentDialog({
   open,
   onOpenChange,
   data,
   onSave,
+  onDelete,
   users,
   clients,
   cases,
@@ -258,7 +261,21 @@ export function AppointmentDialog({
               />
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="sm:justify-between w-full mt-4">
+            {data?.id && onDelete && data.itemType !== 'birthday' ? (
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => {
+                  onDelete(data)
+                  onOpenChange(false)
+                }}
+              >
+                <Trash className="h-4 w-4 mr-2" /> Excluir
+              </Button>
+            ) : (
+              <div />
+            )}
             <Button type="submit">Salvar na Agenda</Button>
           </DialogFooter>
         </form>
