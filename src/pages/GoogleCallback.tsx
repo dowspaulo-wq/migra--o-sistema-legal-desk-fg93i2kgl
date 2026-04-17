@@ -1,26 +1,52 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase/client'
 import { toast } from '@/hooks/use-toast'
 import { Loader2 } from 'lucide-react'
+import { useAuth } from '@/hooks/use-auth'
 
 export default function GoogleCallback() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const [error, setError] = useState('')
-  const processed = useRef(false)
+  const [status, setStatus] = useState('Conectando ao Google...')
+  const { loading, user } = useAuth()
+  const [processed, setProcessed] = useState(false)
 
   useEffect(() => {
-    const code = searchParams.get('code')
-    if (!code) {
-      setError('Código de autorização não encontrado.')
+    if (loading || processed) return
+
+    if (!user) {
+      toast({
+        title: 'Sessão inválida',
+        description: 'Por favor, faça login novamente.',
+        variant: 'destructive',
+      })
+      navigate('/login', { replace: true })
       return
     }
 
-    if (processed.current) return
-    processed.current = true
+    const handleCallback = async () => {
+      setProcessed(true)
+      const code = searchParams.get('code')
+      const error = searchParams.get('error')
 
-    const exchangeCode = async () => {
+      if (error) {
+        toast({
+          title: 'Erro de Autorização',
+          description: 'A permissão ao Google Calendar foi negada ou cancelada.',
+          variant: 'destructive',
+        })
+        navigate('/agenda', { replace: true })
+        return
+      }
+
+      if (!code) {
+        navigate('/agenda', { replace: true })
+        return
+      }
+
+      setStatus('Finalizando integração e sincronizando eventos...')
+
       try {
         const redirectUri = `${window.location.origin}/google-callback`
         const { data, error: invokeError } = await supabase.functions.invoke('google-calendar', {
@@ -31,43 +57,35 @@ export default function GoogleCallback() {
         if (data?.error) throw new Error(data.error)
 
         toast({
-          title: 'Integração Concluída',
-          description: 'Sua conta do Google Calendar foi conectada com sucesso.',
+          title: 'Google Calendar Conectado!',
+          description: 'Sua conta foi integrada com sucesso.',
         })
-        navigate('/agenda')
+
+        setStatus('Sincronizando agenda...')
+        await supabase.functions.invoke('google-calendar', {
+          body: { action: 'sync' },
+        })
+
+        navigate('/agenda', { replace: true })
       } catch (err: any) {
-        console.error(err)
-        setError(err.message || 'Erro ao conectar com o Google Calendar.')
+        console.error('Google Callback Error:', err)
+        toast({
+          title: 'Falha na Integração',
+          description: err.message || 'Ocorreu um erro ao conectar com o Google Calendar.',
+          variant: 'destructive',
+        })
+        navigate('/agenda', { replace: true })
       }
     }
 
-    exchangeCode()
-  }, [searchParams, navigate])
+    handleCallback()
+  }, [searchParams, navigate, loading, user, processed])
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-muted/30">
-      <div className="bg-card p-8 rounded-lg shadow-sm border max-w-md w-full text-center">
-        {error ? (
-          <>
-            <h2 className="text-xl font-bold text-destructive mb-2">Erro na Integração</h2>
-            <p className="text-muted-foreground mb-6">{error}</p>
-            <button
-              onClick={() => navigate('/agenda')}
-              className="bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90 transition-colors"
-            >
-              Voltar para Agenda
-            </button>
-          </>
-        ) : (
-          <>
-            <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary mb-4" />
-            <h2 className="text-xl font-bold mb-2">Conectando ao Google...</h2>
-            <p className="text-muted-foreground">
-              Aguarde enquanto finalizamos a integração com o seu Google Calendar.
-            </p>
-          </>
-        )}
-      </div>
+    <div className="flex flex-col items-center justify-center min-h-screen bg-background">
+      <Loader2 className="h-10 w-10 animate-spin text-primary mb-4" />
+      <h2 className="text-xl font-semibold">{status}</h2>
+      <p className="text-muted-foreground mt-2">Por favor, aguarde enquanto configuramos tudo.</p>
     </div>
   )
 }
