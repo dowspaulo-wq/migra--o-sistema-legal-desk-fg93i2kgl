@@ -126,12 +126,34 @@ export default function Agenda() {
           body: { action: 'sync' },
         })
         if (error) throw error
-        if (data?.error) throw new Error(data.error)
+        if (data?.error) {
+          if (data.error.includes('Sessão expirada')) {
+            const redirectUri = `${window.location.origin}/google-callback`
+            const { data: authData, error: authError } = await supabase.functions.invoke(
+              'google-calendar',
+              {
+                body: { action: 'getAuthUrl', redirectUri },
+              },
+            )
+            if (authError) throw authError
+            if (authData?.error) throw new Error(authData.error)
+            if (authData?.url) {
+              window.location.href = authData.url
+              return
+            }
+          }
+          throw new Error(data.error)
+        }
 
         toast({
           title: 'Sincronização Concluída',
           description: data.message || 'Sua agenda foi sincronizada com o Google Calendar.',
         })
+
+        setTimeout(() => {
+          window.location.reload()
+        }, 2000)
+
         setIsSyncing(false)
         return
       }
