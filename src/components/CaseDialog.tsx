@@ -96,7 +96,12 @@ export function CaseDialog({
         const saved = localStorage.getItem('case_draft')
         if (saved) {
           const parsed = JSON.parse(saved)
-          return { ...defaultState, ...parsed, clientId: lockedClientId || parsed.clientId || '' }
+          return {
+            ...defaultState,
+            ...parsed,
+            clientId: lockedClientId || parsed.clientId || '',
+            parentId: data?.parentId || null,
+          }
         }
       } catch (e) {
         // ignore error
