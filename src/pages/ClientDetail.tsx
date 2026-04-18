@@ -169,9 +169,9 @@ export default function ClientDetail() {
               {cases.map((c) => (
                 <div
                   key={c.id}
-                  className="flex justify-between items-center border p-4 rounded-lg hover:bg-slate-50"
+                  className="flex flex-col border p-4 rounded-lg hover:bg-slate-50 gap-3 transition-colors"
                 >
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 w-full">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 w-full">
                     <div>
                       <p className="text-xs text-muted-foreground mb-1">Número do Processo</p>
                       <Link
@@ -181,6 +181,12 @@ export default function ClientDetail() {
                       >
                         {c.number}
                       </Link>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Parte Adversa</p>
+                      <p className="text-sm font-medium truncate" title={c.adverseParty || ''}>
+                        {c.adverseParty || 'Não informada'}
+                      </p>
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground mb-1">Assunto / Tipo</p>
@@ -197,6 +203,19 @@ export default function ClientDetail() {
                       <Badge variant="secondary">{c.classification || 'SB'}</Badge>
                     </div>
                   </div>
+                  {c.alerts && (
+                    <div className="flex gap-1 flex-wrap pt-2 border-t border-slate-100">
+                      {c.alerts.split(',').map((a) => (
+                        <Badge
+                          key={a}
+                          variant="secondary"
+                          className="text-[10px] bg-red-50 text-red-700 border-red-200"
+                        >
+                          {a.trim()}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
               {cases.length === 0 && (
