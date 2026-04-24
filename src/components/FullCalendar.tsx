@@ -66,7 +66,7 @@ export function FullCalendar<T extends { id: string; date: string }>({
           return (
             <div
               key={i}
-              className={`min-h-[140px] border rounded-lg p-1 bg-card ${d ? 'hover:border-primary/50 cursor-pointer' : 'bg-muted/30'}`}
+              className={`min-h-[140px] h-full border rounded-lg p-1 bg-card ${d ? 'hover:border-primary/50 cursor-pointer' : 'bg-muted/30'} flex flex-col`}
               onClick={() => d && onDayClick?.(d)}
             >
               {d && (
@@ -76,7 +76,7 @@ export function FullCalendar<T extends { id: string; date: string }>({
                   >
                     {d.getDate()}
                   </div>
-                  <div className="flex flex-col gap-1 overflow-y-auto max-h-[100px] scrollbar-hide">
+                  <div className="flex flex-col gap-1 flex-1">
                     {items.filter((item) => item.date.split('T')[0] === dateStr).map(renderItem)}
                   </div>
                 </>

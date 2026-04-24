@@ -561,7 +561,16 @@ export default function Agenda() {
 
               const clientName = item.client?.name || 'Sem cliente'
               const respName = resp?.name.split(' ')[0] || ''
-              const titleFull = `${item.title} - ${clientName} - ${respName}`
+
+              let titleFull = item.title
+              if (clientName !== 'Sincronização Google' && clientName !== 'Sem cliente') {
+                if (!titleFull.includes(clientName)) {
+                  titleFull += ` - ${clientName}`
+                }
+              }
+              if (respName) {
+                titleFull += ` - ${respName}`
+              }
 
               return (
                 <div
@@ -693,7 +702,11 @@ export default function Agenda() {
                         </p>
                         <p className="text-xs text-muted-foreground mt-1">
                           Cliente:{' '}
-                          <span className="font-medium">{client?.name || 'Não vinculado'}</span>
+                          <span className="font-medium">
+                            {client?.name === 'Sincronização Google'
+                              ? 'Google Calendar'
+                              : client?.name || 'Não vinculado'}
+                          </span>
                           {process && (
                             <span>
                               {' '}
