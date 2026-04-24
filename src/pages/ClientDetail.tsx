@@ -37,7 +37,8 @@ export default function ClientDetail() {
   const [isCreatingCase, setIsCreatingCase] = useState(false)
 
   const client = state.clients.find((c) => c.id === id)
-  const cases = state.cases.filter((c) => c.clientId === id && !c.parentId)
+  const allCases = state.cases.filter((c) => c.clientId === id)
+  const mainCases = allCases.filter((c) => !c.parentId)
 
   if (!client) return <div className="p-8 text-center">Cliente não encontrado.</div>
 
@@ -161,64 +162,113 @@ export default function ClientDetail() {
         <Card className="md:col-span-2 shadow-sm">
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
-              <FileText className="h-5 w-5" /> Processos Vinculados ({cases.length})
+              <FileText className="h-5 w-5" /> Processos Vinculados ({mainCases.length})
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {cases.map((c) => (
-                <div
-                  key={c.id}
-                  className="flex flex-col border p-4 rounded-lg hover:bg-slate-50 gap-3 transition-colors"
-                >
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 w-full">
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1">Número do Processo</p>
-                      <Link
-                        to={`/processos/${c.id}`}
-                        className="font-bold text-primary hover:underline block truncate"
-                        title={c.number}
-                      >
-                        {c.number}
-                      </Link>
+              {mainCases.map((c) => {
+                const subCases = allCases.filter((sub) => sub.parentId === c.id)
+                return (
+                  <div key={c.id} className="space-y-2">
+                    <div className="flex flex-col border p-4 rounded-lg hover:bg-slate-50 gap-3 transition-colors bg-white">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 w-full">
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Número do Processo</p>
+                          <Link
+                            to={`/processos/${c.id}`}
+                            className="font-bold text-primary hover:underline block truncate"
+                            title={c.number}
+                          >
+                            {c.number}
+                          </Link>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Parte Adversa</p>
+                          <p className="text-sm font-medium truncate" title={c.adverseParty || ''}>
+                            {c.adverseParty || 'Não informada'}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Assunto / Tipo</p>
+                          <p className="text-sm font-medium truncate" title={c.type || ''}>
+                            {c.type || 'Não informado'}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Status</p>
+                          <Badge variant="outline">{c.status}</Badge>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Classificação</p>
+                          <Badge variant="secondary">{c.classification || 'SB'}</Badge>
+                        </div>
+                      </div>
+                      {c.alerts && (
+                        <div className="flex gap-1 flex-wrap pt-2 border-t border-slate-100">
+                          {c.alerts.split(',').map((a) => (
+                            <Badge
+                              key={a}
+                              variant="secondary"
+                              className="text-[10px] bg-red-50 text-red-700 border-red-200"
+                            >
+                              {a.trim()}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1">Parte Adversa</p>
-                      <p className="text-sm font-medium truncate" title={c.adverseParty || ''}>
-                        {c.adverseParty || 'Não informada'}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1">Assunto / Tipo</p>
-                      <p className="text-sm font-medium truncate" title={c.type}>
-                        {c.type || 'Não informado'}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1">Status</p>
-                      <Badge variant="outline">{c.status}</Badge>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1">Classificação</p>
-                      <Badge variant="secondary">{c.classification || 'SB'}</Badge>
-                    </div>
+
+                    {subCases.length > 0 && (
+                      <div className="pl-8 space-y-2 relative before:absolute before:inset-y-0 before:left-4 before:w-px before:bg-slate-200">
+                        {subCases.map((sub) => (
+                          <div
+                            key={sub.id}
+                            className="flex flex-col border border-slate-100 p-3 rounded-lg hover:bg-slate-50 gap-2 transition-colors bg-slate-50/50 relative"
+                          >
+                            <div className="absolute top-1/2 -left-4 w-4 h-px bg-slate-200" />
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 w-full">
+                              <div>
+                                <p className="text-[10px] text-muted-foreground mb-1">
+                                  Nº do Subprocesso
+                                </p>
+                                <Link
+                                  to={`/processos/${sub.id}`}
+                                  className="font-bold text-sm text-primary hover:underline block truncate"
+                                  title={sub.number}
+                                >
+                                  {sub.number}
+                                </Link>
+                              </div>
+                              <div>
+                                <p className="text-[10px] text-muted-foreground mb-1">Tipo</p>
+                                <p className="text-sm font-medium truncate" title={sub.type || ''}>
+                                  {sub.type || 'Não informado'}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] text-muted-foreground mb-1">Status</p>
+                                <Badge variant="outline" className="text-[10px]">
+                                  {sub.status}
+                                </Badge>
+                              </div>
+                              <div>
+                                <p className="text-[10px] text-muted-foreground mb-1">
+                                  Classificação
+                                </p>
+                                <Badge variant="secondary" className="text-[10px]">
+                                  {sub.classification || 'SB'}
+                                </Badge>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  {c.alerts && (
-                    <div className="flex gap-1 flex-wrap pt-2 border-t border-slate-100">
-                      {c.alerts.split(',').map((a) => (
-                        <Badge
-                          key={a}
-                          variant="secondary"
-                          className="text-[10px] bg-red-50 text-red-700 border-red-200"
-                        >
-                          {a.trim()}
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-              {cases.length === 0 && (
+                )
+              })}
+              {mainCases.length === 0 && (
                 <p className="text-muted-foreground text-sm">Nenhum processo vinculado.</p>
               )}
             </div>
