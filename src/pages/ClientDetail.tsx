@@ -24,6 +24,7 @@ import {
   Trash2,
   Edit,
   Plus,
+  Star,
 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { ClientDialog } from '@/components/ClientDialog'
@@ -175,13 +176,21 @@ export default function ClientDetail() {
                       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 w-full">
                         <div>
                           <p className="text-xs text-muted-foreground mb-1">Número do Processo</p>
-                          <Link
-                            to={`/processos/${c.id}`}
-                            className="font-bold text-primary hover:underline block truncate"
-                            title={c.number}
-                          >
-                            {c.number}
-                          </Link>
+                          <div className="flex items-center gap-1">
+                            <Link
+                              to={`/processos/${c.id}`}
+                              className="font-bold text-primary hover:underline block truncate"
+                              title={c.number}
+                            >
+                              {c.number}
+                            </Link>
+                            {c.isSpecial && (
+                              <Star
+                                className="h-4 w-4 fill-yellow-400 text-yellow-400 shrink-0"
+                                title="Especial"
+                              />
+                            )}
+                          </div>
                         </div>
                         <div>
                           <p className="text-xs text-muted-foreground mb-1">Parte Adversa</p>
@@ -232,13 +241,21 @@ export default function ClientDetail() {
                                 <p className="text-[10px] text-muted-foreground mb-1">
                                   Nº do Subprocesso
                                 </p>
-                                <Link
-                                  to={`/processos/${sub.id}`}
-                                  className="font-bold text-sm text-primary hover:underline block truncate"
-                                  title={sub.number}
-                                >
-                                  {sub.number}
-                                </Link>
+                                <div className="flex items-center gap-1">
+                                  <Link
+                                    to={`/processos/${sub.id}`}
+                                    className="font-bold text-sm text-primary hover:underline block truncate"
+                                    title={sub.number}
+                                  >
+                                    {sub.number}
+                                  </Link>
+                                  {sub.isSpecial && (
+                                    <Star
+                                      className="h-3 w-3 fill-yellow-400 text-yellow-400 shrink-0"
+                                      title="Especial"
+                                    />
+                                  )}
+                                </div>
                               </div>
                               <div>
                                 <p className="text-[10px] text-muted-foreground mb-1">Tipo</p>
