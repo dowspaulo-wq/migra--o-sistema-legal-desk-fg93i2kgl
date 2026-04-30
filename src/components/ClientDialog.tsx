@@ -31,6 +31,16 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
 
   const [fd, setFd] = useState(() => {
     if (client) return client
+
+    try {
+      const draft = sessionStorage.getItem('client_form_draft')
+      if (draft) {
+        return JSON.parse(draft)
+      }
+    } catch {
+      /* intentionally ignored */
+    }
+
     const douglasUser = users.find((u: any) => u.name && u.name.toLowerCase().includes('douglas'))
     return {
       name: '',
@@ -51,7 +61,17 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
   useEffect(() => {
     if (client) {
       setFd(client)
-    } else {
+    } else if (open) {
+      try {
+        const draft = sessionStorage.getItem('client_form_draft')
+        if (draft) {
+          setFd(JSON.parse(draft))
+          return
+        }
+      } catch {
+        /* intentionally ignored */
+      }
+
       const douglasUser = users.find((u: any) => u.name && u.name.toLowerCase().includes('douglas'))
       setFd({
         name: '',
@@ -69,6 +89,31 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
       })
     }
   }, [client, open, users])
+
+  useEffect(() => {
+    if (!client && open) {
+      sessionStorage.setItem('client_form_draft', JSON.stringify(fd))
+    }
+  }, [fd, client, open])
+
+  const clearDraft = () => {
+    sessionStorage.removeItem('client_form_draft')
+    const douglasUser = users.find((u: any) => u.name && u.name.toLowerCase().includes('douglas'))
+    setFd({
+      name: '',
+      document: '',
+      type: '',
+      email: '',
+      phone: '',
+      address: '',
+      birthday: '',
+      status: '',
+      isSpecial: false,
+      observacoes: '',
+      responsibleId: douglasUser ? douglasUser.id : '',
+      captacao: '',
+    })
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -100,6 +145,11 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
 
     const payload = { ...fd }
     const { isNew, ...finalPayload } = payload
+
+    if (!client) {
+      sessionStorage.removeItem('client_form_draft')
+    }
+
     onSave(finalPayload)
     onOpenChange(false)
   }
@@ -236,7 +286,14 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
               />
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="sm:justify-between w-full">
+            {!client ? (
+              <Button type="button" variant="outline" onClick={clearDraft}>
+                Limpar
+              </Button>
+            ) : (
+              <div />
+            )}
             <Button type="submit">Salvar</Button>
           </DialogFooter>
         </form>

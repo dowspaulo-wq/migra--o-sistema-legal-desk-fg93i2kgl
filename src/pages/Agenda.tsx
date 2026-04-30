@@ -100,7 +100,10 @@ export default function Agenda() {
   const sortedCases = [...state.cases].sort((a, b) => a.number.localeCompare(b.number))
 
   const allTypes = useMemo(() => {
-    const types = new Set(['Aniversário', ...(state.settings.appointmentTypes || [])])
+    const types = new Set(['Aniversário'])
+    for (const t of state.settings.appointmentTypes || []) {
+      types.add(typeof t === 'string' ? t : t.label)
+    }
     return Array.from(types).sort((a, b) => a.localeCompare(b))
   }, [state.settings.appointmentTypes])
 
@@ -556,7 +559,17 @@ export default function Agenda() {
                 )
               const resp = state.users.find((u) => u.id === (item as any).responsibleId)
               const isFeriado = item.type === 'Feriado'
-              const bgColor = isFeriado ? '#ef4444' : resp?.color || '#cbd5e1'
+
+              let typeColor = ''
+              const appTypes = state.settings.appointmentTypes || []
+              const tObj = appTypes.find(
+                (t: any) => (typeof t === 'string' ? t : t.label) === item.type,
+              )
+              if (tObj && typeof tObj === 'object' && tObj.color) {
+                typeColor = tObj.color
+              }
+
+              const bgColor = typeColor || (isFeriado ? '#ef4444' : resp?.color || '#cbd5e1')
               const isDone = item.status === 'Concluído'
 
               const clientName = item.client?.name || 'Sem cliente'
@@ -625,10 +638,24 @@ export default function Agenda() {
               const isDone = a.status === 'Concluído'
               const isBirthday = a.type === 'Aniversário'
 
+              const appTypes = state.settings.appointmentTypes || []
+              const tObj = appTypes.find(
+                (t: any) => (typeof t === 'string' ? t : t.label) === a.type,
+              )
+              const typeColor =
+                tObj && typeof tObj === 'object' && tObj.color ? tObj.color : undefined
+
               return (
                 <Card
                   key={a.id}
-                  className={`shadow-sm hover:border-primary/50 cursor-pointer ${isDone ? 'opacity-60 border-l-4 border-l-green-500' : 'border-l-4 border-l-primary'}`}
+                  className={`shadow-sm hover:opacity-80 cursor-pointer ${isDone ? 'opacity-60 border-l-4' : 'border-l-4'}`}
+                  style={
+                    typeColor && !isDone
+                      ? { borderLeftColor: typeColor }
+                      : isDone
+                        ? { borderLeftColor: '#22c55e' }
+                        : { borderLeftColor: 'hsl(var(--primary))' }
+                  }
                   onClick={() => handleOpen(a)}
                 >
                   <CardContent className="p-4 flex justify-between items-center gap-4">
@@ -670,7 +697,20 @@ export default function Agenda() {
                           {a.modality === 'Virtual' && (
                             <Video className="h-4 w-4 text-purple-600" title="Virtual" />
                           )}
-                          <Badge variant="outline">{a.type}</Badge>
+                          <Badge
+                            variant="outline"
+                            style={
+                              typeColor
+                                ? {
+                                    backgroundColor: `${typeColor}20`,
+                                    color: typeColor,
+                                    borderColor: `${typeColor}40`,
+                                  }
+                                : {}
+                            }
+                          >
+                            {a.type}
+                          </Badge>
                           {a.modality && (
                             <Badge variant="secondary" className="bg-muted text-muted-foreground">
                               {a.modality}

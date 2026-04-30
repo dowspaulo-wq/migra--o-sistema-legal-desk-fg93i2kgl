@@ -42,7 +42,7 @@ import { DatePicker } from '@/components/ui/date-picker'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import { CaseDialog } from '@/components/CaseDialog'
-import { normalizeStr } from '@/lib/utils'
+import { normalizeStr, normalizeProcessNumber } from '@/lib/utils'
 import { downloadCSV } from '@/lib/export'
 import { Download } from 'lucide-react'
 
@@ -159,7 +159,11 @@ export default function Cases() {
 
     if (quickSearch) {
       const search = normalizeStr(quickSearch)
-      const matchNumber = normalizeStr(c.number).includes(search)
+      const searchNumber = normalizeProcessNumber(quickSearch)
+
+      const matchNumber =
+        normalizeProcessNumber(c.number).includes(searchNumber) ||
+        normalizeStr(c.number).includes(search)
       const matchAdverse = c.adverseParty && normalizeStr(c.adverseParty).includes(search)
       const matchClient = normalizeStr(clientName).includes(search)
 
@@ -169,7 +173,8 @@ export default function Cases() {
     }
 
     const f = appliedFilters
-    if (f.numero && !normalizeStr(c.number).includes(normalizeStr(f.numero))) return false
+    if (f.numero && !normalizeProcessNumber(c.number).includes(normalizeProcessNumber(f.numero)))
+      return false
     if (f.clienteId !== 'Todos' && c.clientId !== f.clienteId) return false
     if (f.tipo !== 'Todos' && c.type !== f.tipo) return false
     if (f.status !== 'Todos' && c.status !== f.status) return false

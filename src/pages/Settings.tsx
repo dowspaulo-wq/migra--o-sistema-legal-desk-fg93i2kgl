@@ -343,10 +343,10 @@ export default function Settings() {
                 items={s.caseTypes || []}
                 onSave={(items: any[]) => updateItem('settings', s.id, { caseTypes: items })}
               />
-              <EditableList
-                title="Tipos de Compromissos"
+              <EditableColorList
+                title="Tipos de Agendamento (Com Cores)"
                 items={s.appointmentTypes || []}
-                onSave={(items) => updateItem('settings', s.id, { appointmentTypes: items })}
+                onSave={(items: any[]) => updateItem('settings', s.id, { appointmentTypes: items })}
               />
               <EditableList
                 title="Tipos de Tarefas"

@@ -22,6 +22,14 @@ export function normalizeStr(str: string | null | undefined): string {
 }
 
 /**
+ * Normalizes a process number by removing special characters like dots, hyphens, underscores and spaces
+ */
+export function normalizeProcessNumber(str: string | null | undefined): string {
+  if (!str) return ''
+  return str.replace(/[.\-_ ]/g, '')
+}
+
+/**
  * Parses a YYYY-MM-DD string into a safe local Date object (at noon)
  * to avoid timezone offset shifts (e.g., getting previous day)
  */

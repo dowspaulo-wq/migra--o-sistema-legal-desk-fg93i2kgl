@@ -34,9 +34,11 @@ export function AppointmentDialog({
 }: any) {
   const sortedUsers = [...users].sort((a: any, b: any) => a.name.localeCompare(b.name))
   const sortedClients = [...clients].sort((a: any, b: any) => a.name.localeCompare(b.name))
-  const sortedTypes = [...(settings.appointmentTypes || [])].sort((a: string, b: string) =>
-    a.localeCompare(b),
-  )
+  const sortedTypes = [...(settings.appointmentTypes || [])].sort((a: any, b: any) => {
+    const labelA = typeof a === 'string' ? a : a.label
+    const labelB = typeof b === 'string' ? b : b.label
+    return labelA.localeCompare(labelB)
+  })
 
   const getInitial = () => ({
     title: '',
@@ -163,11 +165,14 @@ export function AppointmentDialog({
                   <SelectValue placeholder="Selecione o Tipo" />
                 </SelectTrigger>
                 <SelectContent>
-                  {sortedTypes.map((t: string) => (
-                    <SelectItem key={t} value={t}>
-                      {t}
-                    </SelectItem>
-                  ))}
+                  {sortedTypes.map((t: any) => {
+                    const label = typeof t === 'string' ? t : t.label
+                    return (
+                      <SelectItem key={label} value={label}>
+                        {label}
+                      </SelectItem>
+                    )
+                  })}
                 </SelectContent>
               </Select>
             </div>
