@@ -5,7 +5,18 @@ import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Download, Shield, Users, Sliders, Trash2, Plus, UserCircle } from 'lucide-react'
+import {
+  Download,
+  Shield,
+  Users,
+  Sliders,
+  Trash2,
+  Plus,
+  UserCircle,
+  Edit2,
+  Check,
+  X,
+} from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import {
@@ -105,9 +116,10 @@ function EditableList({
   )
 }
 
-function EditableColorList({ title, items, onSave }: any) {
+function EditableColorList({ title, items, onSave, onRename }: any) {
   const [val, setVal] = useState('')
   const [color, setColor] = useState('#3b82f6')
+  const [editingItem, setEditingItem] = useState<any>(null)
 
   const getFallbackColor = (label: string) => {
     const lower = label.toLowerCase()
@@ -123,16 +135,48 @@ function EditableColorList({ title, items, onSave }: any) {
     typeof i === 'string' ? { label: i, color: getFallbackColor(i) } : i,
   )
 
-  const add = () => {
-    if (val && !normalized.some((i: any) => i.label === val)) {
-      const newItems = [...normalized, { label: val, color }].sort((a, b) =>
-        a.label.localeCompare(b.label),
+  const addOrSave = () => {
+    if (!val) return
+    if (editingItem) {
+      if (normalized.some((i: any) => i.label === val && i.label !== editingItem.label)) {
+        toast({ title: 'Erro', description: 'Opção já existe', variant: 'destructive' })
+        return
+      }
+      const newItems = normalized.map((i: any) =>
+        i.label === editingItem.label ? { label: val, color } : i,
       )
       onSave(newItems)
+      if (onRename && editingItem.label !== val) {
+        onRename(editingItem.label, val)
+      }
+      setEditingItem(null)
       setVal('')
+      setColor('#3b82f6')
+    } else {
+      if (!normalized.some((i: any) => i.label === val)) {
+        const newItems = [...normalized, { label: val, color }].sort((a, b) =>
+          a.label.localeCompare(b.label),
+        )
+        onSave(newItems)
+        setVal('')
+        setColor('#3b82f6')
+      }
     }
   }
+
   const remove = (label: string) => onSave(normalized.filter((i: any) => i.label !== label))
+
+  const startEdit = (item: any) => {
+    setEditingItem(item)
+    setVal(item.label)
+    setColor(item.color || '#3b82f6')
+  }
+
+  const cancelEdit = () => {
+    setEditingItem(null)
+    setVal('')
+    setColor('#3b82f6')
+  }
 
   return (
     <Card className="shadow-sm">
@@ -144,9 +188,9 @@ function EditableColorList({ title, items, onSave }: any) {
           <Input
             value={val}
             onChange={(e) => setVal(e.target.value)}
-            placeholder="Nova opção..."
+            placeholder={editingItem ? 'Editar opção...' : 'Nova opção...'}
             className="flex-1 h-9"
-            onKeyDown={(e) => e.key === 'Enter' && add()}
+            onKeyDown={(e) => e.key === 'Enter' && addOrSave()}
           />
           <Input
             type="color"
@@ -154,9 +198,24 @@ function EditableColorList({ title, items, onSave }: any) {
             onChange={(e) => setColor(e.target.value)}
             className="w-12 h-9 p-0.5 cursor-pointer border-0 rounded bg-transparent"
           />
-          <Button size="sm" onClick={add} className="h-9">
-            <Plus className="h-4 w-4" />
-          </Button>
+          {editingItem ? (
+            <>
+              <Button
+                size="sm"
+                onClick={addOrSave}
+                className="h-9 w-9 p-0 bg-green-600 hover:bg-green-700 text-white"
+              >
+                <Check className="h-4 w-4" />
+              </Button>
+              <Button size="sm" variant="outline" onClick={cancelEdit} className="h-9 w-9 p-0">
+                <X className="h-4 w-4" />
+              </Button>
+            </>
+          ) : (
+            <Button size="sm" onClick={addOrSave} className="h-9 w-9 p-0">
+              <Plus className="h-4 w-4" />
+            </Button>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           {normalized.map((i: any) => {
@@ -165,7 +224,7 @@ function EditableColorList({ title, items, onSave }: any) {
             return (
               <div
                 key={i.label}
-                className="flex items-center gap-2 px-2 py-1 rounded text-sm border font-medium"
+                className="flex items-center gap-2 px-2 py-1 rounded text-sm border font-medium group"
                 style={{
                   backgroundColor: i.color,
                   borderColor: isLight ? '#e2e8f0' : i.color,
@@ -173,10 +232,16 @@ function EditableColorList({ title, items, onSave }: any) {
                 }}
               >
                 <span>{i.label}</span>
-                <Trash2
-                  className="h-3 w-3 cursor-pointer opacity-70 hover:opacity-100 transition-opacity"
-                  onClick={() => remove(i.label)}
-                />
+                <div className="flex items-center gap-1 opacity-50 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Edit2
+                    className="h-3 w-3 cursor-pointer hover:scale-110 transition-transform"
+                    onClick={() => startEdit(i)}
+                  />
+                  <Trash2
+                    className="h-3 w-3 cursor-pointer hover:scale-110 transition-transform text-red-500 hover:text-red-600"
+                    onClick={() => remove(i.label)}
+                  />
+                </div>
               </div>
             )
           })}
@@ -187,7 +252,7 @@ function EditableColorList({ title, items, onSave }: any) {
 }
 
 export default function Settings() {
-  const { state, updateItem, updateUser, addLog, addUser } = useLegalStore()
+  const { state, updateItem, updateUser, addLog, addUser, renameType } = useLegalStore()
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -337,16 +402,25 @@ export default function Settings() {
                 title="Status de Processos (Com Cores)"
                 items={s.caseStatuses || []}
                 onSave={(items: any[]) => updateItem('settings', s.id, { caseStatuses: items })}
+                onRename={(oldLabel: string, newLabel: string) =>
+                  renameType('cases', 'status', oldLabel, newLabel)
+                }
               />
               <EditableColorList
                 title="Tipos de Processos (Com Cores)"
                 items={s.caseTypes || []}
                 onSave={(items: any[]) => updateItem('settings', s.id, { caseTypes: items })}
+                onRename={(oldLabel: string, newLabel: string) =>
+                  renameType('cases', 'type', oldLabel, newLabel)
+                }
               />
               <EditableColorList
                 title="Tipos de Agendamento (Com Cores)"
                 items={s.appointmentTypes || []}
                 onSave={(items: any[]) => updateItem('settings', s.id, { appointmentTypes: items })}
+                onRename={(oldLabel: string, newLabel: string) =>
+                  renameType('appointments', 'type', oldLabel, newLabel)
+                }
               />
               <EditableList
                 title="Tipos de Tarefas"

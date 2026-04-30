@@ -33,6 +33,7 @@ interface LegalContextType {
   addTransaction: (t: Omit<Transaction, 'id'>) => void
   updateUser: (id: string, changes: Partial<User>) => void
   addUser: (user: any) => void
+  renameType: (table: string, column: string, oldVal: string, newVal: string) => void
 }
 
 const LegalContext = createContext<LegalContextType | undefined>(undefined)
@@ -88,6 +89,40 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           ...initialData.settings,
           ...(dbSettings || {}),
           id: dbSettings?.id || 'default',
+        }
+
+        // Auto-assign colors to appointmentTypes if they are strings
+        if (mergedSettings.appointmentTypes?.some((t: any) => typeof t === 'string')) {
+          const colors = [
+            '#ef4444',
+            '#f97316',
+            '#f59e0b',
+            '#84cc16',
+            '#22c55e',
+            '#10b981',
+            '#06b6d4',
+            '#0ea5e9',
+            '#3b82f6',
+            '#6366f1',
+            '#8b5cf6',
+            '#a855f7',
+            '#d946ef',
+            '#ec4899',
+            '#f43f5e',
+          ]
+          mergedSettings.appointmentTypes = mergedSettings.appointmentTypes.map(
+            (t: any, i: number) => {
+              if (typeof t === 'object') return t
+              return { label: t, color: colors[i % colors.length] }
+            },
+          )
+          if (mergedSettings.id !== 'default') {
+            supabase
+              .from('settings')
+              .update({ appointmentTypes: mergedSettings.appointmentTypes })
+              .eq('id', mergedSettings.id)
+              .then()
+          }
         }
 
         setState({
@@ -393,6 +428,25 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     setState((prev) => ({ ...prev, users: [...prev.users, newUser] }))
   }, [])
 
+  const renameType = useCallback(
+    async (table: string, column: string, oldVal: string, newVal: string) => {
+      setState((prev) => {
+        const arr = prev[table as keyof LegalState] as any[]
+        return {
+          ...prev,
+          [table]: arr.map((item) =>
+            item[column] === oldVal ? { ...item, [column]: newVal } : item,
+          ),
+        }
+      })
+      await supabase
+        .from(table as any)
+        .update({ [column]: newVal })
+        .eq(column, oldVal)
+    },
+    [],
+  )
+
   return (
     <LegalContext.Provider
       value={{
@@ -407,6 +461,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         addTransaction,
         updateUser,
         addUser,
+        renameType,
       }}
     >
       {children}
