@@ -135,20 +135,48 @@ export default function Agenda() {
   const handleGoogleSync = async () => {
     setIsSyncing(true)
     try {
-      // Simulate local sync to ensure state persists without page reload
-      setTimeout(() => {
+      const hasTokens = !!(state.settings as any).googleCalendarTokens
+
+      if (!hasTokens) {
+        const redirectUri = `${window.location.origin}/google-callback`
+        const { data, error } = await supabase.functions.invoke('google-calendar', {
+          body: { action: 'getAuthUrl', redirectUri },
+        })
+
+        if (error) throw error
+        if (data?.error) throw new Error(data.error)
+
+        if (data?.url) {
+          window.location.href = data.url
+          return
+        }
+      } else {
+        const { data, error } = await supabase.functions.invoke('google-calendar', {
+          body: { action: 'sync' },
+        })
+
+        if (error) throw error
+        if (data?.error) throw new Error(data.error)
+
         toast({
           title: 'Sincronização Concluída',
-          description: 'Sua agenda foi sincronizada (modo local).',
+          description: data.message || 'Sua agenda foi sincronizada com o Google Calendar.',
         })
-        setIsSyncing(false)
-      }, 1000)
+
+        setTimeout(() => {
+          window.location.reload()
+        }, 1500)
+      }
     } catch (err: any) {
       toast({
-        title: 'Erro',
-        description: err.message || 'Ocorreu um erro.',
+        title: 'Erro de Sincronização',
+        description: err.message || 'Ocorreu um erro ao sincronizar com o Google.',
         variant: 'destructive',
       })
+      if (err.message?.includes('expirada') || err.message?.includes('não conectada')) {
+        updateItem('settings', state.settings.id, { googleCalendarTokens: null })
+      }
+    } finally {
       setIsSyncing(false)
     }
   }
