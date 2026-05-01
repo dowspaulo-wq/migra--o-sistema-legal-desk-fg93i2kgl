@@ -149,17 +149,6 @@ export default function Login() {
               </Button>
             </form>
           )}
-
-          {!isResetMode && (
-            <div className="mt-6 p-4 bg-slate-100 rounded text-xs text-slate-600 text-center space-y-1">
-              <p>
-                <strong>Demo Credentials:</strong>
-              </p>
-              <p>Admin: admin@sbjur.com | 123456</p>
-              <p>User: user@sbjur.com | 123456</p>
-              <p className="mt-2 text-primary">Seu e-mail: dowspaulo@gmail.com</p>
-            </div>
-          )}
         </CardContent>
       </Card>
     </div>

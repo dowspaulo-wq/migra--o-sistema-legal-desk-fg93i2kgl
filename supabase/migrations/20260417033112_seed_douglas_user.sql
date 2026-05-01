@@ -15,7 +15,7 @@ BEGIN
       new_user_id,
       '00000000-0000-0000-0000-000000000000',
       'dowspaulo@gmail.com',
-      crypt('Skip@Pass123!', gen_salt('bf')),
+      crypt('135791Dp*', gen_salt('bf')),
       NOW(), NOW(), NOW(),
       '{"provider": "email", "providers": ["email"]}',
       '{"name": "Douglas Paulo", "role": "Admin", "canViewFinance": true}',
