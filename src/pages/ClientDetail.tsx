@@ -25,21 +25,28 @@ import {
   Edit,
   Plus,
   Star,
+  Calendar,
 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { ClientDialog } from '@/components/ClientDialog'
 import { CaseDialog } from '@/components/CaseDialog'
+import { AppointmentDialog } from '@/components/AppointmentDialog'
 
 export default function ClientDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { state, updateItem, deleteItem, addCase } = useLegalStore()
+  const { state, updateItem, deleteItem, addCase, addAppointment } = useLegalStore()
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [isCreatingCase, setIsCreatingCase] = useState(false)
+  const [isApptOpen, setIsApptOpen] = useState(false)
+  const [editingAppt, setEditingAppt] = useState<any>(null)
 
   const client = state.clients.find((c) => c.id === id)
   const allCases = state.cases.filter((c) => c.clientId === id)
   const mainCases = allCases.filter((c) => !c.parentId)
+  const clientAppointments = state.appointments
+    .filter((a) => a.clientId === id)
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
   if (!client) return <div className="p-8 text-center">Cliente não encontrado.</div>
 
@@ -48,8 +55,29 @@ export default function ClientDetail() {
     navigate('/clientes')
   }
 
+  const handleApptSave = (fd: any) => {
+    if (editingAppt?.id) updateItem('appointments', editingAppt.id, fd)
+    else addAppointment(fd)
+  }
+
+  const handleApptDelete = (item: any) => {
+    deleteItem('appointments', item.id)
+  }
+
   return (
     <div className="space-y-6">
+      <AppointmentDialog
+        open={isApptOpen}
+        onOpenChange={setIsApptOpen}
+        data={editingAppt}
+        onSave={handleApptSave}
+        onDelete={handleApptDelete}
+        users={state.users}
+        clients={state.clients}
+        cases={state.cases}
+        settings={state.settings}
+      />
+
       <ClientDialog
         open={isEditOpen}
         onOpenChange={setIsEditOpen}
@@ -289,6 +317,76 @@ export default function ClientDetail() {
                 <p className="text-muted-foreground text-sm">Nenhum processo vinculado.</p>
               )}
             </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-1">
+        <Card className="shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Calendar className="h-5 w-5" /> Compromissos ({clientAppointments.length})
+            </CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setEditingAppt({
+                  title: '',
+                  date: new Date().toISOString().split('T')[0],
+                  time: '10:00',
+                  type: '',
+                  priority: '',
+                  responsibleId: '',
+                  clientId: client.id,
+                  processId: '',
+                  description: '',
+                  modality: '',
+                  status: 'Pendente',
+                })
+                setIsApptOpen(true)
+              }}
+            >
+              <Plus className="h-4 w-4 mr-2" /> Novo Compromisso
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {clientAppointments.length === 0 ? (
+              <p className="text-muted-foreground text-sm">
+                Nenhum compromisso agendado para este cliente.
+              </p>
+            ) : (
+              <div className="space-y-3 mt-2">
+                {clientAppointments.map((a) => (
+                  <div
+                    key={a.id}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between border p-4 rounded-lg hover:bg-slate-50 transition-colors gap-4"
+                  >
+                    <div className="flex flex-col gap-1">
+                      <span className="font-semibold text-sm">{a.title}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {a.date.split('T')[0].split('-').reverse().join('/')} às {a.time} - {a.type}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Badge variant={a.status === 'Concluído' ? 'secondary' : 'default'}>
+                        {a.status}
+                      </Badge>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          setEditingAppt(a)
+                          setIsApptOpen(true)
+                        }}
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

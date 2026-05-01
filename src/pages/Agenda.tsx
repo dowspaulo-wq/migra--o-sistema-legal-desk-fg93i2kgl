@@ -177,10 +177,6 @@ export default function Agenda() {
           description: data.message || 'Sua agenda foi sincronizada com o Google Calendar.',
         })
 
-        setTimeout(() => {
-          window.location.reload()
-        }, 2000)
-
         setIsSyncing(false)
         return
       }
