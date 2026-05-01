@@ -18,6 +18,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/hooks/use-toast'
+import { DatePicker } from '@/components/ui/date-picker'
 
 import { Trash } from 'lucide-react'
 
@@ -142,12 +143,7 @@ export function AppointmentDialog({
             </div>
             <div className="space-y-2">
               <Label>Data *</Label>
-              <Input
-                type="date"
-                required
-                value={fd.date}
-                onChange={(e) => setFd({ ...fd, date: e.target.value })}
-              />
+              <DatePicker value={fd.date} onChange={(v) => setFd({ ...fd, date: v })} />
             </div>
             <div className="space-y-2">
               <Label>Hora *</Label>
