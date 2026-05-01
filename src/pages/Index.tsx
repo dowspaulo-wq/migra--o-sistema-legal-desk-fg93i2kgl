@@ -17,7 +17,7 @@ import {
 import useLegalStore from '@/stores/useLegalStore'
 import { Link, useNavigate } from 'react-router-dom'
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts'
 import { Badge } from '@/components/ui/badge'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -614,7 +614,7 @@ export default function Index() {
                       <Cell key={`c-${i}`} fill={COLORS[i % COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip
+                  <RechartsTooltip
                     formatter={(value, name, props) => [
                       `${value} (${((props as any).percent * 100).toFixed(1)}%)`,
                       name,
@@ -649,7 +649,7 @@ export default function Index() {
                       <Cell key={`c-${i}`} fill={COLORS[(i + 2) % COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip
+                  <RechartsTooltip
                     formatter={(value, name, props) => [
                       `${value} (${((props as any).percent * 100).toFixed(1)}%)`,
                       name,
@@ -684,7 +684,7 @@ export default function Index() {
                       <Cell key={`c-${i}`} fill={COLORS[(i + 4) % COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip
+                  <RechartsTooltip
                     formatter={(value, name, props) => [
                       `${value} (${((props as any).percent * 100).toFixed(1)}%)`,
                       name,
@@ -719,7 +719,7 @@ export default function Index() {
                       <Cell key={`c-${i}`} fill={COLORS[(i + 3) % COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip
+                  <RechartsTooltip
                     formatter={(value, name, props) => [
                       `${value} (${((props as any).percent * 100).toFixed(1)}%)`,
                       name,
