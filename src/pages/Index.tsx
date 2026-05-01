@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
@@ -23,6 +23,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { supabase } from '@/lib/supabase/client'
 
 const COLORS = [
   'hsl(var(--chart-1))',
@@ -44,6 +46,21 @@ export default function Index() {
   const navigate = useNavigate()
   const [isTasksOpen, setIsTasksOpen] = useState(true)
   const [isAgendaOpen, setIsAgendaOpen] = useState(true)
+  const [dbStatus, setDbStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking')
+
+  useEffect(() => {
+    const checkConnection = async () => {
+      try {
+        const { error } = await supabase.from('settings').select('id').limit(1)
+        setDbStatus(error ? 'disconnected' : 'connected')
+      } catch (err) {
+        setDbStatus('disconnected')
+      }
+    }
+    checkConnection()
+    const interval = setInterval(checkConnection, 15000)
+    return () => clearInterval(interval)
+  }, [])
 
   const pendingProtocol = state.tasks.filter((t) => t.status.toLowerCase() === 'aguarda protocolo')
   const myTasks = state.tasks.filter(
@@ -191,9 +208,34 @@ export default function Index() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-800 dark:text-slate-100">
-            Painel SBJur
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold tracking-tight text-slate-800 dark:text-slate-100">
+              Painel SBJur
+            </h1>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div
+                  className={cn(
+                    'h-4 w-4 rounded-full border-2 border-white shadow-sm mt-1 transition-colors duration-500',
+                    dbStatus === 'checking'
+                      ? 'bg-yellow-400 animate-pulse'
+                      : dbStatus === 'connected'
+                        ? 'bg-green-500'
+                        : 'bg-red-500',
+                  )}
+                />
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>
+                  {dbStatus === 'checking'
+                    ? 'Verificando conexão...'
+                    : dbStatus === 'connected'
+                      ? 'Banco de dados conectado'
+                      : 'Banco de dados desconectado'}
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
           <p className="text-muted-foreground mt-1">Visão geral do escritório.</p>
         </div>
       </div>

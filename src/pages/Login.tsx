@@ -59,14 +59,14 @@ export default function Login() {
 
     if (error) {
       toast({
-        title: 'Erro ao enviar email',
-        description: error.message,
+        title: 'Erro ao recuperar senha',
+        description: 'Verifique se o e-mail está correto e tente novamente.',
         variant: 'destructive',
       })
     } else {
       toast({
         title: 'Email enviado!',
-        description: 'Verifique sua caixa de entrada para redefinir sua senha.',
+        description: 'Verifique sua caixa de entrada (e pasta de spam) para redefinir sua senha.',
       })
       setIsResetMode(false)
     }
