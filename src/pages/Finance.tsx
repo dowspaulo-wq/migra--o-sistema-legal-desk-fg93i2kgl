@@ -21,6 +21,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Plus, ArrowUpRight, ArrowDownRight, Download, Trash, Filter, Edit } from 'lucide-react'
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer } from 'recharts'
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import useLegalStore from '@/stores/useLegalStore'
 import { Navigate } from 'react-router-dom'
 import { downloadCSV } from '@/lib/export'
@@ -31,11 +33,20 @@ import { SupplierDialog } from '@/components/SupplierDialog'
 export default function Finance() {
   const { state, updateItem, deleteItem, addTransaction, addSupplier } = useLegalStore() as any
 
+  const now = new Date()
+  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1)
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  const formatYYYYMMDD = (d: Date) =>
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+
   const [activeTab, setActiveTab] = useState('geral')
   const [filterStatus, setFilterStatus] = useState('Todos')
   const [filterBank, setFilterBank] = useState('Todos')
-  const [filterStartDate, setFilterStartDate] = useState('')
-  const [filterEndDate, setFilterEndDate] = useState('')
+  const [filterCategory, setFilterCategory] = useState('Todas')
+  const [filterSupplier, setFilterSupplier] = useState('Todos')
+  const [filterStartDate, setFilterStartDate] = useState(formatYYYYMMDD(firstDay))
+  const [filterEndDate, setFilterEndDate] = useState(formatYYYYMMDD(lastDay))
 
   const [editingTransaction, setEditingTransaction] = useState<any>(null)
   const [creatingTransaction, setCreatingTransaction] = useState(false)
@@ -58,15 +69,48 @@ export default function Finance() {
     return list.filter((t) => {
       const matchStatus = filterStatus === 'Todos' || t.status === filterStatus
       const matchBank = filterBank === 'Todos' || t.bankAccount === filterBank
+      const matchCategory = filterCategory === 'Todas' || t.category === filterCategory
+      const matchSupplier = filterSupplier === 'Todos' || t.supplierId === filterSupplier
 
       let matchStart = true
       let matchEnd = true
       if (filterStartDate) matchStart = t.date >= filterStartDate
       if (filterEndDate) matchEnd = t.date <= filterEndDate
 
-      return matchStatus && matchBank && matchStart && matchEnd
+      return matchStatus && matchBank && matchCategory && matchSupplier && matchStart && matchEnd
     })
-  }, [baseTransactions, activeTab, filterStatus, filterBank, filterStartDate, filterEndDate])
+  }, [
+    baseTransactions,
+    activeTab,
+    filterStatus,
+    filterBank,
+    filterCategory,
+    filterSupplier,
+    filterStartDate,
+    filterEndDate,
+  ])
+
+  const chartData = useMemo(() => {
+    const dataByDate: Record<string, { date: string; income: number; expense: number }> = {}
+
+    filtered.forEach((t) => {
+      if (!dataByDate[t.date]) {
+        dataByDate[t.date] = { date: t.date, income: 0, expense: 0 }
+      }
+      if (t.type === 'income') {
+        dataByDate[t.date].income += t.amount
+      } else {
+        dataByDate[t.date].expense += t.amount
+      }
+    })
+
+    return Object.values(dataByDate).sort((a, b) => a.date.localeCompare(b.date))
+  }, [filtered])
+
+  const categories = useMemo(() => {
+    const cats = new Set(baseTransactions.map((t) => t.category).filter(Boolean))
+    return Array.from(cats).sort()
+  }, [baseTransactions])
 
   if (!state.currentUser.canViewFinance) return <Navigate to="/" replace />
 
@@ -199,7 +243,7 @@ export default function Finance() {
                   <Filter className="h-5 w-5 text-muted-foreground" />
                   Filtros
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
                   <div className="space-y-1.5">
                     <Label>Status</Label>
                     <Select value={filterStatus} onValueChange={setFilterStatus}>
@@ -231,6 +275,38 @@ export default function Finance() {
                     </Select>
                   </div>
                   <div className="space-y-1.5">
+                    <Label>Categoria</Label>
+                    <Select value={filterCategory} onValueChange={setFilterCategory}>
+                      <SelectTrigger className="bg-white">
+                        <SelectValue placeholder="Categoria" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Todas">Todas</SelectItem>
+                        {categories.map((c) => (
+                          <SelectItem key={c} value={c}>
+                            {c}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Fornecedor</Label>
+                    <Select value={filterSupplier} onValueChange={setFilterSupplier}>
+                      <SelectTrigger className="bg-white">
+                        <SelectValue placeholder="Fornecedor" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Todos">Todos</SelectItem>
+                        {state.suppliers?.map((s: any) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
                     <Label>Data Inicial</Label>
                     <Input
                       type="date"
@@ -250,6 +326,50 @@ export default function Finance() {
               </div>
             </CardHeader>
             <CardContent>
+              {chartData.length > 0 && (
+                <div className="mb-8">
+                  <h3 className="text-lg font-medium mb-4">Evolução Financeira no Período</h3>
+                  <ChartContainer
+                    config={{
+                      income: { label: 'Entradas', color: '#22c55e' },
+                      expense: { label: 'Saídas', color: '#ef4444' },
+                    }}
+                    className="h-[250px] w-full"
+                  >
+                    <BarChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis
+                        dataKey="date"
+                        tickFormatter={(value) => {
+                          const parts = value.split('-')
+                          return `${parts[2]}/${parts[1]}`
+                        }}
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <YAxis
+                        tickFormatter={(value) => `R$ ${value}`}
+                        tickLine={false}
+                        axisLine={false}
+                        width={80}
+                      />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Bar
+                        dataKey="income"
+                        fill="var(--color-income)"
+                        radius={[4, 4, 0, 0]}
+                        maxBarSize={40}
+                      />
+                      <Bar
+                        dataKey="expense"
+                        fill="var(--color-expense)"
+                        radius={[4, 4, 0, 0]}
+                        maxBarSize={40}
+                      />
+                    </BarChart>
+                  </ChartContainer>
+                </div>
+              )}
               <div className="rounded-md border">
                 <Table>
                   <TableHeader>
