@@ -17,14 +17,17 @@ import {
 } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { toast } from '@/hooks/use-toast'
+import { Checkbox } from '@/components/ui/checkbox'
 
 const CATEGORIES = [
   'Custas Iniciais',
   'Custas Finais',
   'Depósito Recursal',
   'Honorários Periciais',
-  'Honorários Sucumbenciais',
   'Honorários Contratuais',
+  'Honorários de Êxito',
+  'Honorários de Permuta',
+  'Honorários Sucumbenciais',
   'Alvará / Condenação',
   'Diligência',
   'Acordo',
@@ -44,19 +47,37 @@ export function TransactionDialog({
     amount: '',
     type: 'expense',
     category: '',
-    status: 'Pendente',
+    status: 'Previsto',
     date: new Date().toISOString().split('T')[0],
     clientId: lockedClientId || '',
     processId: lockedProcessId || '',
+    sendToFinance: true,
+    bankAccount: 'ASAAS',
   })
 
   const [fd, setFd] = useState(() =>
-    data ? { ...data, amount: data.amount.toString() } : getInitial(),
+    data
+      ? {
+          ...data,
+          amount: data.amount.toString(),
+          sendToFinance: data.sendToFinance !== false,
+          bankAccount: data.bankAccount || 'ASAAS',
+        }
+      : getInitial(),
   )
 
   useEffect(() => {
     if (open) {
-      setFd(data ? { ...data, amount: data.amount.toString() } : getInitial())
+      setFd(
+        data
+          ? {
+              ...data,
+              amount: data.amount.toString(),
+              sendToFinance: data.sendToFinance !== false,
+              bankAccount: data.bankAccount || 'ASAAS',
+            }
+          : getInitial(),
+      )
     }
   }, [data, open, lockedProcessId, lockedClientId])
 
@@ -83,7 +104,7 @@ export function TransactionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <form onSubmit={handleSubmit} className="grid gap-4">
           <DialogHeader>
             <DialogTitle>{data ? 'Editar' : 'Novo'} Lançamento</DialogTitle>
@@ -98,7 +119,7 @@ export function TransactionDialog({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="expense">Despesa / Custa</SelectItem>
-                    <SelectItem value="income">Receita / Alvará</SelectItem>
+                    <SelectItem value="income">Receita / Alvará / Honorário</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -151,19 +172,52 @@ export function TransactionDialog({
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label>Status *</Label>
-              <Select value={fd.status} onValueChange={(v) => setFd({ ...fd, status: v })}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Pendente">Pendente</SelectItem>
-                  <SelectItem value="Pago">Pago / Recebido</SelectItem>
-                  <SelectItem value="Atrasado">Atrasado</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Status *</Label>
+                <Select value={fd.status} onValueChange={(v) => setFd({ ...fd, status: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Previsto">Previsto (Pendente)</SelectItem>
+                    <SelectItem value="Realizado">Realizado (Pago)</SelectItem>
+                    <SelectItem value="Pago">Pago / Recebido</SelectItem>
+                    <SelectItem value="Pendente">Pendente</SelectItem>
+                    <SelectItem value="Atrasado">Atrasado</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Banco / Conta</Label>
+                <Select
+                  value={fd.bankAccount}
+                  onValueChange={(v) => setFd({ ...fd, bankAccount: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Conta" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ASAAS">ASAAS</SelectItem>
+                    <SelectItem value="SICOOB">SICOOB</SelectItem>
+                    <SelectItem value="OUTRO">Outro</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
+
+            {lockedProcessId && (
+              <div className="flex items-center space-x-2 pt-3 border-t mt-2">
+                <Checkbox
+                  id="sendToFinance"
+                  checked={fd.sendToFinance}
+                  onCheckedChange={(v) => setFd({ ...fd, sendToFinance: !!v })}
+                />
+                <Label htmlFor="sendToFinance" className="text-sm font-medium cursor-pointer">
+                  Lançar também no Módulo Financeiro Global
+                </Label>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button type="submit">Salvar</Button>

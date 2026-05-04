@@ -30,6 +30,7 @@ import {
   MapPin,
   AlertCircle,
   DollarSign,
+  Trash,
 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
@@ -630,25 +631,40 @@ export default function CaseDetail() {
                         <span>{t.category}</span>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p
-                        className={`font-bold ${t.type === 'income' ? 'text-green-600' : 'text-red-600'}`}
+                    <div className="text-right flex items-center gap-3">
+                      <div className="text-right">
+                        <p
+                          className={`font-bold ${t.type === 'income' ? 'text-green-600' : 'text-red-600'}`}
+                        >
+                          {t.type === 'income' ? '+' : '-'} R${' '}
+                          {t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </p>
+                        <Badge
+                          variant="outline"
+                          className={`mt-1 text-[10px] ${
+                            t.status === 'Pago' || t.status === 'Realizado'
+                              ? 'border-green-200 text-green-700 bg-green-50'
+                              : t.status === 'Atrasado'
+                                ? 'border-red-200 text-red-700 bg-red-50'
+                                : 'border-orange-200 text-orange-700 bg-orange-50'
+                          }`}
+                        >
+                          {t.status}
+                        </Badge>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (confirm('Deseja excluir este lançamento?')) {
+                            deleteItem('transactions', t.id)
+                          }
+                        }}
                       >
-                        {t.type === 'income' ? '+' : '-'} R${' '}
-                        {t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                      </p>
-                      <Badge
-                        variant="outline"
-                        className={`mt-1 text-[10px] ${
-                          t.status === 'Pago'
-                            ? 'border-green-200 text-green-700 bg-green-50'
-                            : t.status === 'Atrasado'
-                              ? 'border-red-200 text-red-700 bg-red-50'
-                              : 'border-orange-200 text-orange-700 bg-orange-50'
-                        }`}
-                      >
-                        {t.status}
-                      </Badge>
+                        <Trash className="h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
                 ))}

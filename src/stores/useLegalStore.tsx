@@ -343,8 +343,9 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const addCase = useCallback(async (newCase: Omit<Case, 'id' | 'updatedAt'>) => {
-    const fullCase = { ...newCase, updatedAt: new Date().toISOString().split('T')[0] }
+  const addCase = useCallback(async (newCasePayload: any) => {
+    const { feeConfig, ...caseData } = newCasePayload
+    const fullCase = { ...caseData, updatedAt: new Date().toISOString().split('T')[0] }
     const { data, error } = await supabase
       .from('cases')
       .insert(fullCase as any)
@@ -353,6 +354,50 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
     setState((prev) => ({ ...prev, cases: [data, ...prev.cases] }))
     toast({ title: 'Processo adicionado' })
+
+    if (feeConfig && feeConfig.hasFees) {
+      const val = parseFloat(feeConfig.feeValue || '0')
+      const inst = parseInt(feeConfig.feeInstallments || '1', 10)
+      if (val > 0 && inst > 0) {
+        const transactions = []
+        const [y, m, d] = feeConfig.feeFirstDueDate.split('-')
+        const baseDate = new Date(parseInt(y), parseInt(m) - 1, parseInt(d))
+        const installmentValue = val / inst
+
+        for (let i = 0; i < inst; i++) {
+          const currentDate = new Date(baseDate)
+          currentDate.setMonth(currentDate.getMonth() + i)
+          const dateStr = currentDate.toISOString().split('T')[0]
+
+          transactions.push({
+            description: `Honorários (${feeConfig.feeType}) - Parcela ${i + 1}/${inst} - Processo ${data.number}`,
+            amount: installmentValue,
+            type: 'income',
+            category: 'Honorários Contratuais',
+            status: 'Previsto',
+            date: dateStr,
+            processId: data.id,
+            clientId: data.clientId,
+            sendToFinance: true,
+            bankAccount: feeConfig.bankAccount,
+          })
+        }
+
+        const { data: tData, error: tErr } = await supabase
+          .from('transactions')
+          .insert(transactions as any)
+          .select()
+        if (tData && !tErr) {
+          setState((prev) => ({
+            ...prev,
+            transactions: [...tData, ...prev.transactions].sort(
+              (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+            ),
+          }))
+          toast({ title: `${inst} parcela(s) de honorários gerada(s).` })
+        }
+      }
+    }
   }, [])
 
   const addAppointment = useCallback(async (app: Omit<Appointment, 'id'>) => {
