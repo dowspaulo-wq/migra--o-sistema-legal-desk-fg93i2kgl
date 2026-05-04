@@ -109,8 +109,14 @@ export function TransactionDialog({
       amount: parseFloat(fd.amount.replace(',', '.')),
     }
 
-    if (payload.supplierId === 'none') {
+    if (!payload.supplierId || payload.supplierId === 'none') {
       payload.supplierId = null
+    }
+    if (!payload.clientId || payload.clientId === 'none') {
+      payload.clientId = null
+    }
+    if (!payload.processId || payload.processId === 'none') {
+      payload.processId = null
     }
 
     onSave(payload, isRecurring, parseInt(installments, 10))
