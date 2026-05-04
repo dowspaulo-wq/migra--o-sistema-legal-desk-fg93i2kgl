@@ -71,6 +71,9 @@ export function TransactionDialog({
       : getInitial(),
   )
 
+  const [isRecurring, setIsRecurring] = useState(false)
+  const [installments, setInstallments] = useState('2')
+
   useEffect(() => {
     if (open) {
       setFd(
@@ -84,6 +87,8 @@ export function TransactionDialog({
             }
           : getInitial(),
       )
+      setIsRecurring(false)
+      setInstallments('2')
     }
   }, [data, open, lockedProcessId, lockedClientId])
 
@@ -108,7 +113,7 @@ export function TransactionDialog({
       payload.supplierId = null
     }
 
-    onSave(payload)
+    onSave(payload, isRecurring, parseInt(installments, 10))
     onOpenChange(false)
   }
 
@@ -231,6 +236,7 @@ export function TransactionDialog({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="ASAAS">ASAAS</SelectItem>
+                    <SelectItem value="ASSAS">ASSAS</SelectItem>
                     <SelectItem value="SICOOB">SICOOB</SelectItem>
                     <SelectItem value="OUTRO">Outro</SelectItem>
                   </SelectContent>
@@ -248,6 +254,33 @@ export function TransactionDialog({
                 <Label htmlFor="sendToFinance" className="text-sm font-medium cursor-pointer">
                   Lançar também no Módulo Financeiro Global
                 </Label>
+              </div>
+            )}
+
+            {!data && (
+              <div className="pt-3 border-t mt-2 space-y-4">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="isRecurring"
+                    checked={isRecurring}
+                    onCheckedChange={(v) => setIsRecurring(!!v)}
+                  />
+                  <Label htmlFor="isRecurring" className="text-sm font-medium cursor-pointer">
+                    Lançamento Recorrente / Parcelado
+                  </Label>
+                </div>
+                {isRecurring && (
+                  <div className="space-y-2">
+                    <Label>Quantidade de Meses/Parcelas</Label>
+                    <Input
+                      type="number"
+                      min="2"
+                      max="120"
+                      value={installments}
+                      onChange={(e) => setInstallments(e.target.value)}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>

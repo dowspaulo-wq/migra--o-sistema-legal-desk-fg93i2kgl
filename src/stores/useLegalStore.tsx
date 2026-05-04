@@ -44,7 +44,7 @@ interface LegalContextType {
   addCase: (newCase: Omit<Case, 'id' | 'updatedAt'>) => void
   addTask: (task: Omit<Task, 'id'>) => void
   addAppointment: (app: Omit<Appointment, 'id'>) => void
-  addTransaction: (t: Omit<Transaction, 'id'>) => void
+  addTransaction: (t: Omit<Transaction, 'id'> | Omit<Transaction, 'id'>[]) => void
   addSupplier: (s: Omit<Supplier, 'id'>) => void
   updateUser: (id: string, changes: Partial<User>) => void
   addUser: (user: any) => void
@@ -457,23 +457,31 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     toast({ title: 'Agenda atualizada' })
   }, [])
 
-  const addTransaction = useCallback(async (t: Omit<Transaction, 'id'>) => {
-    const { data, error } = await supabase
-      .from('transactions')
-      .insert(t as any)
-      .select()
-      .single()
-    if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
-    if (data) {
-      setState((prev) => ({
-        ...prev,
-        transactions: [data, ...prev.transactions].sort(
-          (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-        ),
-      }))
-      toast({ title: 'Lançamento adicionado com sucesso!' })
-    }
-  }, [])
+  const addTransaction = useCallback(
+    async (t: Omit<Transaction, 'id'> | Omit<Transaction, 'id'>[]) => {
+      const items = Array.isArray(t) ? t : [t]
+      const { data, error } = await supabase
+        .from('transactions')
+        .insert(items as any)
+        .select()
+      if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
+      if (data) {
+        setState((prev) => ({
+          ...prev,
+          transactions: [...data, ...prev.transactions].sort(
+            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+          ),
+        }))
+        toast({
+          title:
+            items.length > 1
+              ? `${items.length} Lançamentos adicionados com sucesso!`
+              : 'Lançamento adicionado com sucesso!',
+        })
+      }
+    },
+    [],
+  )
 
   const addSupplier = useCallback(async (s: Omit<Supplier, 'id'>) => {
     const { data, error } = await supabase

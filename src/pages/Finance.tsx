@@ -85,7 +85,28 @@ export default function Finance() {
       <TransactionDialog
         open={creatingTransaction}
         onOpenChange={setCreatingTransaction}
-        onSave={(d: any) => addTransaction(d)}
+        onSave={(d: any, isRecurring?: boolean, installments?: number) => {
+          if (isRecurring && installments && installments > 1) {
+            const baseDateStr = d.date
+            const [y, m, day] = baseDateStr.split('-')
+            const baseDate = new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(day, 10))
+
+            const toInsert = []
+            for (let i = 0; i < installments; i++) {
+              const currentDate = new Date(baseDate)
+              currentDate.setMonth(currentDate.getMonth() + i)
+              const dateStr = currentDate.toISOString().split('T')[0]
+              toInsert.push({
+                ...d,
+                date: dateStr,
+                description: `${d.description} (${i + 1}/${installments})`,
+              })
+            }
+            addTransaction(toInsert)
+          } else {
+            addTransaction(d)
+          }
+        }}
       />
       <SupplierDialog
         open={!!editingSupplier}
@@ -204,6 +225,7 @@ export default function Finance() {
                       <SelectContent>
                         <SelectItem value="Todos">Todos</SelectItem>
                         <SelectItem value="ASAAS">ASAAS</SelectItem>
+                        <SelectItem value="ASSAS">ASSAS</SelectItem>
                         <SelectItem value="SICOOB">SICOOB</SelectItem>
                       </SelectContent>
                     </Select>
