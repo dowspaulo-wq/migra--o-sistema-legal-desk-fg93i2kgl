@@ -39,8 +39,6 @@ export default function Finance() {
   const [editingTransaction, setEditingTransaction] = useState<any>(null)
   const [creatingTransaction, setCreatingTransaction] = useState(false)
 
-  if (!state.currentUser.canViewFinance) return <Navigate to="/" replace />
-
   const baseTransactions = useMemo(() => {
     // Only show transactions sent to finance
     return state.transactions.filter((t) => t.sendToFinance !== false)
@@ -65,6 +63,8 @@ export default function Finance() {
       return matchStatus && matchBank && matchStart && matchEnd
     })
   }, [baseTransactions, activeTab, filterStatus, filterBank, filterStartDate, filterEndDate])
+
+  if (!state.currentUser.canViewFinance) return <Navigate to="/" replace />
 
   const income = filtered.filter((t) => t.type === 'income').reduce((a, b) => a + b.amount, 0)
   const expense = filtered.filter((t) => t.type === 'expense').reduce((a, b) => a + b.amount, 0)
