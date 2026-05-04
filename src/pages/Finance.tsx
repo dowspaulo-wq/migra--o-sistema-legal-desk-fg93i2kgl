@@ -112,6 +112,12 @@ export default function Finance() {
     return Array.from(cats).sort()
   }, [baseTransactions])
 
+  const bankOptions = useMemo(() => {
+    const banks = new Set<string>(state.settings?.bankAccounts || ['ASAAS', 'SICOOB'])
+    baseTransactions.forEach((t) => t.bankAccount && banks.add(t.bankAccount))
+    return Array.from(banks).sort()
+  }, [baseTransactions, state.settings?.bankAccounts])
+
   if (!state.currentUser.canViewFinance) return <Navigate to="/" replace />
 
   const income = filtered.filter((t) => t.type === 'income').reduce((a, b) => a + b.amount, 0)
@@ -268,9 +274,11 @@ export default function Finance() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Todos">Todos</SelectItem>
-                        <SelectItem value="ASAAS">ASAAS</SelectItem>
-                        <SelectItem value="ASSAS">ASSAS</SelectItem>
-                        <SelectItem value="SICOOB">SICOOB</SelectItem>
+                        {bankOptions.map((b) => (
+                          <SelectItem key={b} value={b}>
+                            {b}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>

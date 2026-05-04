@@ -45,6 +45,13 @@ export function TransactionDialog({
 }: any) {
   const { state } = useLegalStore() as any
 
+  const bankOptions = Array.from(
+    new Set([
+      ...(state?.settings?.bankAccounts || ['ASAAS', 'SICOOB']),
+      ...(data?.bankAccount ? [data.bankAccount] : []),
+    ]),
+  )
+
   const getInitial = () => ({
     description: '',
     amount: '',
@@ -55,7 +62,7 @@ export function TransactionDialog({
     clientId: lockedClientId || '',
     processId: lockedProcessId || '',
     sendToFinance: true,
-    bankAccount: 'ASAAS',
+    bankAccount: state?.settings?.bankAccounts?.[0] || 'ASAAS',
     supplierId: '',
   })
 
@@ -65,7 +72,7 @@ export function TransactionDialog({
           ...data,
           amount: data.amount.toString(),
           sendToFinance: data.sendToFinance !== false,
-          bankAccount: data.bankAccount || 'ASAAS',
+          bankAccount: data.bankAccount || state?.settings?.bankAccounts?.[0] || 'ASAAS',
           supplierId: data.supplierId || '',
         }
       : getInitial(),
@@ -241,10 +248,11 @@ export function TransactionDialog({
                     <SelectValue placeholder="Conta" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="ASAAS">ASAAS</SelectItem>
-                    <SelectItem value="ASSAS">ASSAS</SelectItem>
-                    <SelectItem value="SICOOB">SICOOB</SelectItem>
-                    <SelectItem value="OUTRO">Outro</SelectItem>
+                    {bankOptions.map((b) => (
+                      <SelectItem key={b} value={b}>
+                        {b}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

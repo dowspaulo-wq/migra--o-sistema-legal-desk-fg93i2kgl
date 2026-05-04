@@ -437,6 +437,11 @@ export default function Settings() {
                 items={s.captacaoOptions || []}
                 onSave={(items) => updateItem('settings', s.id, { captacaoOptions: items })}
               />
+              <EditableList
+                title="Contas Bancárias"
+                items={s.bankAccounts || ['ASAAS', 'SICOOB']}
+                onSave={(items) => updateItem('settings', s.id, { bankAccounts: items })}
+              />
             </TabsContent>
 
             <TabsContent value="users">
