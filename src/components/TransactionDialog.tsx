@@ -18,6 +18,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { toast } from '@/hooks/use-toast'
 import { Checkbox } from '@/components/ui/checkbox'
+import useLegalStore from '@/stores/useLegalStore'
 
 const CATEGORIES = [
   'Custas Iniciais',
@@ -42,6 +43,8 @@ export function TransactionDialog({
   lockedProcessId,
   lockedClientId,
 }: any) {
+  const { state } = useLegalStore() as any
+
   const getInitial = () => ({
     description: '',
     amount: '',
@@ -53,6 +56,7 @@ export function TransactionDialog({
     processId: lockedProcessId || '',
     sendToFinance: true,
     bankAccount: 'ASAAS',
+    supplierId: '',
   })
 
   const [fd, setFd] = useState(() =>
@@ -62,6 +66,7 @@ export function TransactionDialog({
           amount: data.amount.toString(),
           sendToFinance: data.sendToFinance !== false,
           bankAccount: data.bankAccount || 'ASAAS',
+          supplierId: data.supplierId || '',
         }
       : getInitial(),
   )
@@ -75,6 +80,7 @@ export function TransactionDialog({
               amount: data.amount.toString(),
               sendToFinance: data.sendToFinance !== false,
               bankAccount: data.bankAccount || 'ASAAS',
+              supplierId: data.supplierId || '',
             }
           : getInitial(),
       )
@@ -96,6 +102,10 @@ export function TransactionDialog({
     const payload = {
       ...fd,
       amount: parseFloat(fd.amount.replace(',', '.')),
+    }
+
+    if (payload.supplierId === 'none') {
+      payload.supplierId = null
     }
 
     onSave(payload)
@@ -170,6 +180,28 @@ export function TransactionDialog({
                   onChange={(e) => setFd({ ...fd, date: e.target.value })}
                 />
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Fornecedor (Opcional)</Label>
+              <Select
+                value={fd.supplierId || 'none'}
+                onValueChange={(v) => setFd({ ...fd, supplierId: v === 'none' ? null : v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione um fornecedor" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Nenhum</SelectItem>
+                  {(state.suppliers || [])
+                    .filter((s: any) => s.status === 'Ativo')
+                    .map((s: any) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="grid grid-cols-2 gap-4">

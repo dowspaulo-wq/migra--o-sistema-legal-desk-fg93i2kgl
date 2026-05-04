@@ -7,7 +7,7 @@ import React, {
   useCallback,
 } from 'react'
 import {
-  LegalState,
+  LegalState as BaseLegalState,
   initialData,
   Client,
   Case,
@@ -16,6 +16,20 @@ import {
   User,
   Transaction,
 } from '../lib/mockData'
+
+export interface Supplier {
+  id: string
+  name: string
+  document?: string
+  email?: string
+  phone?: string
+  status: string
+  created_at?: string
+}
+
+export interface LegalState extends BaseLegalState {
+  suppliers: Supplier[]
+}
 import { toast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/hooks/use-auth'
@@ -31,6 +45,7 @@ interface LegalContextType {
   addTask: (task: Omit<Task, 'id'>) => void
   addAppointment: (app: Omit<Appointment, 'id'>) => void
   addTransaction: (t: Omit<Transaction, 'id'>) => void
+  addSupplier: (s: Omit<Supplier, 'id'>) => void
   updateUser: (id: string, changes: Partial<User>) => void
   addUser: (user: any) => void
   renameType: (table: string, column: string, oldVal: string, newVal: string) => void
@@ -40,7 +55,7 @@ const LegalContext = createContext<LegalContextType | undefined>(undefined)
 
 export function LegalStoreProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
-  const [state, setState] = useState<LegalState>(initialData)
+  const [state, setState] = useState<LegalState>({ ...initialData, suppliers: [] })
 
   useEffect(() => {
     if (!user) return
@@ -57,6 +72,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           'petitions',
           'settings',
           'whatsapp_messages',
+          'suppliers',
         ]
 
         // Fetch all tables
@@ -151,6 +167,9 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           petitions: results[7].data || [],
           settings: mergedSettings,
           whatsappMessages: (results[9].data || []).sort(
+            (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+          ),
+          suppliers: (results[10]?.data || []).sort(
             (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
           ),
         })
@@ -456,6 +475,22 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const addSupplier = useCallback(async (s: Omit<Supplier, 'id'>) => {
+    const { data, error } = await supabase
+      .from('suppliers')
+      .insert(s as any)
+      .select()
+      .single()
+    if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
+    if (data) {
+      setState((prev) => ({
+        ...prev,
+        suppliers: [...prev.suppliers, data],
+      }))
+      toast({ title: 'Fornecedor adicionado com sucesso!' })
+    }
+  }, [])
+
   const updateUser = useCallback(async (id: string, changes: Partial<User>) => {
     setState((prev) => ({
       ...prev,
@@ -504,6 +539,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         addTask,
         addAppointment,
         addTransaction,
+        addSupplier,
         updateUser,
         addUser,
         renameType,
