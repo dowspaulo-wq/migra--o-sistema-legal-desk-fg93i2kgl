@@ -138,7 +138,7 @@ export default function CaseDetail() {
         open={!!editingTask}
         onOpenChange={(v: boolean) => !v && setEditingTask(null)}
         data={editingTask}
-        onSave={(d: any) => updateItem('tasks', d.id, d)}
+        onSave={(d: any) => updateItem('tasks', editingTask?.id || d.id, d)}
         onDelete={(id: string) => deleteItem('tasks', id)}
         users={state.users}
         clients={state.clients}
@@ -160,7 +160,7 @@ export default function CaseDetail() {
         open={!!editingAppointment}
         onOpenChange={(v: boolean) => !v && setEditingAppointment(null)}
         data={editingAppointment}
-        onSave={(d: any) => updateItem('appointments', d.id, d)}
+        onSave={(d: any) => updateItem('appointments', editingAppointment?.id || d.id, d)}
         users={state.users}
         clients={state.clients}
         cases={state.cases}

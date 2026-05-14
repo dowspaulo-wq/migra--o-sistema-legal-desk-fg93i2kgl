@@ -108,6 +108,7 @@ export function AppointmentDialog({
     }
 
     const payload = {
+      ...(data?.id ? { id: data.id } : {}),
       title: fd.title,
       date: fd.date,
       time: fd.time,
