@@ -46,6 +46,7 @@ interface LegalContextType {
   addAppointment: (app: Omit<Appointment, 'id'>) => void
   addTransaction: (t: Omit<Transaction, 'id'> | Omit<Transaction, 'id'>[]) => void
   addSupplier: (s: Omit<Supplier, 'id'>) => void
+  addPetition: (p: Omit<any, 'id' | 'created_at'>) => void
   updateUser: (id: string, changes: Partial<User>) => void
   addUser: (user: any) => void
   renameType: (table: string, column: string, oldVal: string, newVal: string) => void
@@ -499,6 +500,18 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const addPetition = useCallback(async (p: any) => {
+    const { data, error } = await supabase.from('petitions').insert(p).select().single()
+    if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
+    if (data) {
+      setState((prev) => ({
+        ...prev,
+        petitions: [data, ...prev.petitions],
+      }))
+      toast({ title: 'Modelo adicionado com sucesso!' })
+    }
+  }, [])
+
   const updateUser = useCallback(async (id: string, changes: Partial<User>) => {
     setState((prev) => ({
       ...prev,
@@ -548,6 +561,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         addAppointment,
         addTransaction,
         addSupplier,
+        addPetition,
         updateUser,
         addUser,
         renameType,

@@ -34,7 +34,6 @@ const navigation = [
   { name: 'Tarefas', href: '/tarefas', icon: CheckSquare },
   { name: 'Financeiro', href: '/financeiro', icon: DollarSign },
   { name: 'Petições', href: '/peticoes', icon: FileText },
-  { name: 'WhatsApp AI', href: '/whatsapp', icon: MessageCircle },
   { name: 'Logs', href: '/logs', icon: History },
   { name: 'Configurações', href: '/configuracoes', icon: Settings },
 ]
