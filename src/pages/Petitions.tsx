@@ -71,10 +71,27 @@ export default function Petitions() {
     [selectedCaseId, state.cases],
   )
 
+  const sortedClients = useMemo(() => {
+    return [...state.clients].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'))
+  }, [state.clients])
+
   const filteredCases = useMemo(() => {
     if (selectedClientId === 'all') return []
-    return state.cases.filter((c) => c.clientId === selectedClientId)
+    return state.cases
+      .filter((c) => c.clientId === selectedClientId)
+      .sort((a, b) =>
+        (a.number || '').localeCompare(b.number || '', 'pt-BR', {
+          numeric: true,
+          sensitivity: 'base',
+        }),
+      )
   }, [selectedClientId, state.cases])
+
+  const sortedPetitions = useMemo(() => {
+    return [...state.petitions].sort((a, b) =>
+      (a.title || '').localeCompare(b.title || '', 'pt-BR'),
+    )
+  }, [state.petitions])
 
   const generateFromTemplate = () => {
     if (selectedTemplateId === 'none') return
@@ -105,7 +122,14 @@ export default function Petitions() {
     const processStr = selectedCase ? `Processo nº: ${selectedCase.number}\n\n` : ''
     const preamble = `${selectedClient?.name || 'NOME DO CLIENTE'}, já qualificado(a) nos autos do processo em epígrafe, que move em face de ${selectedCase?.adverseParty || 'PARTE ADVERSA'}, vem, respeitosamente, à presença de Vossa Excelência, por seu advogado que esta subscreve, requerer/expor:\n\n`
 
-    setGeneratedContent((prev) => header + processStr + preamble + prev)
+    const dateStr = new Date().toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric',
+    })
+    const cityDate = `\n\nTermos em que,\nPede deferimento.\n\nBelo Horizonte, MG, ${dateStr}.`
+
+    setGeneratedContent((prev) => header + processStr + preamble + prev + cityDate)
   }
 
   const copyToClipboard = () => {
@@ -154,7 +178,7 @@ export default function Petitions() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Nenhum selecionado</SelectItem>
-                      {state.clients.map((c) => (
+                      {sortedClients.map((c) => (
                         <SelectItem key={c.id} value={c.id}>
                           {c.name}
                         </SelectItem>
@@ -192,7 +216,7 @@ export default function Petitions() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">Nenhum modelo</SelectItem>
-                      {state.petitions.map((p) => (
+                      {sortedPetitions.map((p) => (
                         <SelectItem key={p.id} value={p.id}>
                           {p.title}
                         </SelectItem>
@@ -243,7 +267,7 @@ export default function Petitions() {
               </Button>
             </CardHeader>
             <CardContent className="p-2 space-y-1">
-              {state.petitions.map((p) => (
+              {sortedPetitions.map((p) => (
                 <Button
                   key={p.id}
                   variant={activeId === p.id ? 'default' : 'ghost'}
@@ -253,7 +277,7 @@ export default function Petitions() {
                   <FileText className="h-4 w-4 mr-2 shrink-0" /> {p.title}
                 </Button>
               ))}
-              {state.petitions.length === 0 && (
+              {sortedPetitions.length === 0 && (
                 <div className="p-4 text-center text-xs text-muted-foreground">
                   Nenhum modelo cadastrado.
                 </div>
