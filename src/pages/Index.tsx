@@ -133,12 +133,12 @@ export default function Index() {
 
       const mapTaskType = (type: string) => {
         const lower = type.toLowerCase()
-        if (lower === 'cartórios' || lower === 'cartorios') return 'Cartórios'
+        if (lower === 'cartórios' || lower === 'cartorios') return 'CARTÓRIOS'
         if (lower === 'interna e adm') return 'ATUALIZAÇÕES'
         if (lower === 'petições' || lower === 'peticoes') return 'PRAZOS'
         if (lower === 'recorrer') return 'RECURSOS'
         if (lower === 'redigir inicial') return 'INICIAIS'
-        return type
+        return type.toUpperCase()
       }
 
       const delayedTasks = activeTasks.filter((t) => t.dueDate && t.dueDate < todayStr)
@@ -147,11 +147,21 @@ export default function Index() {
       const delayedTypesCount = delayedTasks.reduce(
         (acc, t) => {
           const mappedType = mapTaskType(t.type)
-          acc[mappedType] = (acc[mappedType] || 0) + 1
+          if (!acc[mappedType]) acc[mappedType] = { count: 0, originalTypes: new Set() }
+          acc[mappedType].count += 1
+          acc[mappedType].originalTypes.add(t.type)
           return acc
         },
-        {} as Record<string, number>,
+        {} as Record<string, { count: number; originalTypes: Set<string> }>,
       )
+
+      const delayedTypes = Object.entries(delayedTypesCount)
+        .map(([mappedType, data]) => ({
+          mappedType,
+          count: data.count,
+          originalTypes: Array.from(data.originalTypes),
+        }))
+        .sort((a, b) => b.count - a.count)
 
       const pending = userTasks.filter((t) => t.status.toLowerCase() === 'pendente').length
       const updating = userTasks.filter((t) => t.status.toLowerCase() === 'atualização').length
@@ -180,7 +190,7 @@ export default function Index() {
         user,
         total,
         totalDelayed,
-        delayedTypesCount,
+        delayedTypes,
         statusCounts: {
           Pendentes: pending,
           Atualização: updating,
@@ -437,25 +447,40 @@ export default function Index() {
 
                 <div className="space-y-2 mb-4">
                   {stat.totalDelayed > 0 && (
-                    <div
-                      onClick={() =>
-                        navigate(
-                          `/tarefas?resp=${stat.user.id}&statusNot=${encodeURIComponent('concluída,cancelada')}&dateUntil=${todayStr}`,
-                        )
-                      }
-                      className="flex items-center gap-2 bg-red-100/80 text-red-800 border border-red-200 rounded p-2 text-sm font-medium cursor-pointer hover:bg-red-200 transition-colors"
-                    >
-                      <AlertTriangle className="h-4 w-4 shrink-0" />
-                      <span>
-                        {stat.totalDelayed} Atrasados{' '}
-                        <span className="text-xs font-normal opacity-90">
-                          (
-                          {Object.entries(stat.delayedTypesCount)
-                            .map(([k, v]) => `${v} ${k}`)
-                            .join(', ')}
+                    <div className="flex flex-col gap-2 bg-red-50/80 border border-red-200 rounded-lg p-3">
+                      <div
+                        onClick={() =>
+                          navigate(
+                            `/tarefas?resp=${stat.user.id}&statusNot=${encodeURIComponent('concluída,cancelada')}&dateUntil=${todayStr}`,
                           )
-                        </span>
-                      </span>
+                        }
+                        className="flex items-center gap-2 text-red-800 text-sm font-bold cursor-pointer hover:underline"
+                      >
+                        <AlertTriangle className="h-4 w-4 shrink-0" /> {stat.totalDelayed} ATRASADOS
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 mt-1">
+                        {stat.delayedTypes.map((typeData) => (
+                          <div
+                            key={typeData.mappedType}
+                            onClick={() =>
+                              navigate(
+                                `/tarefas?resp=${stat.user.id}&statusNot=${encodeURIComponent('concluída,cancelada')}&dateUntil=${todayStr}&typeIn=${encodeURIComponent(typeData.originalTypes.join(','))}`,
+                              )
+                            }
+                            className="bg-white border border-red-100 shadow-sm rounded-md px-2 py-1.5 flex items-center justify-between text-xs cursor-pointer hover:bg-red-100 hover:border-red-300 transition-all group"
+                          >
+                            <span
+                              className="text-red-700 font-semibold group-hover:text-red-900 truncate mr-2"
+                              title={typeData.mappedType}
+                            >
+                              {typeData.mappedType}
+                            </span>
+                            <span className="bg-red-100 text-red-800 px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0">
+                              {typeData.count}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -508,22 +533,25 @@ export default function Index() {
                   <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
                     Por Tipo
                   </h4>
-                  <div className="space-y-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {stat.types.map((typeData) => {
                       return (
                         <div
                           key={typeData.mappedType}
                           onClick={() =>
                             navigate(
-                              `/tarefas?resp=${stat.user.id}&typeIn=${encodeURIComponent(typeData.originalTypes.join(','))}`,
+                              `/tarefas?resp=${stat.user.id}&statusNot=${encodeURIComponent('concluída,cancelada')}&typeIn=${encodeURIComponent(typeData.originalTypes.join(','))}`,
                             )
                           }
-                          className="flex justify-between items-center text-sm cursor-pointer hover:bg-slate-50 p-1 -mx-1 rounded transition-colors group"
+                          className="flex justify-between items-center text-xs cursor-pointer hover:bg-slate-50 p-2 border border-slate-100 shadow-sm rounded-md transition-all group bg-white dark:bg-slate-800 dark:border-slate-700"
                         >
-                          <span className="text-primary dark:text-primary group-hover:underline">
+                          <span
+                            className="text-primary font-semibold group-hover:underline truncate mr-2"
+                            title={typeData.mappedType}
+                          >
                             {typeData.mappedType}
                           </span>
-                          <span className="bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary-foreground px-2 py-0.5 rounded text-xs font-medium">
+                          <span className="bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary-foreground px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0">
                             {typeData.count}
                           </span>
                         </div>
