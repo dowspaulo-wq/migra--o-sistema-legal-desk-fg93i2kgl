@@ -127,39 +127,60 @@ export default function Index() {
       const userTasks = state.tasks.filter((t) => t.responsibleId === user.id)
       const total = userTasks.length
 
-      const incompleteTasks = userTasks.filter((t) => t.status.toLowerCase() !== 'concluída')
+      const activeTasks = userTasks.filter(
+        (t) => t.status.toLowerCase() !== 'concluída' && t.status.toLowerCase() !== 'cancelada',
+      )
 
-      const delayedDeadlines = incompleteTasks.filter((t) => {
-        if (!t.dueDate) return false
-        const isPrazo = t.type.toLowerCase() === 'petições' || t.type.toLowerCase() === 'peticoes'
-        return t.dueDate < todayStr && isPrazo
-      }).length
+      const mapTaskType = (type: string) => {
+        const lower = type.toLowerCase()
+        if (lower === 'cartórios' || lower === 'cartorios') return 'Cartórios'
+        if (lower === 'interna e adm') return 'ATUALIZAÇÕES'
+        if (lower === 'petições' || lower === 'peticoes') return 'PRAZOS'
+        if (lower === 'recorrer') return 'RECURSOS'
+        if (lower === 'redigir inicial') return 'INICIAIS'
+        return type
+      }
 
-      const delayedUpdates = incompleteTasks.filter((t) => {
-        if (!t.dueDate) return false
-        const isUpdate = t.type.toLowerCase() === 'interna e adm'
-        return t.dueDate < todayStr && isUpdate
-      }).length
+      const delayedTasks = activeTasks.filter((t) => t.dueDate && t.dueDate < todayStr)
+      const totalDelayed = delayedTasks.length
 
-      const pending = userTasks.filter((t) => t.status.toLowerCase() === 'pendente').length
-      const updating = userTasks.filter((t) => t.status.toLowerCase() === 'atualização').length
-      const completed = userTasks.filter((t) => t.status.toLowerCase() === 'concluída').length
-
-      const typesCount = userTasks.reduce(
+      const delayedTypesCount = delayedTasks.reduce(
         (acc, t) => {
-          acc[t.type] = (acc[t.type] || 0) + 1
+          const mappedType = mapTaskType(t.type)
+          acc[mappedType] = (acc[mappedType] || 0) + 1
           return acc
         },
         {} as Record<string, number>,
       )
 
-      const sortedTypes = Object.entries(typesCount).sort((a, b) => b[1] - a[1])
+      const pending = userTasks.filter((t) => t.status.toLowerCase() === 'pendente').length
+      const updating = userTasks.filter((t) => t.status.toLowerCase() === 'atualização').length
+      const completed = userTasks.filter((t) => t.status.toLowerCase() === 'concluída').length
+
+      const typesCount = activeTasks.reduce(
+        (acc, t) => {
+          const mappedType = mapTaskType(t.type)
+          if (!acc[mappedType]) acc[mappedType] = { count: 0, originalTypes: new Set() }
+          acc[mappedType].count += 1
+          acc[mappedType].originalTypes.add(t.type)
+          return acc
+        },
+        {} as Record<string, { count: number; originalTypes: Set<string> }>,
+      )
+
+      const sortedTypes = Object.entries(typesCount)
+        .map(([mappedType, data]) => ({
+          mappedType,
+          count: data.count,
+          originalTypes: Array.from(data.originalTypes),
+        }))
+        .sort((a, b) => b.count - a.count)
 
       return {
         user,
         total,
-        delayedDeadlines,
-        delayedUpdates,
+        totalDelayed,
+        delayedTypesCount,
         statusCounts: {
           Pendentes: pending,
           Atualização: updating,
@@ -394,11 +415,9 @@ export default function Index() {
                 key={stat.user.id}
                 className={cn(
                   'border rounded-xl p-5 shadow-sm transition-colors',
-                  stat.delayedDeadlines > 0
+                  stat.totalDelayed > 0
                     ? 'border-red-300 bg-red-50/30'
-                    : stat.delayedUpdates > 0
-                      ? 'border-orange-300 bg-orange-50/30'
-                      : 'border-slate-200 bg-card',
+                    : 'border-slate-200 bg-card',
                 )}
               >
                 <div className="flex items-center gap-3 mb-4">
@@ -417,30 +436,26 @@ export default function Index() {
                 </div>
 
                 <div className="space-y-2 mb-4">
-                  {stat.delayedDeadlines > 0 && (
+                  {stat.totalDelayed > 0 && (
                     <div
                       onClick={() =>
                         navigate(
-                          `/tarefas?resp=${stat.user.id}&statusNot=${encodeURIComponent('concluída')}&dateUntil=${todayStr}&typeIn=${encodeURIComponent('Petições,petições,peticoes')}`,
+                          `/tarefas?resp=${stat.user.id}&statusNot=${encodeURIComponent('concluída,cancelada')}&dateUntil=${todayStr}`,
                         )
                       }
-                      className="flex items-center gap-2 bg-red-100/80 text-red-700 border border-red-200 rounded p-2 text-sm font-medium cursor-pointer hover:bg-red-200 transition-colors"
+                      className="flex items-center gap-2 bg-red-100/80 text-red-800 border border-red-200 rounded p-2 text-sm font-medium cursor-pointer hover:bg-red-200 transition-colors"
                     >
-                      <AlertTriangle className="h-4 w-4" />
-                      {stat.delayedDeadlines} prazos atrasados!
-                    </div>
-                  )}
-                  {stat.delayedUpdates > 0 && (
-                    <div
-                      onClick={() =>
-                        navigate(
-                          `/tarefas?resp=${stat.user.id}&statusNot=${encodeURIComponent('concluída')}&dateUntil=${todayStr}&typeIn=${encodeURIComponent('interna e adm')}`,
-                        )
-                      }
-                      className="flex items-center gap-2 bg-orange-100/80 text-orange-800 border border-orange-200 rounded p-2 text-sm font-medium cursor-pointer hover:bg-orange-200 transition-colors"
-                    >
-                      <Clock className="h-4 w-4" />
-                      {stat.delayedUpdates} atualizações atrasadas
+                      <AlertTriangle className="h-4 w-4 shrink-0" />
+                      <span>
+                        {stat.totalDelayed} Atrasados{' '}
+                        <span className="text-xs font-normal opacity-90">
+                          (
+                          {Object.entries(stat.delayedTypesCount)
+                            .map(([k, v]) => `${v} ${k}`)
+                            .join(', ')}
+                          )
+                        </span>
+                      </span>
                     </div>
                   )}
                 </div>
@@ -494,30 +509,22 @@ export default function Index() {
                     Por Tipo
                   </h4>
                   <div className="space-y-1">
-                    {stat.types.map(([type, count]) => {
-                      const lower = type.toLowerCase()
-                      let displayType = type
-                      if (lower === 'cartórios' || lower === 'cartorios') displayType = 'Cartórios'
-                      else if (lower === 'interna e adm') displayType = 'ATUALIZAÇÕES'
-                      else if (lower === 'petições' || lower === 'peticoes') displayType = 'PRAZOS'
-                      else if (lower === 'recorrer') displayType = 'RECURSOS'
-                      else if (lower === 'redigir inicial') displayType = 'INICIAIS'
-
+                    {stat.types.map((typeData) => {
                       return (
                         <div
-                          key={type}
+                          key={typeData.mappedType}
                           onClick={() =>
                             navigate(
-                              `/tarefas?resp=${stat.user.id}&type=${encodeURIComponent(type)}`,
+                              `/tarefas?resp=${stat.user.id}&typeIn=${encodeURIComponent(typeData.originalTypes.join(','))}`,
                             )
                           }
                           className="flex justify-between items-center text-sm cursor-pointer hover:bg-slate-50 p-1 -mx-1 rounded transition-colors group"
                         >
                           <span className="text-primary dark:text-primary group-hover:underline">
-                            {displayType}
+                            {typeData.mappedType}
                           </span>
                           <span className="bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary-foreground px-2 py-0.5 rounded text-xs font-medium">
-                            {count}
+                            {typeData.count}
                           </span>
                         </div>
                       )
