@@ -131,15 +131,13 @@ export default function Index() {
 
       const delayedDeadlines = incompleteTasks.filter((t) => {
         if (!t.dueDate) return false
-        const isUpdate =
-          t.type.toLowerCase() === 'atualização' || t.type.toLowerCase() === 'interna e adm'
-        return t.dueDate < todayStr && !isUpdate
+        const isPrazo = t.type.toLowerCase() === 'petições' || t.type.toLowerCase() === 'peticoes'
+        return t.dueDate < todayStr && isPrazo
       }).length
 
       const delayedUpdates = incompleteTasks.filter((t) => {
         if (!t.dueDate) return false
-        const isUpdate =
-          t.type.toLowerCase() === 'atualização' || t.type.toLowerCase() === 'interna e adm'
+        const isUpdate = t.type.toLowerCase() === 'interna e adm'
         return t.dueDate < todayStr && isUpdate
       }).length
 
@@ -423,7 +421,7 @@ export default function Index() {
                     <div
                       onClick={() =>
                         navigate(
-                          `/tarefas?resp=${stat.user.id}&statusNot=${encodeURIComponent('concluída')}&dateUntil=${todayStr}&typeNot=${encodeURIComponent('atualização,interna e adm')}`,
+                          `/tarefas?resp=${stat.user.id}&statusNot=${encodeURIComponent('concluída')}&dateUntil=${todayStr}&typeIn=${encodeURIComponent('Petições,petições,peticoes')}`,
                         )
                       }
                       className="flex items-center gap-2 bg-red-100/80 text-red-700 border border-red-200 rounded p-2 text-sm font-medium cursor-pointer hover:bg-red-200 transition-colors"
@@ -436,7 +434,7 @@ export default function Index() {
                     <div
                       onClick={() =>
                         navigate(
-                          `/tarefas?resp=${stat.user.id}&statusNot=${encodeURIComponent('concluída')}&dateUntil=${todayStr}&typeIn=${encodeURIComponent('atualização,interna e adm')}`,
+                          `/tarefas?resp=${stat.user.id}&statusNot=${encodeURIComponent('concluída')}&dateUntil=${todayStr}&typeIn=${encodeURIComponent('interna e adm')}`,
                         )
                       }
                       className="flex items-center gap-2 bg-orange-100/80 text-orange-800 border border-orange-200 rounded p-2 text-sm font-medium cursor-pointer hover:bg-orange-200 transition-colors"
@@ -496,22 +494,34 @@ export default function Index() {
                     Por Tipo
                   </h4>
                   <div className="space-y-1">
-                    {stat.types.map(([type, count]) => (
-                      <div
-                        key={type}
-                        onClick={() =>
-                          navigate(`/tarefas?resp=${stat.user.id}&type=${encodeURIComponent(type)}`)
-                        }
-                        className="flex justify-between items-center text-sm cursor-pointer hover:bg-slate-50 p-1 -mx-1 rounded transition-colors group"
-                      >
-                        <span className="text-primary dark:text-primary capitalize-first group-hover:underline">
-                          {type}
-                        </span>
-                        <span className="bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary-foreground px-2 py-0.5 rounded text-xs font-medium">
-                          {count}
-                        </span>
-                      </div>
-                    ))}
+                    {stat.types.map(([type, count]) => {
+                      const lower = type.toLowerCase()
+                      let displayType = type
+                      if (lower === 'cartórios' || lower === 'cartorios') displayType = 'Cartórios'
+                      else if (lower === 'interna e adm') displayType = 'ATUALIZAÇÕES'
+                      else if (lower === 'petições' || lower === 'peticoes') displayType = 'PRAZOS'
+                      else if (lower === 'recorrer') displayType = 'RECURSOS'
+                      else if (lower === 'redigir inicial') displayType = 'INICIAIS'
+
+                      return (
+                        <div
+                          key={type}
+                          onClick={() =>
+                            navigate(
+                              `/tarefas?resp=${stat.user.id}&type=${encodeURIComponent(type)}`,
+                            )
+                          }
+                          className="flex justify-between items-center text-sm cursor-pointer hover:bg-slate-50 p-1 -mx-1 rounded transition-colors group"
+                        >
+                          <span className="text-primary dark:text-primary group-hover:underline">
+                            {displayType}
+                          </span>
+                          <span className="bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary-foreground px-2 py-0.5 rounded text-xs font-medium">
+                            {count}
+                          </span>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               </div>
