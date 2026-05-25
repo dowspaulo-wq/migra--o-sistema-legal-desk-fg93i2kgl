@@ -298,6 +298,21 @@ export default function Settings() {
     }
   }
 
+  const handleUpdateUser = async (userId: string, updates: any) => {
+    try {
+      const { error } = await supabase.from('profiles').update(updates).eq('id', userId)
+      if (error) throw new Error(error.message)
+      updateUser(userId, updates)
+      toast({ title: 'Sucesso', description: 'Usuário atualizado.' })
+    } catch (err: any) {
+      toast({
+        title: 'Erro',
+        description: err.message || 'Erro ao atualizar',
+        variant: 'destructive',
+      })
+    }
+  }
+
   const onSubmitUser = async (values: z.infer<typeof userSchema>) => {
     setIsSubmitting(true)
     try {
@@ -592,7 +607,7 @@ export default function Settings() {
                               className="border rounded p-1 text-sm bg-white"
                               value={u.role}
                               onChange={(e) =>
-                                updateUser(u.id, { role: e.target.value as 'Admin' | 'User' })
+                                handleUpdateUser(u.id, { role: e.target.value as 'Admin' | 'User' })
                               }
                               disabled={u.id === state.currentUser.id}
                             >
@@ -603,7 +618,7 @@ export default function Settings() {
                           <TableCell>
                             <Switch
                               checked={u.canViewFinance}
-                              onCheckedChange={(v) => updateUser(u.id, { canViewFinance: v })}
+                              onCheckedChange={(v) => handleUpdateUser(u.id, { canViewFinance: v })}
                               disabled={u.id === state.currentUser.id}
                             />
                           </TableCell>
@@ -613,6 +628,7 @@ export default function Settings() {
                                 type="color"
                                 value={u.color || '#3b82f6'}
                                 onChange={(e) => updateUser(u.id, { color: e.target.value })}
+                                onBlur={(e) => handleUpdateUser(u.id, { color: e.target.value })}
                                 className="h-8 w-8 rounded cursor-pointer border-0 p-0"
                               />
                             </div>

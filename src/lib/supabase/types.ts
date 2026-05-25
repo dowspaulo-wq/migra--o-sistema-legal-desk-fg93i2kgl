@@ -914,9 +914,19 @@ export const Constants = {
 //   PRIMARY KEY whatsapp_messages_pkey: PRIMARY KEY (id)
 
 // --- ROW LEVEL SECURITY POLICIES ---
+// Table: appointments
+//   Policy "authenticated_delete_appointments" (DELETE, PERMISSIVE) roles={authenticated}
+//     USING: (EXISTS ( SELECT 1    FROM profiles   WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'Admin'::text))))
+//   Policy "authenticated_insert_appointments" (INSERT, PERMISSIVE) roles={authenticated}
+//     WITH CHECK: true
+//   Policy "authenticated_select_appointments" (SELECT, PERMISSIVE) roles={authenticated}
+//     USING: true
+//   Policy "authenticated_update_appointments" (UPDATE, PERMISSIVE) roles={authenticated}
+//     USING: true
+//     WITH CHECK: true
 // Table: cases
 //   Policy "authenticated_delete_cases" (DELETE, PERMISSIVE) roles={authenticated}
-//     USING: true
+//     USING: (EXISTS ( SELECT 1    FROM profiles   WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'Admin'::text))))
 //   Policy "authenticated_insert_cases" (INSERT, PERMISSIVE) roles={authenticated}
 //     WITH CHECK: true
 //   Policy "authenticated_select_cases" (SELECT, PERMISSIVE) roles={authenticated}
@@ -926,7 +936,7 @@ export const Constants = {
 //     WITH CHECK: true
 // Table: clients
 //   Policy "authenticated_delete_clients" (DELETE, PERMISSIVE) roles={authenticated}
-//     USING: true
+//     USING: (EXISTS ( SELECT 1    FROM profiles   WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'Admin'::text))))
 //   Policy "authenticated_insert_clients" (INSERT, PERMISSIVE) roles={authenticated}
 //     WITH CHECK: true
 //   Policy "authenticated_select_clients" (SELECT, PERMISSIVE) roles={authenticated}
@@ -958,6 +968,16 @@ export const Constants = {
 //   Policy "authenticated_select_suppliers" (SELECT, PERMISSIVE) roles={authenticated}
 //     USING: true
 //   Policy "authenticated_update_suppliers" (UPDATE, PERMISSIVE) roles={authenticated}
+//     USING: true
+//     WITH CHECK: true
+// Table: tasks
+//   Policy "authenticated_delete_tasks" (DELETE, PERMISSIVE) roles={authenticated}
+//     USING: (EXISTS ( SELECT 1    FROM profiles   WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'Admin'::text))))
+//   Policy "authenticated_insert_tasks" (INSERT, PERMISSIVE) roles={authenticated}
+//     WITH CHECK: true
+//   Policy "authenticated_select_tasks" (SELECT, PERMISSIVE) roles={authenticated}
+//     USING: true
+//   Policy "authenticated_update_tasks" (UPDATE, PERMISSIVE) roles={authenticated}
 //     USING: true
 //     WITH CHECK: true
 // Table: whatsapp_messages
