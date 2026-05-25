@@ -50,6 +50,7 @@ export function CaseDialog({
   lockedClientId,
 }: any) {
   const { state } = useLegalStore()
+  const isAdmin = state.currentUser?.role === 'Admin'
   const sortedUsers = [...users].sort((a: any, b: any) => a.name.localeCompare(b.name))
   const sortedClients = [...clients].sort((a: any, b: any) => a.name.localeCompare(b.name))
 
@@ -513,6 +514,8 @@ export function CaseDialog({
               <Textarea
                 value={fd.description}
                 onChange={(e) => setFd({ ...fd, description: e.target.value })}
+                readOnly={!isAdmin}
+                className={!isAdmin ? 'bg-muted/50 cursor-not-allowed' : ''}
               />
             </div>
             <div className="col-span-full md:col-span-1 space-y-2">
@@ -520,6 +523,8 @@ export function CaseDialog({
               <Textarea
                 value={fd.internalNotes}
                 onChange={(e) => setFd({ ...fd, internalNotes: e.target.value })}
+                readOnly={!isAdmin}
+                className={!isAdmin ? 'bg-muted/50 cursor-not-allowed' : ''}
               />
             </div>
           </div>

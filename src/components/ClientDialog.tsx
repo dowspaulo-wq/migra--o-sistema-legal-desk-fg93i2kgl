@@ -24,6 +24,7 @@ import { toast } from '@/hooks/use-toast'
 
 export function ClientDialog({ open, onOpenChange, client, onSave, users, settings }: any) {
   const { state } = useLegalStore()
+  const isAdmin = state.currentUser?.role === 'Admin'
   const sortedUsers = [...users].sort((a: any, b: any) => a.name.localeCompare(b.name))
   const sortedCaptacao = [...(settings?.captacaoOptions || [])].sort((a: string, b: string) =>
     a.localeCompare(b),
@@ -283,6 +284,8 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
               <Textarea
                 value={fd.observacoes}
                 onChange={(e) => setFd({ ...fd, observacoes: e.target.value })}
+                readOnly={!isAdmin}
+                className={!isAdmin ? 'bg-muted/50 cursor-not-allowed' : ''}
               />
             </div>
           </div>

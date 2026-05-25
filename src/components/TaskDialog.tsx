@@ -20,6 +20,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/hooks/use-toast'
 import { normalizeStr } from '@/lib/utils'
 
+import useLegalStore from '@/stores/useLegalStore'
+
 export function TaskDialog({
   open,
   onOpenChange,
@@ -32,6 +34,9 @@ export function TaskDialog({
   settings,
   lockedProcessId,
 }: any) {
+  const { state } = useLegalStore()
+  const isAdmin = state.currentUser?.role === 'Admin'
+  const [newNote, setNewNote] = useState('')
   const sortedUsers = [...users].sort((a: any, b: any) => a.name.localeCompare(b.name))
   const sortedClients = [...clients].sort((a: any, b: any) => a.name.localeCompare(b.name))
   const sortedStatuses = [...(settings?.taskStatuses || [])].sort((a: string, b: string) =>
@@ -115,14 +120,24 @@ export function TaskDialog({
       return
     }
 
+    // Append note logic
+    let finalDescription = fd.description || ''
+    if (!isAdmin && newNote.trim()) {
+      finalDescription = finalDescription
+        ? `${finalDescription}\n\n--- Nova Nota ---\n${newNote}`
+        : newNote
+    }
+
     // Strip out `isNew` to prevent inserting a non-existent column into Supabase
     const { isNew, ...payload } = fd
 
     onSave({
       ...payload,
+      description: finalDescription,
       clientId: payload.clientId || null,
       relatedProcessId: payload.relatedProcessId,
     })
+    setNewNote('')
     onOpenChange(false)
   }
 
@@ -246,13 +261,34 @@ export function TaskDialog({
                 </SelectContent>
               </Select>
             </div>
-            <div className="col-span-2 space-y-2">
-              <Label>Descrição</Label>
-              <Textarea
-                value={fd.description}
-                onChange={(e) => setFd({ ...fd, description: e.target.value })}
-              />
-            </div>
+            {isAdmin ? (
+              <div className="col-span-2 space-y-2">
+                <Label>Descrição</Label>
+                <Textarea
+                  value={fd.description}
+                  onChange={(e) => setFd({ ...fd, description: e.target.value })}
+                />
+              </div>
+            ) : (
+              <>
+                <div className="col-span-2 space-y-2">
+                  <Label>Descrição Atual</Label>
+                  <Textarea
+                    value={fd.description}
+                    readOnly
+                    className="bg-muted/50 cursor-not-allowed max-h-32"
+                  />
+                </div>
+                <div className="col-span-2 space-y-2">
+                  <Label>Adicionar Nova Nota</Label>
+                  <Textarea
+                    value={newNote}
+                    onChange={(e) => setNewNote(e.target.value)}
+                    placeholder="Digite sua nota aqui para adicionar à descrição..."
+                  />
+                </div>
+              </>
+            )}
             <div className="col-span-2 space-y-2">
               <Label>Observação Interna</Label>
               <Textarea
@@ -262,7 +298,7 @@ export function TaskDialog({
             </div>
           </div>
           <DialogFooter className="flex justify-between items-center sm:justify-between w-full">
-            {data && !data.isNew && onDelete ? (
+            {data && !data.isNew && onDelete && isAdmin ? (
               <Button
                 type="button"
                 variant="destructive"

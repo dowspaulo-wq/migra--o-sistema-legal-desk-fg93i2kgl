@@ -21,6 +21,7 @@ import { toast } from '@/hooks/use-toast'
 import { DatePicker } from '@/components/ui/date-picker'
 
 import { Trash } from 'lucide-react'
+import useLegalStore from '@/stores/useLegalStore'
 
 export function AppointmentDialog({
   open,
@@ -33,6 +34,8 @@ export function AppointmentDialog({
   cases,
   settings,
 }: any) {
+  const { state } = useLegalStore()
+  const isAdmin = state.currentUser?.role === 'Admin'
   const sortedUsers = [...users].sort((a: any, b: any) => a.name.localeCompare(b.name))
   const sortedClients = [...clients].sort((a: any, b: any) => a.name.localeCompare(b.name))
   const sortedTypes = [...(settings.appointmentTypes || [])].sort((a: any, b: any) => {
@@ -264,7 +267,7 @@ export function AppointmentDialog({
             </div>
           </div>
           <DialogFooter className="sm:justify-between w-full mt-4">
-            {data?.id && onDelete && data.itemType !== 'birthday' ? (
+            {data?.id && onDelete && data.itemType !== 'birthday' && isAdmin ? (
               <Button
                 type="button"
                 variant="destructive"

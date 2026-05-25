@@ -115,28 +115,33 @@ export default function ClientDetail() {
             <Button variant="default" size="sm" onClick={() => setIsCreatingCase(true)}>
               <Plus className="h-4 w-4 mr-2" /> Cadastrar novo processo
             </Button>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="destructive" size="sm">
-                  <Trash2 className="h-4 w-4 mr-2" /> Excluir
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Excluir Cliente?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Esta ação é irreversível. Isso removerá o cliente e todo o seu histórico
-                    (processos, tarefas e agendamentos).
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
-                    Excluir
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+            {state.currentUser.role === 'Admin' && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" size="sm">
+                    <Trash2 className="h-4 w-4 mr-2" /> Excluir
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Excluir Cliente?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Esta ação é irreversível. Isso removerá o cliente e todo o seu histórico
+                      (processos, tarefas e agendamentos).
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleDelete}
+                      className="bg-red-600 hover:bg-red-700"
+                    >
+                      Excluir
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
           </div>
           <p className="text-muted-foreground flex items-center gap-2 mt-1">
             <Badge variant={client.status === 'Ativo' ? 'default' : 'secondary'}>
