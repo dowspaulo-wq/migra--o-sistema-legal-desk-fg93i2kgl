@@ -19,6 +19,7 @@ import Login from './pages/Login'
 import GoogleCallback from './pages/GoogleCallback'
 import { LegalStoreProvider } from './stores/useLegalStore'
 import { AuthProvider } from './hooks/use-auth'
+import { RequireAdmin } from './components/RequireAdmin'
 
 const App = () => (
   <AuthProvider>
@@ -36,7 +37,14 @@ const App = () => (
               <Route path="/clientes/:id" element={<ClientDetail />} />
               <Route path="/processos" element={<Cases />} />
               <Route path="/processos/:id" element={<CaseDetail />} />
-              <Route path="/agenda" element={<Agenda />} />
+              <Route
+                path="/agenda"
+                element={
+                  <RequireAdmin>
+                    <Agenda />
+                  </RequireAdmin>
+                }
+              />
               <Route path="/tarefas" element={<Tasks />} />
               <Route path="/financeiro" element={<Finance />} />
               <Route path="/peticoes" element={<Petitions />} />

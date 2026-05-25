@@ -100,6 +100,8 @@ export default function Index() {
     {} as Record<string, number>,
   )
 
+  const isAdmin = state.currentUser.role === 'Admin'
+
   const captacaoChartData = Object.entries(captacaoData)
     .map(([name, value]) => ({ name, value }))
     .sort((a, b) => b.value - a.value)
@@ -269,134 +271,140 @@ export default function Index() {
         </div>
       </div>
 
-      <Collapsible
-        open={isAgendaOpen}
-        onOpenChange={setIsAgendaOpen}
-        className="bg-card rounded-xl border shadow-sm"
-      >
-        <div className="flex items-center justify-between px-6 py-4 border-b">
-          <div className="flex items-center gap-2 text-primary font-semibold">
-            <Calendar className="h-5 w-5" />
-            <h2 className="text-lg">Agenda por Responsável</h2>
-          </div>
-          <CollapsibleTrigger asChild>
-            <Button variant="ghost" size="sm" className="p-0 h-8 w-8">
-              {isAgendaOpen ? (
-                <ChevronUp className="h-5 w-5" />
-              ) : (
-                <ChevronDown className="h-5 w-5" />
-              )}
-            </Button>
-          </CollapsibleTrigger>
-        </div>
-        <CollapsibleContent className="p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {userAgendaStats.map((stat) => (
-              <div
-                key={stat.user.id}
-                className={cn(
-                  'border rounded-xl p-5 shadow-sm transition-colors',
-                  stat.todayCount > 0
-                    ? 'border-green-300 bg-green-50/30'
-                    : 'border-slate-200 bg-card',
+      {isAdmin && (
+        <Collapsible
+          open={isAgendaOpen}
+          onOpenChange={setIsAgendaOpen}
+          className="bg-card rounded-xl border shadow-sm"
+        >
+          <div className="flex items-center justify-between px-6 py-4 border-b">
+            <div className="flex items-center gap-2 text-primary font-semibold">
+              <Calendar className="h-5 w-5" />
+              <h2 className="text-lg">Agenda por Responsável</h2>
+            </div>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" size="sm" className="p-0 h-8 w-8">
+                {isAgendaOpen ? (
+                  <ChevronUp className="h-5 w-5" />
+                ) : (
+                  <ChevronDown className="h-5 w-5" />
                 )}
-              >
-                <div className="flex items-center gap-3 mb-4">
-                  <Avatar>
-                    <AvatarImage src={stat.user.avatar_url} />
-                    <AvatarFallback className="bg-primary/10 text-primary font-bold">
-                      {stat.user.name.substring(0, 2).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <h3 className="font-semibold text-slate-800 dark:text-slate-100">
-                      {stat.user.name}
-                    </h3>
-                    <p className="text-xs text-muted-foreground">
-                      {stat.total} compromissos futuros/hoje
-                    </p>
+              </Button>
+            </CollapsibleTrigger>
+          </div>
+          <CollapsibleContent className="p-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {userAgendaStats.map((stat) => (
+                <div
+                  key={stat.user.id}
+                  className={cn(
+                    'border rounded-xl p-5 shadow-sm transition-colors',
+                    stat.todayCount > 0
+                      ? 'border-green-300 bg-green-50/30'
+                      : 'border-slate-200 bg-card',
+                  )}
+                >
+                  <div className="flex items-center gap-3 mb-4">
+                    <Avatar>
+                      <AvatarImage src={stat.user.avatar_url} />
+                      <AvatarFallback className="bg-primary/10 text-primary font-bold">
+                        {stat.user.name.substring(0, 2).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <h3 className="font-semibold text-slate-800 dark:text-slate-100">
+                        {stat.user.name}
+                      </h3>
+                      <p className="text-xs text-muted-foreground">
+                        {stat.total} compromissos futuros/hoje
+                      </p>
+                    </div>
                   </div>
-                </div>
 
-                <div className="space-y-2 mb-4">
-                  {stat.todayCount > 0 && (
+                  <div className="space-y-2 mb-4">
+                    {stat.todayCount > 0 && (
+                      <div
+                        onClick={() =>
+                          navigate(
+                            `/agenda?resp=${stat.user.id}&dateFrom=${todayStr}&dateUntil=${todayStr}`,
+                          )
+                        }
+                        className="flex items-center gap-2 bg-green-100/80 text-green-800 border border-green-200 rounded p-2 text-sm font-medium cursor-pointer hover:bg-green-200 transition-colors"
+                      >
+                        <Calendar className="h-4 w-4" />
+                        {stat.todayCount} compromissos HOJE
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-1.5 mb-4 border-b pb-4 text-sm">
                     <div
                       onClick={() =>
                         navigate(
                           `/agenda?resp=${stat.user.id}&dateFrom=${todayStr}&dateUntil=${todayStr}`,
                         )
                       }
-                      className="flex items-center gap-2 bg-green-100/80 text-green-800 border border-green-200 rounded p-2 text-sm font-medium cursor-pointer hover:bg-green-200 transition-colors"
+                      className="flex justify-between items-center cursor-pointer hover:bg-slate-50 p-1 -mx-1 rounded transition-colors group"
                     >
-                      <Calendar className="h-4 w-4" />
-                      {stat.todayCount} compromissos HOJE
+                      <span className="text-muted-foreground group-hover:text-slate-800">
+                        Hoje:
+                      </span>
+                      <span className="font-medium text-green-600 group-hover:underline">
+                        {stat.todayCount}
+                      </span>
                     </div>
-                  )}
-                </div>
+                    <div
+                      onClick={() =>
+                        navigate(`/agenda?resp=${stat.user.id}&dateFrom=${tomorrowStr}`)
+                      }
+                      className="flex justify-between items-center cursor-pointer hover:bg-slate-50 p-1 -mx-1 rounded transition-colors group"
+                    >
+                      <span className="text-muted-foreground group-hover:text-slate-800">
+                        Próximos:
+                      </span>
+                      <span className="font-medium text-primary group-hover:underline">
+                        {stat.futureCount}
+                      </span>
+                    </div>
+                  </div>
 
-                <div className="space-y-1.5 mb-4 border-b pb-4 text-sm">
-                  <div
-                    onClick={() =>
-                      navigate(
-                        `/agenda?resp=${stat.user.id}&dateFrom=${todayStr}&dateUntil=${todayStr}`,
-                      )
-                    }
-                    className="flex justify-between items-center cursor-pointer hover:bg-slate-50 p-1 -mx-1 rounded transition-colors group"
-                  >
-                    <span className="text-muted-foreground group-hover:text-slate-800">Hoje:</span>
-                    <span className="font-medium text-green-600 group-hover:underline">
-                      {stat.todayCount}
-                    </span>
-                  </div>
-                  <div
-                    onClick={() => navigate(`/agenda?resp=${stat.user.id}&dateFrom=${tomorrowStr}`)}
-                    className="flex justify-between items-center cursor-pointer hover:bg-slate-50 p-1 -mx-1 rounded transition-colors group"
-                  >
-                    <span className="text-muted-foreground group-hover:text-slate-800">
-                      Próximos:
-                    </span>
-                    <span className="font-medium text-primary group-hover:underline">
-                      {stat.futureCount}
-                    </span>
-                  </div>
-                </div>
-
-                <div>
-                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                    Por Tipo (Futuros/Hoje)
-                  </h4>
-                  <div className="space-y-1">
-                    {stat.types.map(([type, count]) => (
-                      <div
-                        key={type}
-                        onClick={() =>
-                          navigate(
-                            `/agenda?resp=${stat.user.id}&dateFrom=${todayStr}&type=${encodeURIComponent(type)}`,
-                          )
-                        }
-                        className="flex justify-between items-center text-sm cursor-pointer hover:bg-slate-50 p-1 -mx-1 rounded transition-colors group"
-                      >
-                        <span className="text-slate-700 dark:text-slate-300 capitalize-first flex items-center gap-1.5 group-hover:underline">
-                          {type === 'Aniversário' && <Gift className="h-3 w-3 text-pink-500" />}
-                          {type}
-                        </span>
-                        <span className="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 px-2 py-0.5 rounded text-xs font-medium">
-                          {count}
-                        </span>
-                      </div>
-                    ))}
+                  <div>
+                    <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                      Por Tipo (Futuros/Hoje)
+                    </h4>
+                    <div className="space-y-1">
+                      {stat.types.map(([type, count]) => (
+                        <div
+                          key={type}
+                          onClick={() =>
+                            navigate(
+                              `/agenda?resp=${stat.user.id}&dateFrom=${todayStr}&type=${encodeURIComponent(type)}`,
+                            )
+                          }
+                          className="flex justify-between items-center text-sm cursor-pointer hover:bg-slate-50 p-1 -mx-1 rounded transition-colors group"
+                        >
+                          <span className="text-slate-700 dark:text-slate-300 capitalize-first flex items-center gap-1.5 group-hover:underline">
+                            {type === 'Aniversário' && <Gift className="h-3 w-3 text-pink-500" />}
+                            {type}
+                          </span>
+                          <span className="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 px-2 py-0.5 rounded text-xs font-medium">
+                            {count}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-            {userAgendaStats.length === 0 && (
-              <p className="text-sm text-muted-foreground col-span-full">
-                Nenhum compromisso atribuído encontrado.
-              </p>
-            )}
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
+              ))}
+              {userAgendaStats.length === 0 && (
+                <p className="text-sm text-muted-foreground col-span-full">
+                  Nenhum compromisso atribuído encontrado.
+                </p>
+              )}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
 
       <Collapsible
         open={isTasksOpen}
@@ -778,7 +786,7 @@ export default function Index() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="shadow-sm lg:col-span-3">
+        <Card className={cn('shadow-sm', isAdmin ? 'lg:col-span-3' : 'lg:col-span-4')}>
           <CardHeader>
             <CardTitle className="text-sm">Processos Recentes</CardTitle>
           </CardHeader>
@@ -809,34 +817,36 @@ export default function Index() {
           </CardContent>
         </Card>
 
-        <Card className="shadow-sm lg:col-span-1">
-          <CardHeader>
-            <CardTitle className="text-sm">Compromissos Hoje</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {todayAppts.length > 0 ? (
-                todayAppts.map((a) => (
-                  <div key={a.id} className="flex gap-3 items-center border-b pb-2 last:border-0">
-                    {a.type === 'Aniversário' ? (
-                      <Gift className="h-5 w-5 text-pink-500" />
-                    ) : (
-                      <Calendar className="h-5 w-5 text-primary" />
-                    )}
-                    <div>
-                      <p className="text-sm font-medium leading-none">{a.title}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {a.time} - {a.type}
-                      </p>
+        {isAdmin && (
+          <Card className="shadow-sm lg:col-span-1">
+            <CardHeader>
+              <CardTitle className="text-sm">Compromissos Hoje</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {todayAppts.length > 0 ? (
+                  todayAppts.map((a) => (
+                    <div key={a.id} className="flex gap-3 items-center border-b pb-2 last:border-0">
+                      {a.type === 'Aniversário' ? (
+                        <Gift className="h-5 w-5 text-pink-500" />
+                      ) : (
+                        <Calendar className="h-5 w-5 text-primary" />
+                      )}
+                      <div>
+                        <p className="text-sm font-medium leading-none">{a.title}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {a.time} - {a.type}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-muted-foreground text-center py-4">Agenda livre.</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-4">Agenda livre.</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   )

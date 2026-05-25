@@ -465,7 +465,8 @@ export default function Settings() {
                   <div>
                     <CardTitle>Gestão de Colaboradores</CardTitle>
                     <CardDescription>
-                      Defina nível de acesso, financeiro e cor de identificação.
+                      Defina nível de acesso, financeiro e cor de identificação. (Agenda é exclusiva
+                      para Admins).
                     </CardDescription>
                   </div>
                   <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
@@ -578,6 +579,15 @@ export default function Settings() {
                               </FormItem>
                             )}
                           />
+                          <div className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm opacity-60 bg-muted/50">
+                            <div className="space-y-0.5">
+                              <Label className="text-sm font-medium">Acesso à Agenda</Label>
+                              <p className="text-sm text-muted-foreground">
+                                Exclusivo para Administradores.
+                              </p>
+                            </div>
+                            <Switch checked={form.watch('role') === 'Admin'} disabled />
+                          </div>
                           <Button type="submit" className="w-full" disabled={isSubmitting}>
                             {isSubmitting ? 'Salvando...' : 'Salvar Usuário'}
                           </Button>
@@ -594,6 +604,7 @@ export default function Settings() {
                         <TableHead>E-mail</TableHead>
                         <TableHead>Nível</TableHead>
                         <TableHead>Financeiro</TableHead>
+                        <TableHead>Agenda</TableHead>
                         <TableHead>Cor Identidade</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -621,6 +632,9 @@ export default function Settings() {
                               onCheckedChange={(v) => handleUpdateUser(u.id, { canViewFinance: v })}
                               disabled={u.id === state.currentUser.id}
                             />
+                          </TableCell>
+                          <TableCell>
+                            <Switch checked={u.role === 'Admin'} disabled />
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">

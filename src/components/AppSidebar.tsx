@@ -46,6 +46,7 @@ export default function AppSidebar() {
   const navItems = navigation.filter((item) => {
     if (item.name === 'Financeiro' && !legalState.currentUser.canViewFinance) return false
     if (item.name === 'Configurações' && legalState.currentUser.role !== 'Admin') return false
+    if (item.name === 'Agenda' && legalState.currentUser.role !== 'Admin') return false
     return true
   })
 
