@@ -948,8 +948,8 @@ export const Constants = {
 //   Policy "authenticated_select_profiles" (SELECT, PERMISSIVE) roles={authenticated}
 //     USING: true
 //   Policy "authenticated_update_profiles" (UPDATE, PERMISSIVE) roles={authenticated}
-//     USING: (auth.uid() = id)
-//     WITH CHECK: (auth.uid() = id)
+//     USING: ((auth.uid() = id) OR (EXISTS ( SELECT 1    FROM profiles p   WHERE ((p.id = auth.uid()) AND (p.role = 'Admin'::text)))))
+//     WITH CHECK: ((auth.uid() = id) OR (EXISTS ( SELECT 1    FROM profiles p   WHERE ((p.id = auth.uid()) AND (p.role = 'Admin'::text)))))
 // Table: settings
 //   Policy "authenticated_delete_settings" (DELETE, PERMISSIVE) roles={authenticated}
 //     USING: true
