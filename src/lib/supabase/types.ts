@@ -918,12 +918,12 @@ export const Constants = {
 //   Policy "authenticated_delete_appointments" (DELETE, PERMISSIVE) roles={authenticated}
 //     USING: (EXISTS ( SELECT 1    FROM profiles   WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'Admin'::text))))
 //   Policy "authenticated_insert_appointments" (INSERT, PERMISSIVE) roles={authenticated}
-//     WITH CHECK: true
+//     WITH CHECK: (EXISTS ( SELECT 1    FROM profiles   WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'Admin'::text))))
 //   Policy "authenticated_select_appointments" (SELECT, PERMISSIVE) roles={authenticated}
-//     USING: true
+//     USING: (EXISTS ( SELECT 1    FROM profiles   WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'Admin'::text))))
 //   Policy "authenticated_update_appointments" (UPDATE, PERMISSIVE) roles={authenticated}
-//     USING: true
-//     WITH CHECK: true
+//     USING: (EXISTS ( SELECT 1    FROM profiles   WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'Admin'::text))))
+//     WITH CHECK: (EXISTS ( SELECT 1    FROM profiles   WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'Admin'::text))))
 // Table: cases
 //   Policy "authenticated_delete_cases" (DELETE, PERMISSIVE) roles={authenticated}
 //     USING: (EXISTS ( SELECT 1    FROM profiles   WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'Admin'::text))))

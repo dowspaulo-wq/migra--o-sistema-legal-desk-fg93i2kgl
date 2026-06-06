@@ -269,6 +269,53 @@ export default function CaseDetail() {
               )}
             </div>
           )}
+
+          {/* Context Header */}
+          <div className="flex flex-col md:flex-row gap-4 mb-2 bg-slate-50/80 p-4 rounded-lg border border-slate-100 max-w-4xl">
+            <div className="flex-1">
+              <h3 className="text-sm font-semibold flex items-center gap-2 mb-2 text-slate-700">
+                <Users className="h-4 w-4" /> Partes
+              </h3>
+              <div className="text-sm space-y-1">
+                <p>
+                  <span className="text-muted-foreground">Cliente: </span>
+                  {client ? (
+                    <Link
+                      to={`/clientes/${client.id}`}
+                      className="font-medium text-primary hover:underline"
+                    >
+                      {client.name}
+                    </Link>
+                  ) : (
+                    <span className="font-medium text-muted-foreground">—</span>
+                  )}
+                  {c.position ? ` (${c.position})` : ''}
+                </p>
+                <p>
+                  <span className="text-muted-foreground">Parte Adversa: </span>
+                  <span className="font-medium">{c.adverseParty || '—'}</span>
+                </p>
+              </div>
+            </div>
+            <div className="hidden md:block w-px bg-slate-200"></div>
+            <div className="flex-1">
+              <h3 className="text-sm font-semibold flex items-center gap-2 mb-2 text-slate-700">
+                <Scale className="h-4 w-4" /> Juízo
+              </h3>
+              <div className="text-sm space-y-1">
+                <p>
+                  <span className="text-muted-foreground">Vara: </span>
+                  <span className="font-medium">{c.court || '—'}</span>
+                </p>
+                <p>
+                  <span className="text-muted-foreground">Comarca / UF: </span>
+                  <span className="font-medium">
+                    {c.comarca ? `${c.comarca}${c.state ? ` - ${c.state}` : ''}` : '—'}
+                  </span>
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -282,109 +329,61 @@ export default function CaseDetail() {
           <TabsTrigger value="docs">Documentos</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="info" className="mt-4 grid gap-6 md:grid-cols-2">
-          <div className="col-span-full">
-            <Card className="shadow-sm border-slate-200">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <FileText className="h-5 w-5" /> Detalhes, Notas e Alertas
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-5">
-                {c.alerts && (
-                  <div>
-                    <Label className="text-muted-foreground mb-2 block font-semibold flex items-center gap-2">
-                      <AlertCircle className="h-4 w-4 text-red-500" />
-                      Alertas do Processo
-                    </Label>
-                    <div className="flex flex-wrap gap-2">
-                      {c.alerts
-                        .split(',')
-                        .filter(Boolean)
-                        .map((alert, idx) => (
-                          <Badge
-                            key={idx}
-                            variant="outline"
-                            className="bg-red-50 text-red-700 border-red-200 px-2.5 py-1"
-                          >
-                            {getAlertLabel(alert)}
-                          </Badge>
-                        ))}
-                    </div>
-                  </div>
-                )}
-                {c.description && (
-                  <div>
-                    <Label className="text-muted-foreground mb-2 block font-semibold">
-                      Descrição
-                    </Label>
-                    <div className="text-sm bg-muted/30 p-3.5 rounded-md border border-border/50 whitespace-pre-wrap leading-relaxed text-slate-700">
-                      {c.description}
-                    </div>
-                  </div>
-                )}
-                {c.internalNotes && (
-                  <div>
-                    <Label className="text-muted-foreground mb-2 block font-semibold">
-                      Notas Internas
-                    </Label>
-                    <div className="text-sm bg-yellow-50/40 p-3.5 rounded-md border border-yellow-200/50 whitespace-pre-wrap leading-relaxed text-slate-700">
-                      {c.internalNotes}
-                    </div>
-                  </div>
-                )}
-                {!c.alerts && !c.description && !c.internalNotes && (
-                  <p className="text-sm text-muted-foreground italic">
-                    Nenhuma descrição, nota interna ou alerta cadastrado para este processo.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-
-          <Card className="shadow-sm">
-            <CardHeader>
+        <TabsContent value="info" className="mt-4">
+          <Card className="shadow-sm border-slate-200">
+            <CardHeader className="pb-3">
               <CardTitle className="text-lg flex items-center gap-2">
-                <Users className="h-5 w-5" /> Partes
+                <FileText className="h-5 w-5" /> Detalhes, Notas e Alertas
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <p className="text-sm text-muted-foreground">Cliente ({c.position})</p>
-                {client ? (
-                  <Link
-                    to={`/clientes/${client.id}`}
-                    className="font-medium text-primary hover:underline"
-                  >
-                    {client.name}
-                  </Link>
-                ) : (
-                  <p className="font-medium text-muted-foreground">—</p>
-                )}
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Parte Adversa</p>
-                <p className="font-medium">{c.adverseParty}</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Scale className="h-5 w-5" /> Juízo
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <p className="text-sm text-muted-foreground">Vara</p>
-                <p className="font-medium">{c.court}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Comarca / UF</p>
-                <p className="font-medium">
-                  {c.comarca} - {c.state}
+            <CardContent className="space-y-5">
+              {c.alerts && (
+                <div>
+                  <Label className="text-muted-foreground mb-2 block font-semibold flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 text-red-500" />
+                    Alertas do Processo
+                  </Label>
+                  <div className="flex flex-wrap gap-2">
+                    {c.alerts
+                      .split(',')
+                      .filter(Boolean)
+                      .map((alert, idx) => (
+                        <Badge
+                          key={idx}
+                          variant="outline"
+                          className="bg-red-50 text-red-700 border-red-200 px-2.5 py-1"
+                        >
+                          {getAlertLabel(alert)}
+                        </Badge>
+                      ))}
+                  </div>
+                </div>
+              )}
+              {c.description && (
+                <div>
+                  <Label className="text-muted-foreground mb-2 block font-semibold">
+                    Descrição
+                  </Label>
+                  <div className="text-sm bg-muted/30 p-3.5 rounded-md border border-border/50 whitespace-pre-wrap leading-relaxed text-slate-700">
+                    {c.description}
+                  </div>
+                </div>
+              )}
+              {c.internalNotes && (
+                <div>
+                  <Label className="text-muted-foreground mb-2 block font-semibold">
+                    Notas Internas
+                  </Label>
+                  <div className="text-sm bg-yellow-50/40 p-3.5 rounded-md border border-yellow-200/50 whitespace-pre-wrap leading-relaxed text-slate-700">
+                    {c.internalNotes}
+                  </div>
+                </div>
+              )}
+              {!c.alerts && !c.description && !c.internalNotes && (
+                <p className="text-sm text-muted-foreground italic">
+                  Nenhuma descrição, nota interna ou alerta cadastrado para este processo.
                 </p>
-              </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
