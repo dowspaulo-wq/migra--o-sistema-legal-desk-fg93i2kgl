@@ -100,7 +100,7 @@ export default function CaseDetail() {
       .replace(/{{process_number}}/g, c.number || '')
       .replace(/{{adverse_party}}/g, c.adverseParty || '')
       .replace(/{{court}}/g, c.court || '')
-      .replace(/{{comarca}}/g, c.comarca || '')
+      .replace(/{{comarca}}/g, c.comarca?.toUpperCase() || '')
 
     const docContent = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>${tpl.title}</title></head><body>${html}</body></html>`
     const blob = new Blob(['\ufeff', docContent], { type: 'application/msword' })
@@ -310,7 +310,9 @@ export default function CaseDetail() {
                 <p>
                   <span className="text-muted-foreground">Comarca / UF: </span>
                   <span className="font-medium">
-                    {c.comarca ? `${c.comarca}${c.state ? ` - ${c.state}` : ''}` : '—'}
+                    {c.comarca
+                      ? `${c.comarca.toUpperCase()}${c.state ? ` - ${c.state.toUpperCase()}` : ''}`
+                      : '—'}
                   </span>
                 </p>
               </div>

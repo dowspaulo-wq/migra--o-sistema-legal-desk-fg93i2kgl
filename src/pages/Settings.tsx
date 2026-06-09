@@ -364,6 +364,9 @@ export default function Settings() {
               <TabsTrigger value="general">
                 <Shield className="h-4 w-4 mr-2" /> Avançado
               </TabsTrigger>
+              <TabsTrigger value="backup">
+                <Download className="h-4 w-4 mr-2" /> Backup
+              </TabsTrigger>
             </>
           )}
         </TabsList>
@@ -677,19 +680,71 @@ export default function Settings() {
                   </div>
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            <TabsContent value="backup" className="space-y-6">
               <Card>
                 <CardHeader>
-                  <CardTitle>Segurança e Backup</CardTitle>
+                  <CardTitle>Backup do Sistema</CardTitle>
+                  <CardDescription>
+                    Faça o download de todos os dados do sistema em formato de planilha (CSV
+                    consolidado).
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <Button
-                    onClick={() => {
-                      addLog('Exportar', 'Backup', 'Backup JSON')
-                      toast({ title: 'Sucesso', description: 'Download iniciado' })
+                    onClick={async () => {
+                      setIsSubmitting(true)
+                      try {
+                        const [
+                          { data: clients },
+                          { data: cases },
+                          { data: tasks },
+                          { data: appointments },
+                          { data: transactions },
+                          { data: suppliers },
+                          { data: petitions },
+                        ] = await Promise.all([
+                          supabase.from('clients').select('*'),
+                          supabase.from('cases').select('*'),
+                          supabase.from('tasks').select('*'),
+                          supabase.from('appointments').select('*'),
+                          supabase.from('transactions').select('*'),
+                          supabase.from('suppliers').select('*'),
+                          supabase.from('petitions').select('*'),
+                        ])
+
+                        const datasets = [
+                          { name: 'Clientes', data: clients || [] },
+                          { name: 'Processos', data: cases || [] },
+                          { name: 'Tarefas', data: tasks || [] },
+                          { name: 'Agenda', data: appointments || [] },
+                          { name: 'Financeiro', data: transactions || [] },
+                          { name: 'Fornecedores', data: suppliers || [] },
+                          { name: 'Petições', data: petitions || [] },
+                        ]
+
+                        import('@/lib/export').then(({ downloadMultiCSV }) => {
+                          downloadMultiCSV(
+                            datasets,
+                            `backup_sistema_${new Date().toISOString().split('T')[0]}.csv`,
+                          )
+                          toast({ title: 'Sucesso', description: 'Backup exportado com sucesso!' })
+                          addLog('Exportar', 'Backup', 'Backup em Planilha CSV gerado')
+                        })
+                      } catch (err: any) {
+                        toast({
+                          title: 'Erro',
+                          description: 'Falha ao gerar backup: ' + err.message,
+                          variant: 'destructive',
+                        })
+                      } finally {
+                        setIsSubmitting(false)
+                      }
                     }}
-                    variant="outline"
+                    disabled={isSubmitting}
                   >
-                    <Download className="mr-2 h-4 w-4" /> Exportar Dados (JSON)
+                    <Download className="mr-2 h-4 w-4" /> Baixar Planilha de Backup
                   </Button>
                 </CardContent>
               </Card>

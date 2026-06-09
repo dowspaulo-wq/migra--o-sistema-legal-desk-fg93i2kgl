@@ -365,13 +365,13 @@ export function CaseDialog({
               <Label>Comarca / UF</Label>
               <div className="flex gap-2">
                 <Input
-                  value={fd.comarca}
-                  onChange={(e) => setFd({ ...fd, comarca: e.target.value })}
+                  value={fd.comarca || ''}
+                  onChange={(e) => setFd({ ...fd, comarca: e.target.value.toUpperCase() })}
                 />
                 <Input
                   className="w-16"
-                  value={fd.state}
-                  onChange={(e) => setFd({ ...fd, state: e.target.value })}
+                  value={fd.state || ''}
+                  onChange={(e) => setFd({ ...fd, state: e.target.value.toUpperCase() })}
                 />
               </div>
             </div>
