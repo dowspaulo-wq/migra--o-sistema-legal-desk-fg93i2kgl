@@ -46,6 +46,8 @@ const getAlertLabel = (alert: string) => {
     return '💸 Cobrar astreites'
   if (trimmed === 'Litigância de má-fé' || trimmed === '🛑 Litigância de má-fé')
     return '🛑 Litigância de má-fé'
+  if (trimmed === 'Segredo de Justiça' || trimmed === '🕵️ Segredo de Justiça')
+    return '🕵️ Segredo de Justiça'
   return trimmed
 }
 

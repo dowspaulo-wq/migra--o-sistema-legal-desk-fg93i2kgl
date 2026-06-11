@@ -992,6 +992,19 @@ export const Constants = {
 //     WITH CHECK: true
 
 // --- DATABASE FUNCTIONS ---
+// FUNCTION enforce_uppercase_comarca()
+//   CREATE OR REPLACE FUNCTION public.enforce_uppercase_comarca()
+//    RETURNS trigger
+//    LANGUAGE plpgsql
+//   AS $function$
+//   BEGIN
+//     IF NEW.comarca IS NOT NULL THEN
+//       NEW.comarca = UPPER(NEW.comarca);
+//     END IF;
+//     RETURN NEW;
+//   END;
+//   $function$
+//
 // FUNCTION handle_new_case_task()
 //   CREATE OR REPLACE FUNCTION public.handle_new_case_task()
 //    RETURNS trigger
@@ -1101,6 +1114,7 @@ export const Constants = {
 //   on_appointments_updated: CREATE TRIGGER on_appointments_updated BEFORE UPDATE ON public.appointments FOR EACH ROW EXECUTE FUNCTION update_appointments_updated_at()
 // Table: cases
 //   on_case_created: CREATE TRIGGER on_case_created AFTER INSERT ON public.cases FOR EACH ROW EXECUTE FUNCTION handle_new_case_task()
+//   trg_uppercase_comarca: CREATE TRIGGER trg_uppercase_comarca BEFORE INSERT OR UPDATE ON public.cases FOR EACH ROW EXECUTE FUNCTION enforce_uppercase_comarca()
 
 // --- INDEXES ---
 // Table: cases

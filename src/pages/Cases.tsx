@@ -46,6 +46,17 @@ import { normalizeStr, normalizeProcessNumber } from '@/lib/utils'
 import { downloadCSV } from '@/lib/export'
 import { Download } from 'lucide-react'
 
+const getAlertLabel = (alert: string) => {
+  const trimmed = alert.trim()
+  if (trimmed === 'Cobrar astreites' || trimmed === '💸 Cobrar astreites')
+    return '💸 Cobrar astreites'
+  if (trimmed === 'Litigância de má-fé' || trimmed === '🛑 Litigância de má-fé')
+    return '🛑 Litigância de má-fé'
+  if (trimmed === 'Segredo de Justiça' || trimmed === '🕵️ Segredo de Justiça')
+    return '🕵️ Segredo de Justiça'
+  return trimmed
+}
+
 const initialFilters = {
   numero: '',
   clienteId: 'Todos',
@@ -628,7 +639,7 @@ export default function Cases() {
                               variant="secondary"
                               className="text-[10px] bg-red-50 text-red-700 border-red-200"
                             >
-                              {a}
+                              {getAlertLabel(a)}
                             </Badge>
                           ))}
                         </div>
@@ -785,7 +796,7 @@ export default function Cases() {
                               variant="secondary"
                               className="text-[10px] bg-red-50 text-red-700 border-red-200"
                             >
-                              {a}
+                              {getAlertLabel(a)}
                             </Badge>
                           ))}
                         </div>
