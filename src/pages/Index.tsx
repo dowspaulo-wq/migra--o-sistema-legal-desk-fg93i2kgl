@@ -172,12 +172,33 @@ export default function Index() {
       const typesCount = activeTasks.reduce(
         (acc, t) => {
           const mappedType = mapTaskType(t.type)
-          if (!acc[mappedType]) acc[mappedType] = { count: 0, originalTypes: new Set() }
+          if (!acc[mappedType]) {
+            acc[mappedType] = {
+              count: 0,
+              originalTypes: new Set(),
+              priorities: { Baixa: 0, Média: 0, Alta: 0, Urgente: 0 },
+            }
+          }
           acc[mappedType].count += 1
           acc[mappedType].originalTypes.add(t.type)
+
+          const priority = t.priority === 'Media' ? 'Média' : t.priority || 'Média'
+          if (priority in acc[mappedType].priorities) {
+            acc[mappedType].priorities[priority as keyof (typeof acc)[string]['priorities']] += 1
+          } else {
+            acc[mappedType].priorities['Média'] += 1
+          }
+
           return acc
         },
-        {} as Record<string, { count: number; originalTypes: Set<string> }>,
+        {} as Record<
+          string,
+          {
+            count: number
+            originalTypes: Set<string>
+            priorities: { Baixa: number; Média: number; Alta: number; Urgente: number }
+          }
+        >,
       )
 
       const sortedTypes = Object.entries(typesCount)
@@ -185,6 +206,7 @@ export default function Index() {
           mappedType,
           count: data.count,
           originalTypes: Array.from(data.originalTypes),
+          priorities: data.priorities,
         }))
         .sort((a, b) => b.count - a.count)
 
@@ -551,17 +573,50 @@ export default function Index() {
                               `/tarefas?resp=${stat.user.id}&statusNot=${encodeURIComponent('concluída,cancelada')}&typeIn=${encodeURIComponent(typeData.originalTypes.join(','))}`,
                             )
                           }
-                          className="flex justify-between items-center text-xs cursor-pointer hover:bg-slate-50 p-2 border border-slate-100 shadow-sm rounded-md transition-all group bg-white dark:bg-slate-800 dark:border-slate-700"
+                          className="flex flex-col justify-center text-xs cursor-pointer hover:bg-slate-50 p-2 border border-slate-100 shadow-sm rounded-md transition-all group bg-white dark:bg-slate-800 dark:border-slate-700"
                         >
-                          <span
-                            className="text-primary font-semibold group-hover:underline truncate mr-2"
-                            title={typeData.mappedType}
-                          >
-                            {typeData.mappedType}
-                          </span>
-                          <span className="bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary-foreground px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0">
-                            {typeData.count}
-                          </span>
+                          <div className="flex justify-between items-center w-full">
+                            <span
+                              className="text-primary font-semibold group-hover:underline truncate mr-2"
+                              title={typeData.mappedType}
+                            >
+                              {typeData.mappedType}
+                            </span>
+                            <span className="bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary-foreground px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0">
+                              {typeData.count}
+                            </span>
+                          </div>
+                          {(typeData.priorities.Urgente > 0 ||
+                            typeData.priorities.Alta > 0 ||
+                            typeData.priorities.Média > 0 ||
+                            typeData.priorities.Baixa > 0) && (
+                            <div className="flex flex-wrap gap-1 mt-1.5 pt-1.5 border-t border-slate-100 dark:border-slate-700">
+                              {typeData.priorities.Urgente > 0 && (
+                                <span className="text-[9px] font-medium text-red-700 bg-red-50 dark:bg-red-900/20 px-1 py-0.5 rounded flex items-center">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-red-600 mr-1 shrink-0"></span>
+                                  Urg: {typeData.priorities.Urgente}
+                                </span>
+                              )}
+                              {typeData.priorities.Alta > 0 && (
+                                <span className="text-[9px] font-medium text-orange-700 bg-orange-50 dark:bg-orange-900/20 px-1 py-0.5 rounded flex items-center">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-orange-600 mr-1 shrink-0"></span>
+                                  Alta: {typeData.priorities.Alta}
+                                </span>
+                              )}
+                              {typeData.priorities.Média > 0 && (
+                                <span className="text-[9px] font-medium text-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 px-1 py-0.5 rounded flex items-center">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 mr-1 shrink-0"></span>
+                                  Méd: {typeData.priorities.Média}
+                                </span>
+                              )}
+                              {typeData.priorities.Baixa > 0 && (
+                                <span className="text-[9px] font-medium text-green-700 bg-green-50 dark:bg-green-900/20 px-1 py-0.5 rounded flex items-center">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-1 shrink-0"></span>
+                                  Baixa: {typeData.priorities.Baixa}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       )
                     })}
