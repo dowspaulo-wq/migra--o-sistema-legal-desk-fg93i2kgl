@@ -31,6 +31,7 @@ import {
   AlertCircle,
   DollarSign,
   Trash,
+  Check,
 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
@@ -552,7 +553,36 @@ export default function CaseDetail() {
                           )}
                         </div>
                       </div>
-                      <Badge variant="outline">{a.status}</Badge>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {a.status !== 'Concluído' && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-green-600 border-green-200 hover:text-green-700 hover:bg-green-50 hover:border-green-300 transition-colors"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              updateItem('appointments', a.id, { status: 'Concluído' })
+                              toast({
+                                title: 'Sucesso',
+                                description: 'Compromisso marcado como concluído.',
+                              })
+                            }}
+                          >
+                            <Check className="h-3 w-3 mr-1" />
+                            Concluir
+                          </Button>
+                        )}
+                        <Badge
+                          variant="outline"
+                          className={
+                            a.status === 'Concluído'
+                              ? 'bg-green-50 text-green-700 border-green-200'
+                              : ''
+                          }
+                        >
+                          {a.status}
+                        </Badge>
+                      </div>
                     </div>
                   )
                 })}
