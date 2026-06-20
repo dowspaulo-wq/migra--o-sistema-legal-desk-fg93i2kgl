@@ -202,8 +202,22 @@ export default function CaseDetail() {
           </Link>
         </Button>
         <div className="flex-1">
-          <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-3 flex-wrap" data-native-system-icon="true">
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-primary flex items-center gap-3 break-all">
+              {(() => {
+                const sys = state.caseSystems?.find((s) => s.name === c.system)
+                if (sys?.image_url) {
+                  return (
+                    <img
+                      src={sys.image_url}
+                      alt={sys.name}
+                      className="w-8 h-8 object-contain shrink-0"
+                      title={sys.name}
+                    />
+                  )
+                }
+                return null
+              })()}
               {c.number}
               {c.isSpecial && (
                 <Star className="h-6 w-6 fill-yellow-400 text-yellow-400" title="Especial" />
@@ -219,11 +233,28 @@ export default function CaseDetail() {
             </Button>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap text-muted-foreground mt-1 mb-4 text-sm">
+          <div
+            className="flex items-center gap-2 flex-wrap text-muted-foreground mt-1 mb-4 text-sm"
+            data-native-system-icon="true"
+          >
             <Badge variant="outline">{c.status}</Badge>
             <Badge variant="secondary">{c.classification || 'SB'}</Badge>
             <span>•</span>
-            <span>Sistema: {c.system || 'Não informado'}</span>
+            <span className="flex items-center gap-1.5">
+              Sistema:{' '}
+              {(() => {
+                const sys = state.caseSystems?.find((s) => s.name === c.system)
+                if (sys?.image_url) {
+                  return (
+                    <span className="flex items-center gap-1 bg-slate-100 px-1.5 py-0.5 rounded font-medium text-slate-700">
+                      <img src={sys.image_url} alt={sys.name} className="w-4 h-4 object-contain" />
+                      {c.system}
+                    </span>
+                  )
+                }
+                return c.system || 'Não informado'
+              })()}
+            </span>
             {parentProcess && (
               <>
                 <span>•</span>
@@ -491,12 +522,27 @@ export default function CaseDetail() {
                   <div
                     key={sc.id}
                     className="flex justify-between items-center border p-3 rounded hover:bg-slate-50 transition-colors"
+                    data-native-system-icon="true"
                   >
                     <div>
                       <Link
                         to={`/processos/${sc.id}`}
                         className="font-semibold text-primary hover:underline flex items-center gap-2"
                       >
+                        {(() => {
+                          const sys = state.caseSystems?.find((s) => s.name === sc.system)
+                          if (sys?.image_url) {
+                            return (
+                              <img
+                                src={sys.image_url}
+                                alt={sys.name}
+                                className="w-4 h-4 object-contain shrink-0"
+                                title={sys.name}
+                              />
+                            )
+                          }
+                          return null
+                        })()}
                         {sc.number}
                       </Link>
                       <div className="text-xs text-muted-foreground mt-1 flex gap-2">

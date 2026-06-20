@@ -593,11 +593,28 @@ export default function Cases() {
                     style={getStatusStyle(c.status)}
                   >
                     <div className="w-full">
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <div
+                        className="flex items-center gap-2 mb-1 flex-wrap"
+                        data-native-system-icon="true"
+                      >
                         <Link
                           to={`/processos/${c.id}`}
-                          className="text-lg font-bold text-primary hover:underline"
+                          className="text-lg font-bold text-primary hover:underline flex items-center gap-2"
                         >
+                          {(() => {
+                            const sys = state.caseSystems?.find((s) => s.name === c.system)
+                            if (sys?.image_url) {
+                              return (
+                                <img
+                                  src={sys.image_url}
+                                  alt={sys.name}
+                                  className="w-5 h-5 object-contain shrink-0"
+                                  title={sys.name}
+                                />
+                              )
+                            }
+                            return null
+                          })()}
                           {c.number}
                         </Link>{' '}
                         {c.isSpecial && (
@@ -738,11 +755,28 @@ export default function Cases() {
                     style={getStatusStyle(c.status)}
                   >
                     <CardContent className="p-4 pt-5 space-y-3">
-                      <div className="flex justify-between items-start gap-2">
+                      <div
+                        className="flex justify-between items-start gap-2"
+                        data-native-system-icon="true"
+                      >
                         <Link
                           to={`/processos/${c.id}`}
-                          className="font-bold text-primary hover:underline text-sm break-all"
+                          className="font-bold text-primary hover:underline text-sm break-all flex items-start gap-2"
                         >
+                          {(() => {
+                            const sys = state.caseSystems?.find((s) => s.name === c.system)
+                            if (sys?.image_url) {
+                              return (
+                                <img
+                                  src={sys.image_url}
+                                  alt={sys.name}
+                                  className="w-4 h-4 object-contain shrink-0 mt-0.5"
+                                  title={sys.name}
+                                />
+                              )
+                            }
+                            return null
+                          })()}
                           {c.number}
                         </Link>
                         <div className="flex items-center gap-1 shrink-0">

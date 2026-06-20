@@ -27,8 +27,16 @@ export interface Supplier {
   created_at?: string
 }
 
+export interface CaseSystem {
+  id: string
+  name: string
+  image_url: string | null
+  created_at?: string
+}
+
 export interface LegalState extends BaseLegalState {
   suppliers: Supplier[]
+  caseSystems: CaseSystem[]
 }
 import { toast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase/client'
@@ -56,7 +64,7 @@ const LegalContext = createContext<LegalContextType | undefined>(undefined)
 
 export function LegalStoreProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
-  const [state, setState] = useState<LegalState>({ ...initialData, suppliers: [] })
+  const [state, setState] = useState<LegalState>({ ...initialData, suppliers: [], caseSystems: [] })
 
   useEffect(() => {
     if (!user) return
@@ -74,6 +82,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           'settings',
           'whatsapp_messages',
           'suppliers',
+          'case_systems',
         ]
 
         // Fetch all tables
@@ -171,6 +180,9 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
             (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
           ),
           suppliers: (results[10]?.data || []).sort(
+            (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+          ),
+          caseSystems: (results[11]?.data || []).sort(
             (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
           ),
         })
