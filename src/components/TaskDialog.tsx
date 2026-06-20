@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -18,7 +18,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/hooks/use-toast'
-import { normalizeStr } from '@/lib/utils'
+import { cn, normalizeStr } from '@/lib/utils'
+import { CheckCircle2, Circle } from 'lucide-react'
 
 import useLegalStore from '@/stores/useLegalStore'
 
@@ -84,6 +85,14 @@ export function TaskDialog({
   const sortedCases = [...cases]
     .filter((c: any) => !fd.clientId || c.clientId === fd.clientId)
     .sort((a: any, b: any) => a.number.localeCompare(b.number))
+
+  const isConcluida =
+    normalizeStr(fd.status) === 'concluida' || normalizeStr(fd.status) === 'concluido'
+  const previousStatusRef = useRef(fd.status)
+
+  if (!isConcluida) {
+    previousStatusRef.current = fd.status
+  }
 
   useEffect(() => {
     if (open) {
@@ -182,18 +191,63 @@ export function TaskDialog({
             </div>
             <div className="space-y-2">
               <Label>Status *</Label>
-              <Select value={fd.status} onValueChange={(v) => setFd({ ...fd, status: v })}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  {sortedStatuses.map((s: string) => (
-                    <SelectItem key={s} value={s}>
-                      {s}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex items-center gap-2">
+                <Select
+                  value={isConcluida ? 'Concluída' : fd.status}
+                  onValueChange={(v) => setFd({ ...fd, status: v })}
+                  disabled={isConcluida}
+                >
+                  <SelectTrigger className="flex-1">
+                    <SelectValue placeholder="Selecione o Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {isConcluida && <SelectItem value="Concluída">Concluída</SelectItem>}
+                    {sortedStatuses
+                      .filter(
+                        (s: string) =>
+                          normalizeStr(s) !== 'concluida' && normalizeStr(s) !== 'concluido',
+                      )
+                      .map((s: string) => (
+                        <SelectItem key={s} value={s}>
+                          {s}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant={isConcluida ? 'default' : 'outline'}
+                  className={cn(
+                    'shrink-0',
+                    isConcluida && 'bg-green-600 hover:bg-green-700 text-white border-green-600',
+                  )}
+                  onClick={() => {
+                    if (isConcluida) {
+                      const fallback =
+                        previousStatusRef.current &&
+                        normalizeStr(previousStatusRef.current) !== 'concluida' &&
+                        normalizeStr(previousStatusRef.current) !== 'concluido'
+                          ? previousStatusRef.current
+                          : (settings?.taskStatuses || []).find(
+                              (s: string) => normalizeStr(s) === 'pendente',
+                            ) || 'Pendente'
+                      setFd({ ...fd, status: fallback })
+                    } else {
+                      setFd({ ...fd, status: 'Concluída' })
+                    }
+                  }}
+                >
+                  {isConcluida ? (
+                    <>
+                      <CheckCircle2 className="mr-2 h-4 w-4" /> Concluída
+                    </>
+                  ) : (
+                    <>
+                      <Circle className="mr-2 h-4 w-4" /> Concluir
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
             <div className="space-y-2">
               <Label>Prioridade *</Label>
