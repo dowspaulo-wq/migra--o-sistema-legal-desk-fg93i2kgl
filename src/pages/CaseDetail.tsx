@@ -32,6 +32,7 @@ import {
   DollarSign,
   Trash,
   Check,
+  Briefcase,
 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
@@ -76,6 +77,7 @@ export default function CaseDetail() {
   const subcases = state.cases.filter((sc) => sc.parentId === id)
   const processAppointments = state.appointments.filter((a) => a.processId === id)
   const parentProcess = c?.parentId ? state.cases.find((x) => x.id === c.parentId) : null
+  const responsibleUser = state.users.find((u) => u.id === c?.responsibleId)
 
   const processTransactions = state.transactions.filter((t) => t.processId === id)
   const income = processTransactions
@@ -334,10 +336,90 @@ export default function CaseDetail() {
           <TabsTrigger value="docs">Documentos</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="info" className="mt-4">
+        <TabsContent value="info" className="mt-4 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Card className="shadow-sm border-slate-200">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg flex items-center gap-2 text-slate-700">
+                  <Briefcase className="h-5 w-5" /> Administrativo & Metadados
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 text-sm">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-muted-foreground block mb-1">Responsável</Label>
+                    <p className="font-medium text-slate-900">
+                      {responsibleUser?.name || 'Não informado'}
+                    </p>
+                  </div>
+                  <div>
+                    <Label className="text-muted-foreground block mb-1">Data de Início</Label>
+                    <p className="font-medium text-slate-900">
+                      {c.startDate ? formatSafeLocalDate(c.startDate) : 'Não informado'}
+                    </p>
+                  </div>
+                  <div>
+                    <Label className="text-muted-foreground block mb-1">Criado em</Label>
+                    <p className="font-medium text-slate-900">
+                      {(c as any).created_at
+                        ? new Date((c as any).created_at).toLocaleDateString('pt-BR')
+                        : 'Não informado'}
+                    </p>
+                  </div>
+                  <div>
+                    <Label className="text-muted-foreground block mb-1">Última Atualização</Label>
+                    <p className="font-medium text-slate-900">
+                      {c.updatedAt ? formatSafeLocalDate(c.updatedAt) : 'Não informado'}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-sm border-slate-200">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg flex items-center gap-2 text-slate-700">
+                  <DollarSign className="h-5 w-5" /> Informações Financeiras
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 text-sm">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-muted-foreground block mb-1">Valor da Causa</Label>
+                    <p className="font-medium text-slate-900">
+                      {c.value != null
+                        ? `R$ ${Number(c.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+                        : 'Não informado'}
+                    </p>
+                  </div>
+                  <div>
+                    <Label className="text-muted-foreground block mb-1">Tipo de Honorários</Label>
+                    <p className="font-medium text-slate-900">
+                      {(c as any).feeType || 'Não informado'}
+                    </p>
+                  </div>
+                  <div>
+                    <Label className="text-muted-foreground block mb-1">Valor dos Honorários</Label>
+                    <p className="font-medium text-slate-900">
+                      {(c as any).feeValue != null
+                        ? `R$ ${Number((c as any).feeValue).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+                        : 'Não informado'}
+                    </p>
+                  </div>
+                  <div>
+                    <Label className="text-muted-foreground block mb-1">Parcelas (Qtd)</Label>
+                    <p className="font-medium text-slate-900">
+                      {(c as any).feeInstallments || 'Não informado'}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
           <Card className="shadow-sm border-slate-200">
             <CardHeader className="pb-3">
-              <CardTitle className="text-lg flex items-center gap-2">
+              <CardTitle className="text-lg flex items-center gap-2 text-slate-700">
                 <FileText className="h-5 w-5" /> Detalhes, Notas e Alertas
               </CardTitle>
             </CardHeader>
