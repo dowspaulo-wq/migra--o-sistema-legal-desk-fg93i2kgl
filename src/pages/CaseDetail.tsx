@@ -91,7 +91,13 @@ export default function CaseDetail() {
 
   const c = state.cases.find((x) => x.id === id)
   const client = state.clients.find((cl) => cl.id === c?.clientId)
-  const tasks = state.tasks.filter((t) => t.relatedProcessId === id)
+  const tasks = state.tasks
+    .filter((t) => t.relatedProcessId === id)
+    .sort((a: any, b: any) => {
+      const dateA = a.created_at ? new Date(a.created_at).getTime() : 0
+      const dateB = b.created_at ? new Date(b.created_at).getTime() : 0
+      return dateB - dateA
+    })
   const subcases = state.cases.filter((sc) => sc.parentId === id)
   const processAppointments = state.appointments.filter((a) => a.processId === id)
   const parentProcess = c?.parentId ? state.cases.find((x) => x.id === c.parentId) : null
