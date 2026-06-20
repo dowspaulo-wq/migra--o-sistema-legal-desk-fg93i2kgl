@@ -63,9 +63,16 @@ export default function Index() {
   }, [])
 
   const pendingProtocol = state.tasks.filter((t) => t.status.toLowerCase() === 'aguarda protocolo')
-  const myTasks = state.tasks.filter(
-    (t) => t.responsibleId === state.currentUser.id && t.status.toLowerCase() !== 'concluída',
-  )
+  const myTasks = state.tasks.filter((t) => {
+    const s = t.status.toLowerCase()
+    return (
+      t.responsibleId === state.currentUser.id &&
+      !s.includes('concluíd') &&
+      !s.includes('concluid') &&
+      s !== 'cancelada' &&
+      s !== 'cancelado'
+    )
+  })
 
   const processStatusData = Object.entries(
     state.cases.reduce(
@@ -129,9 +136,15 @@ export default function Index() {
       const userTasks = state.tasks.filter((t) => t.responsibleId === user.id)
       const total = userTasks.length
 
-      const activeTasks = userTasks.filter(
-        (t) => t.status.toLowerCase() !== 'concluída' && t.status.toLowerCase() !== 'cancelada',
-      )
+      const activeTasks = userTasks.filter((t) => {
+        const s = t.status.toLowerCase()
+        return (
+          !s.includes('concluíd') &&
+          !s.includes('concluid') &&
+          s !== 'cancelada' &&
+          s !== 'cancelado'
+        )
+      })
 
       const mapTaskType = (type: string) => {
         const lower = type.toLowerCase()
@@ -167,7 +180,10 @@ export default function Index() {
 
       const pending = userTasks.filter((t) => t.status.toLowerCase() === 'pendente').length
       const updating = userTasks.filter((t) => t.status.toLowerCase() === 'atualização').length
-      const completed = userTasks.filter((t) => t.status.toLowerCase() === 'concluída').length
+      const completed = userTasks.filter((t) => {
+        const s = t.status.toLowerCase()
+        return s.includes('concluíd') || s.includes('concluid')
+      }).length
 
       const typesCount = activeTasks.reduce(
         (acc, t) => {
@@ -481,7 +497,7 @@ export default function Index() {
                       <div
                         onClick={() =>
                           navigate(
-                            `/tarefas?resp=${stat.user.id}&statusNot=${encodeURIComponent('concluída,cancelada')}&dateUntil=${todayStr}`,
+                            `/tarefas?resp=${stat.user.id}&statusNot=${encodeURIComponent('concluída,concluído,cancelada')}&dateUntil=${todayStr}`,
                           )
                         }
                         className="flex items-center gap-2 text-red-800 text-sm font-bold cursor-pointer hover:underline"
@@ -494,7 +510,7 @@ export default function Index() {
                             key={typeData.mappedType}
                             onClick={() =>
                               navigate(
-                                `/tarefas?resp=${stat.user.id}&statusNot=${encodeURIComponent('concluída,cancelada')}&dateUntil=${todayStr}&typeIn=${encodeURIComponent(typeData.originalTypes.join(','))}`,
+                                `/tarefas?resp=${stat.user.id}&statusNot=${encodeURIComponent('concluída,concluído,cancelada')}&dateUntil=${todayStr}&typeIn=${encodeURIComponent(typeData.originalTypes.join(','))}`,
                               )
                             }
                             className="bg-white border border-red-100 shadow-sm rounded-md px-2 py-1.5 flex items-center justify-between text-xs cursor-pointer hover:bg-red-100 hover:border-red-300 transition-all group"
@@ -545,7 +561,7 @@ export default function Index() {
                   <div
                     onClick={() =>
                       navigate(
-                        `/tarefas?resp=${stat.user.id}&status=${encodeURIComponent('concluída')}`,
+                        `/tarefas?resp=${stat.user.id}&status=${encodeURIComponent('Concluído,Concluída')}`,
                       )
                     }
                     className="flex justify-between items-center cursor-pointer hover:bg-slate-50 p-1 -mx-1 rounded transition-colors group"
@@ -570,7 +586,7 @@ export default function Index() {
                           key={typeData.mappedType}
                           onClick={() =>
                             navigate(
-                              `/tarefas?resp=${stat.user.id}&statusNot=${encodeURIComponent('concluída,cancelada')}&typeIn=${encodeURIComponent(typeData.originalTypes.join(','))}`,
+                              `/tarefas?resp=${stat.user.id}&statusNot=${encodeURIComponent('concluída,concluído,cancelada')}&typeIn=${encodeURIComponent(typeData.originalTypes.join(','))}`,
                             )
                           }
                           className="flex flex-col justify-center text-xs cursor-pointer hover:bg-slate-50 p-2 border border-slate-100 shadow-sm rounded-md transition-all group bg-white dark:bg-slate-800 dark:border-slate-700"

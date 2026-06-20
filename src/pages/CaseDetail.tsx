@@ -542,18 +542,15 @@ export default function CaseDetail() {
               </Button>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2 mt-2">
+              <div className="space-y-3 mt-2">
                 {subcases.map((sc) => (
                   <div
                     key={sc.id}
-                    className="flex justify-between items-center border p-3 rounded hover:bg-slate-50 transition-colors"
+                    className="border p-4 rounded-md hover:border-primary/50 transition-colors bg-white shadow-sm"
                     data-native-system-icon="true"
                   >
-                    <div>
-                      <Link
-                        to={`/processos/${sc.id}`}
-                        className="font-semibold text-primary hover:underline flex items-center gap-2"
-                      >
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex items-center gap-2 flex-wrap">
                         {(() => {
                           const sys = state.caseSystems?.find((s) => s.name === sc.system)
                           if (sys?.image_url) {
@@ -561,22 +558,70 @@ export default function CaseDetail() {
                               <img
                                 src={sys.image_url}
                                 alt={sys.name}
-                                className="w-4 h-4 object-contain shrink-0"
+                                className="w-5 h-5 object-contain shrink-0"
                                 title={sys.name}
                               />
                             )
                           }
                           return null
                         })()}
-                        {sc.number}
-                      </Link>
-                      <div className="text-xs text-muted-foreground mt-1 flex gap-2">
-                        <span>{sc.type}</span>
-                        <span>•</span>
-                        <span>{sc.court}</span>
+                        <Link
+                          to={`/processos/${sc.id}`}
+                          className="font-bold text-base text-primary hover:underline"
+                        >
+                          {sc.number}
+                        </Link>
+                      </div>
+                      <Badge variant="outline" className="bg-slate-50">
+                        {sc.status}
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 text-xs text-slate-700">
+                      <div>
+                        <span className="font-semibold block text-slate-500 mb-0.5">Tipo</span>
+                        {sc.type || '—'}
+                      </div>
+                      <div>
+                        <span className="font-semibold block text-slate-500 mb-0.5">
+                          Tribunal/Vara
+                        </span>
+                        {sc.court || '—'}
+                      </div>
+                      <div>
+                        <span className="font-semibold block text-slate-500 mb-0.5">
+                          Comarca/UF
+                        </span>
+                        {sc.comarca
+                          ? `${sc.comarca.toUpperCase()}${sc.state ? ` - ${sc.state.toUpperCase()}` : ''}`
+                          : '—'}
+                      </div>
+                      <div>
+                        <span className="font-semibold block text-slate-500 mb-0.5">
+                          Parte Adversa
+                        </span>
+                        <span className="truncate block" title={sc.adverseParty || ''}>
+                          {sc.adverseParty || '—'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="font-semibold block text-slate-500 mb-0.5">Sistema</span>
+                        {sc.system || '—'}
+                      </div>
+                      <div>
+                        <span className="font-semibold block text-slate-500 mb-0.5">
+                          Valor da Causa
+                        </span>
+                        {sc.value != null
+                          ? `R$ ${Number(sc.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+                          : '—'}
+                      </div>
+                      <div>
+                        <span className="font-semibold block text-slate-500 mb-0.5">
+                          Data de Início
+                        </span>
+                        {sc.startDate ? formatSafeLocalDate(sc.startDate) : '—'}
                       </div>
                     </div>
-                    <Badge variant="outline">{sc.status}</Badge>
                   </div>
                 ))}
                 {subcases.length === 0 && (
