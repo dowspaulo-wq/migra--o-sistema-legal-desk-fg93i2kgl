@@ -178,8 +178,7 @@ export default function CaseDetail() {
       <TaskDialog
         open={creatingTask}
         onOpenChange={setCreatingTask}
-        data={{ clientId: c.clientId, isNew: true }}
-        lockedProcessId={c.id}
+        data={{ clientId: c.clientId, relatedProcessId: c.id, lockedProcessId: true, isNew: true }}
         onSave={(d: any) => addTask(d)}
         users={state.users}
         currentUser={state.currentUser}

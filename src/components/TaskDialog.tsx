@@ -53,7 +53,7 @@ export function TaskDialog({
   }, [open, data])
 
   const handleSave = () => {
-    const payload = { ...formData }
+    const { isNew, ...payload } = formData
     if (payload.clientId === 'none') payload.clientId = null
     if (payload.relatedProcessId === 'none') payload.relatedProcessId = null
     onSave(payload)
