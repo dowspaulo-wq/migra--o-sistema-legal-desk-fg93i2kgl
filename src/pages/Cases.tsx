@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -75,7 +75,8 @@ const initialFilters = {
 }
 
 export default function Cases() {
-  const { state, addCase, updateItem, deleteItem } = useLegalStore()
+  const store = useLegalStore()
+  const { addCase, updateItem, deleteItem } = store
 
   const [filters, setFilters] = useState(() => {
     try {
@@ -92,6 +93,41 @@ export default function Cases() {
       return initialFilters
     }
   })
+
+  const state = useMemo(() => {
+    const hasActiveFilters = Object.entries(appliedFilters).some(([k, v]) => {
+      if (
+        k === 'valorMin' ||
+        k === 'valorMax' ||
+        k === 'dataInicioDe' ||
+        k === 'dataInicioAte' ||
+        k === 'numero' ||
+        k === 'vara' ||
+        k === 'comarca' ||
+        k === 'estado'
+      )
+        return v !== ''
+      return v !== 'Todos'
+    })
+
+    if (!hasActiveFilters || !store.state.cases) return store.state
+
+    const priority: Record<string, number> = {
+      'Aguardando documentos': 1,
+      'Em andamento': 2,
+      Suspenso: 3,
+      Concluído: 4,
+    }
+
+    const sortedCases = [...store.state.cases].sort((a, b) => {
+      const pA = priority[a.status?.trim()] || 99
+      const pB = priority[b.status?.trim()] || 99
+      if (pA !== pB) return pA - pB
+      return 0
+    })
+
+    return { ...store.state, cases: sortedCases }
+  }, [store.state, appliedFilters])
 
   const [quickSearch, setQuickSearch] = useState(() => {
     return sessionStorage.getItem('cases_quickSearch') || ''

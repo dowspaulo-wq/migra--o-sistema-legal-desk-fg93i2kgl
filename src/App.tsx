@@ -13,19 +13,31 @@ import Tasks from './pages/Tasks'
 import Finance from './pages/Finance'
 import Petitions from './pages/Petitions'
 import Logs from './pages/Logs'
-import Settings from './pages/Settings'
+import SettingsPage from './pages/Settings'
+import { SystemManagement } from './components/SystemManagement'
 import NotFound from './pages/NotFound'
 import Login from './pages/Login'
 import GoogleCallback from './pages/GoogleCallback'
 import { LegalStoreProvider } from './stores/useLegalStore'
 import { AuthProvider } from './hooks/use-auth'
 import { RequireAdmin } from './components/RequireAdmin'
+import { SystemIconOverlay } from './components/SystemIconOverlay'
+
+const SettingsWrapper = () => (
+  <div className="flex flex-col h-full overflow-y-auto">
+    <SettingsPage />
+    <div className="px-4 md:px-8 pb-12 w-full max-w-7xl mx-auto mt-6">
+      <SystemManagement />
+    </div>
+  </div>
+)
 
 const App = () => (
   <AuthProvider>
     <LegalStoreProvider>
       <BrowserRouter future={{ v7_startTransition: false, v7_relativeSplatPath: false }}>
         <TooltipProvider>
+          <SystemIconOverlay />
           <Toaster />
           <Sonner />
           <Routes>
@@ -49,7 +61,7 @@ const App = () => (
               <Route path="/financeiro" element={<Finance />} />
               <Route path="/peticoes" element={<Petitions />} />
               <Route path="/logs" element={<Logs />} />
-              <Route path="/configuracoes" element={<Settings />} />
+              <Route path="/configuracoes" element={<SettingsWrapper />} />
 
               {/* Aliases to satisfy English path assumptions and potential external links */}
               <Route path="/cases" element={<Navigate to="/processos" replace />} />

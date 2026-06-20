@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
+import { CaseSystemSelect } from '@/components/CaseSystemSelect'
 import {
   Dialog,
   DialogContent,
@@ -40,7 +42,52 @@ const PREDEFINED_ALERTS = [
 
 const SUBPROCESS_TYPES = ['Recurso', 'Precatória', 'Incidente', 'Outros']
 
-export function CaseDialog({
+export function CaseDialog(props: any) {
+  const [system, setSystem] = useState(props.data?.system || '')
+  const [portalNode, setPortalNode] = useState<Element | null>(null)
+
+  useEffect(() => {
+    setSystem(props.data?.system || '')
+  }, [props.data])
+
+  const handleSave = (data: any) => {
+    props.onSave({ ...data, system })
+  }
+
+  useEffect(() => {
+    if (!props.open) {
+      setPortalNode(null)
+      return
+    }
+    const timer = setInterval(() => {
+      const dialog = document.querySelector('[role="dialog"]')
+      if (dialog) {
+        const grid =
+          dialog.querySelector('.grid') ||
+          dialog.querySelector('form') ||
+          dialog.querySelector('.space-y-4')
+        if (grid && !document.getElementById('injected-system-field')) {
+          const wrapper = document.createElement('div')
+          wrapper.id = 'injected-system-field'
+          grid.appendChild(wrapper)
+          setPortalNode(wrapper)
+          clearInterval(timer)
+        }
+      }
+    }, 100)
+    return () => clearInterval(timer)
+  }, [props.open])
+
+  return (
+    <>
+      <OriginalCaseDialog {...props} onSave={handleSave} />
+      {portalNode &&
+        createPortal(<CaseSystemSelect value={system} onChange={setSystem} />, portalNode)}
+    </>
+  )
+}
+
+function OriginalCaseDialog({
   open,
   onOpenChange,
   data,
