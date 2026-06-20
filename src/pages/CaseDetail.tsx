@@ -585,7 +585,7 @@ export default function CaseDetail() {
                       onClick={() => setEditingTask(t)}
                     >
                       <div className="flex justify-between items-start">
-                        <div>
+                        <div className="flex-1">
                           <p className="font-semibold text-sm group-hover:text-primary transition-colors flex items-center gap-2">
                             {t.title}
                             <Edit className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground" />
@@ -599,9 +599,36 @@ export default function CaseDetail() {
                             )}
                           </div>
                         </div>
-                        <Badge variant="outline" className="shrink-0">
-                          {t.status}
-                        </Badge>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {t.status !== 'Concluído' && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-green-600 border-green-200 hover:text-green-700 hover:bg-green-50 hover:border-green-300 transition-colors"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                updateItem('tasks', t.id, { status: 'Concluído' })
+                                toast({
+                                  title: 'Sucesso',
+                                  description: 'Tarefa marcada como concluída.',
+                                })
+                              }}
+                            >
+                              <Check className="h-3 w-3 mr-1" />
+                              Concluir
+                            </Button>
+                          )}
+                          <Badge
+                            variant="outline"
+                            className={
+                              t.status === 'Concluído'
+                                ? 'bg-green-50 text-green-700 border-green-200'
+                                : ''
+                            }
+                          >
+                            {t.status}
+                          </Badge>
+                        </div>
                       </div>
                       {t.description && (
                         <div className="text-sm text-muted-foreground bg-muted/30 p-2.5 rounded-md border border-border/50 line-clamp-3 whitespace-pre-wrap mt-2">
