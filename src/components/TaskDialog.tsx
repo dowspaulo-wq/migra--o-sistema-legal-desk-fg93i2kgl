@@ -26,6 +26,7 @@ export function TaskDialog({
   onSave,
   onDelete,
   users,
+  currentUser,
   clients,
   cases,
   settings,
@@ -72,19 +73,36 @@ export function TaskDialog({
           {!formData.isNew && (
             <div className="flex justify-between items-center bg-slate-50 p-3 rounded-md border">
               <span className="text-sm font-medium text-slate-700">Status da Tarefa</span>
-              <Button
-                variant={isCompleted ? 'default' : 'outline'}
-                className={isCompleted ? 'bg-green-600 hover:bg-green-700 text-white' : ''}
-                onClick={() =>
-                  setFormData((prev: any) => ({
-                    ...prev,
-                    status: isCompleted ? 'Pendente' : 'Concluído',
-                  }))
+              {(() => {
+                const respUser = users?.find((u: any) => u.id === formData.responsibleId)
+                const isColaborador = currentUser?.role?.toLowerCase() === 'colaborador'
+                const isRespAdmin = respUser?.role?.toLowerCase() === 'admin'
+                const canComplete = !(isColaborador && isRespAdmin)
+
+                if (!canComplete && !isCompleted) {
+                  return (
+                    <div className="text-sm text-red-600 font-medium">
+                      Colaboradores não podem concluir tarefas de Administradores.
+                    </div>
+                  )
                 }
-              >
-                <Check className="h-4 w-4 mr-2" />
-                {isCompleted ? 'Concluída' : 'Marcar como Concluída'}
-              </Button>
+
+                return (
+                  <Button
+                    variant={isCompleted ? 'default' : 'outline'}
+                    className={isCompleted ? 'bg-green-600 hover:bg-green-700 text-white' : ''}
+                    onClick={() =>
+                      setFormData((prev: any) => ({
+                        ...prev,
+                        status: isCompleted ? 'Pendente' : 'Concluído',
+                      }))
+                    }
+                  >
+                    <Check className="h-4 w-4 mr-2" />
+                    {isCompleted ? 'Concluída' : 'Marcar como Concluída'}
+                  </Button>
+                )
+              })()}
             </div>
           )}
 
@@ -131,7 +149,15 @@ export function TaskDialog({
               <Select
                 value={formData.status}
                 onValueChange={(v) => setFormData({ ...formData, status: v })}
-                disabled={isCompleted}
+                disabled={
+                  isCompleted ||
+                  (() => {
+                    const respUser = users?.find((u: any) => u.id === formData.responsibleId)
+                    const isColaborador = currentUser?.role?.toLowerCase() === 'colaborador'
+                    const isRespAdmin = respUser?.role?.toLowerCase() === 'admin'
+                    return isColaborador && isRespAdmin
+                  })()
+                }
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione..." />

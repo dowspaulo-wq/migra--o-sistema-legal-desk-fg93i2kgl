@@ -47,6 +47,54 @@ import { downloadCSV } from '@/lib/export'
 import { Download } from 'lucide-react'
 import { DatePicker } from '@/components/ui/date-picker'
 import { MultiSelect } from '@/components/ui/multi-select'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+
+const getTaskTypeStyle = (type: string) => {
+  const t = (type || '').toLowerCase()
+  if (t.includes('petições') || t.includes('peticionar')) {
+    return {
+      bg: 'bg-blue-50',
+      text: 'text-blue-700',
+      border: 'border-blue-200',
+      hex: '#eff6ff',
+      hexBorder: '#bfdbfe',
+    }
+  }
+  if (t.includes('redigir inicial')) {
+    return {
+      bg: 'bg-green-50',
+      text: 'text-green-700',
+      border: 'border-green-200',
+      hex: '#f0fdf4',
+      hexBorder: '#bbf7d0',
+    }
+  }
+  if (t.includes('recorrer')) {
+    return {
+      bg: 'bg-amber-50',
+      text: 'text-amber-700',
+      border: 'border-amber-200',
+      hex: '#fffbeb',
+      hexBorder: '#fde68a',
+    }
+  }
+  if (t.includes('revisão/protocolo') || t.includes('revisao/protocolo')) {
+    return {
+      bg: 'bg-purple-50',
+      text: 'text-purple-700',
+      border: 'border-purple-200',
+      hex: '#faf5ff',
+      hexBorder: '#e9d5ff',
+    }
+  }
+  return {
+    bg: 'bg-slate-50',
+    text: 'text-slate-700',
+    border: 'border-slate-200',
+    hex: '#f8fafc',
+    hexBorder: '#e2e8f0',
+  }
+}
 
 const initialFilters = {
   titulo: '',
@@ -205,6 +253,7 @@ export default function Tasks() {
         data={editingItem}
         onSave={handleSave}
         users={state.users}
+        currentUser={state.currentUser}
         clients={state.clients}
         cases={state.cases}
         settings={state.settings}
@@ -392,32 +441,70 @@ export default function Tasks() {
             const client = state.clients.find((c) => c.id === t.clientId)
             const c = state.cases.find((x) => x.id === t.relatedProcessId)
             const resp = state.users.find((u) => u.id === t.responsibleId)
-            const isDone = t.status.toLowerCase() === 'concluída'
+            const isDone =
+              t.status.toLowerCase() === 'concluída' || t.status.toLowerCase() === 'concluído'
+
+            const currentUserRole = state.currentUser?.role?.toLowerCase() || ''
+            const responsibleUserRole = resp?.role?.toLowerCase() || ''
+            const isColaborador = currentUserRole === 'colaborador'
+            const isRespAdmin = responsibleUserRole === 'admin'
+            const canComplete = !(isColaborador && isRespAdmin)
+
+            const tStyle = getTaskTypeStyle(t.type)
+
             return (
               <Card
                 key={t.id}
-                className={`shadow-sm border-l-4 ${isDone ? 'opacity-60 border-l-green-500' : 'border-l-primary'}`}
+                className={`shadow-sm border-l-4 ${tStyle.bg} ${isDone ? 'opacity-60 border-l-green-500' : ''}`}
+                style={
+                  !isDone
+                    ? { borderLeftColor: tStyle.hexBorder, borderColor: tStyle.hexBorder }
+                    : {}
+                }
               >
                 <CardContent className="p-4 flex items-center justify-between gap-4">
                   <div className="flex items-start gap-4 w-full">
-                    <button
-                      onClick={() =>
-                        updateItem('tasks', t.id, { status: isDone ? 'pendente' : 'Concluída' })
-                      }
-                      className="mt-1 text-muted-foreground hover:text-primary transition-colors"
-                    >
-                      {isDone ? (
-                        <CheckCircle2 className="h-5 w-5 text-green-500" />
-                      ) : (
-                        <Circle className="h-5 w-5" />
-                      )}
-                    </button>
+                    {canComplete ? (
+                      <button
+                        onClick={() =>
+                          updateItem('tasks', t.id, { status: isDone ? 'Pendente' : 'Concluído' })
+                        }
+                        className="mt-1 text-muted-foreground hover:text-primary transition-colors"
+                      >
+                        {isDone ? (
+                          <CheckCircle2 className="h-5 w-5 text-green-500" />
+                        ) : (
+                          <Circle className="h-5 w-5" />
+                        )}
+                      </button>
+                    ) : (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            disabled
+                            className="mt-1 text-muted-foreground/50 cursor-not-allowed"
+                          >
+                            {isDone ? (
+                              <CheckCircle2 className="h-5 w-5 text-green-500/50" />
+                            ) : (
+                              <Circle className="h-5 w-5" />
+                            )}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Colaboradores não podem concluir tarefas de Administradores.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
                     <div className="flex-1 w-full">
                       <p
                         className={`font-bold ${isDone ? 'line-through text-muted-foreground' : ''}`}
                       >
                         {t.title}{' '}
-                        <Badge variant="outline" className="ml-2 text-[10px]">
+                        <Badge
+                          variant="outline"
+                          className={`ml-2 text-[10px] ${tStyle.bg} ${tStyle.text} border-transparent shadow-none`}
+                        >
                           {t.type}
                         </Badge>
                       </p>
@@ -438,12 +525,12 @@ export default function Tasks() {
                         )}
                       </p>
                       <div className="flex flex-wrap gap-2 text-xs mt-2 items-center">
-                        <Badge variant="secondary" className="text-[10px]">
+                        <Badge variant="secondary" className="text-[10px] bg-white">
                           {t.status}
                         </Badge>
                         <Badge
                           variant="outline"
-                          className={`text-[10px] ${getPriorityColorClass(t.priority)}`}
+                          className={`text-[10px] bg-white ${getPriorityColorClass(t.priority)}`}
                         >
                           {t.priority || 'Sem prioridade'}
                         </Badge>
@@ -452,9 +539,8 @@ export default function Tasks() {
                         </span>
                         {resp && (
                           <span
-                            className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
+                            className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-white"
                             style={{
-                              backgroundColor: `${resp.color}20`,
                               color: resp.color,
                               border: `1px solid ${resp.color}40`,
                             }}
@@ -517,31 +603,32 @@ export default function Tasks() {
             renderItem={(t) => {
               const resp = state.users.find((u) => u.id === t.responsibleId)
               const c = state.cases.find((x) => x.id === t.relatedProcessId)
-              const isDone = t.status.toLowerCase() === 'concluída'
-              const bgColor = resp?.color || '#cbd5e1'
+              const isDone =
+                t.status.toLowerCase() === 'concluída' || t.status.toLowerCase() === 'concluído'
+              const tStyle = getTaskTypeStyle(t.type)
 
               return (
                 <div
                   key={t.id}
                   onClick={() => handleOpen(t)}
-                  className={`text-[10px] p-1.5 border rounded mb-1 cursor-pointer hover:opacity-90 bg-white ${isDone ? 'opacity-50' : ''}`}
+                  className={`text-[10px] p-1.5 border rounded mb-1 cursor-pointer hover:opacity-90 ${isDone ? 'opacity-50' : ''}`}
                   style={{
-                    backgroundColor: `${bgColor}20`,
+                    backgroundColor: tStyle.hex,
                     borderLeftWidth: '3px',
-                    borderLeftColor: bgColor,
-                    borderColor: `${bgColor}40`,
+                    borderLeftColor: tStyle.hexBorder,
+                    borderColor: tStyle.hexBorder,
                   }}
                 >
                   <div className="font-bold flex justify-between items-start gap-1">
                     <span
-                      className={`truncate ${isDone ? 'line-through text-muted-foreground' : ''}`}
+                      className={`truncate ${tStyle.text} ${isDone ? 'line-through text-muted-foreground' : ''}`}
                     >
                       {t.type}
                     </span>{' '}
                     {resp && (
                       <span
                         className="text-[8px] px-1 py-0.5 rounded truncate max-w-[50px] shrink-0"
-                        style={{ backgroundColor: bgColor, color: '#fff' }}
+                        style={{ backgroundColor: resp.color, color: '#fff' }}
                         title={resp.name}
                       >
                         {resp.name.split(' ')[0]}
@@ -549,7 +636,7 @@ export default function Tasks() {
                     )}
                   </div>
                   <div
-                    className={`truncate mt-0.5 font-medium ${isDone ? 'line-through text-muted-foreground' : 'text-muted-foreground'}`}
+                    className={`truncate mt-0.5 font-medium ${isDone ? 'line-through text-muted-foreground' : 'text-slate-600'}`}
                     title={c?.number || t.title}
                   >
                     {c?.number || t.title}

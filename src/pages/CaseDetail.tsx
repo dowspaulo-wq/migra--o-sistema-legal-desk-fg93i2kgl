@@ -12,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   ArrowLeft,
   Scale,
@@ -41,6 +42,23 @@ import { TaskDialog } from '@/components/TaskDialog'
 import { AppointmentDialog } from '@/components/AppointmentDialog'
 import { TransactionDialog } from '@/components/TransactionDialog'
 import { formatSafeLocalDate } from '@/lib/utils'
+
+const getTaskTypeStyle = (type: string) => {
+  const t = (type || '').toLowerCase()
+  if (t.includes('petições') || t.includes('peticionar')) {
+    return { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' }
+  }
+  if (t.includes('redigir inicial')) {
+    return { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200' }
+  }
+  if (t.includes('recorrer')) {
+    return { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' }
+  }
+  if (t.includes('revisão/protocolo') || t.includes('revisao/protocolo')) {
+    return { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' }
+  }
+  return { bg: 'bg-slate-50', text: 'text-slate-700', border: 'border-slate-200' }
+}
 
 const getAlertLabel = (alert: string) => {
   const trimmed = alert.trim()
@@ -146,6 +164,7 @@ export default function CaseDetail() {
         onSave={(d: any) => updateItem('tasks', editingTask?.id || d.id, d)}
         onDelete={(id: string) => deleteItem('tasks', id)}
         users={state.users}
+        currentUser={state.currentUser}
         clients={state.clients}
         cases={state.cases}
         settings={state.settings}
@@ -157,6 +176,7 @@ export default function CaseDetail() {
         lockedProcessId={c.id}
         onSave={(d: any) => addTask(d)}
         users={state.users}
+        currentUser={state.currentUser}
         clients={state.clients}
         cases={state.cases}
         settings={state.settings}
@@ -578,52 +598,89 @@ export default function CaseDetail() {
               <div className="space-y-3 mt-2">
                 {tasks.map((t) => {
                   const resp = state.users.find((u) => u.id === t.responsibleId)
+
+                  const currentUserRole = state.currentUser?.role?.toLowerCase() || ''
+                  const responsibleUserRole = resp?.role?.toLowerCase() || ''
+                  const isColaborador = currentUserRole === 'colaborador'
+                  const isRespAdmin = responsibleUserRole === 'admin'
+                  const canComplete = !(isColaborador && isRespAdmin)
+
+                  const tStyle = getTaskTypeStyle(t.type)
+
                   return (
                     <div
                       key={t.id}
-                      className="flex flex-col border p-3 rounded-lg hover:bg-slate-50 hover:border-primary/30 cursor-pointer transition-all group"
+                      className={`flex flex-col border p-3 rounded-lg hover:border-primary/30 cursor-pointer transition-all group ${tStyle.bg} ${tStyle.border}`}
                       onClick={() => setEditingTask(t)}
                     >
                       <div className="flex justify-between items-start">
                         <div className="flex-1">
                           <p className="font-semibold text-sm group-hover:text-primary transition-colors flex items-center gap-2">
                             {t.title}
+                            <Badge
+                              variant="outline"
+                              className={`${tStyle.bg} ${tStyle.text} border-transparent shadow-none ml-2 text-[10px]`}
+                            >
+                              {t.type}
+                            </Badge>
                             <Edit className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground" />
                           </p>
                           <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
                             <span>Vencimento: {formatSafeLocalDate(t.dueDate)}</span>
                             {resp && (
-                              <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">
+                              <span className="bg-slate-100/50 px-1.5 py-0.5 rounded text-[10px]">
                                 Resp: <span className="font-medium">{resp.name.split(' ')[0]}</span>
                               </span>
                             )}
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
-                          {t.status !== 'Concluído' && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-7 px-2 text-green-600 border-green-200 hover:text-green-700 hover:bg-green-50 hover:border-green-300 transition-colors"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                updateItem('tasks', t.id, { status: 'Concluído' })
-                                toast({
-                                  title: 'Sucesso',
-                                  description: 'Tarefa marcada como concluída.',
-                                })
-                              }}
-                            >
-                              <Check className="h-3 w-3 mr-1" />
-                              Concluir
-                            </Button>
-                          )}
+                          {t.status !== 'Concluído' &&
+                            (canComplete ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-green-600 border-green-200 hover:text-green-700 hover:bg-green-50 hover:border-green-300 transition-colors bg-white"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  updateItem('tasks', t.id, { status: 'Concluído' })
+                                  toast({
+                                    title: 'Sucesso',
+                                    description: 'Tarefa marcada como concluída.',
+                                  })
+                                }}
+                              >
+                                <Check className="h-3 w-3 mr-1" />
+                                Concluir
+                              </Button>
+                            ) : (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="inline-block cursor-not-allowed">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      disabled
+                                      className="h-7 px-2 bg-white"
+                                    >
+                                      <Check className="h-3 w-3 mr-1" />
+                                      Concluir
+                                    </Button>
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>
+                                    Colaboradores não podem concluir tarefas de Administradores.
+                                  </p>
+                                </TooltipContent>
+                              </Tooltip>
+                            ))}
                           <Badge
                             variant="outline"
                             className={
                               t.status === 'Concluído'
                                 ? 'bg-green-50 text-green-700 border-green-200'
-                                : ''
+                                : 'bg-white'
                             }
                           >
                             {t.status}
@@ -631,7 +688,7 @@ export default function CaseDetail() {
                         </div>
                       </div>
                       {t.description && (
-                        <div className="text-sm text-muted-foreground bg-muted/30 p-2.5 rounded-md border border-border/50 line-clamp-3 whitespace-pre-wrap mt-2">
+                        <div className="text-sm text-muted-foreground bg-white/50 p-2.5 rounded-md border border-border/20 line-clamp-3 whitespace-pre-wrap mt-2">
                           {t.description}
                         </div>
                       )}
