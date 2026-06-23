@@ -94,12 +94,26 @@ export default function CaseDetail() {
   const tasks = state.tasks
     .filter((t) => t.relatedProcessId === id)
     .sort((a: any, b: any) => {
-      const dateA = a.created_at ? new Date(a.created_at).getTime() : 0
-      const dateB = b.created_at ? new Date(b.created_at).getTime() : 0
-      return dateB - dateA
+      const timeA = a.dueDate
+        ? new Date(a.dueDate).getTime()
+        : a.created_at
+          ? new Date(a.created_at).getTime()
+          : 0
+      const timeB = b.dueDate
+        ? new Date(b.dueDate).getTime()
+        : b.created_at
+          ? new Date(b.created_at).getTime()
+          : 0
+      return (Number.isNaN(timeB) ? 0 : timeB) - (Number.isNaN(timeA) ? 0 : timeA)
     })
   const subcases = state.cases.filter((sc) => sc.parentId === id)
-  const processAppointments = state.appointments.filter((a) => a.processId === id)
+  const processAppointments = state.appointments
+    .filter((a) => a.processId === id)
+    .sort((a: any, b: any) => {
+      const dateA = new Date(`${a.date || '1970-01-01'}T${a.time || '00:00'}`).getTime()
+      const dateB = new Date(`${b.date || '1970-01-01'}T${b.time || '00:00'}`).getTime()
+      return (Number.isNaN(dateB) ? 0 : dateB) - (Number.isNaN(dateA) ? 0 : dateA)
+    })
   const parentProcess = c?.parentId ? state.cases.find((x) => x.id === c.parentId) : null
   const responsibleUser = state.users.find((u) => u.id === c?.responsibleId)
 
