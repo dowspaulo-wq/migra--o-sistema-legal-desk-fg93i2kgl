@@ -64,7 +64,7 @@ export function TaskDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{formData.isNew ? 'Nova Tarefa' : 'Editar Tarefa'}</DialogTitle>
         </DialogHeader>
@@ -260,7 +260,7 @@ export function TaskDialog({
             <Textarea
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              rows={3}
+              rows={6}
             />
           </div>
         </div>
