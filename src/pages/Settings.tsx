@@ -460,6 +460,11 @@ export default function Settings() {
                 items={s.bankAccounts || ['ASAAS', 'SICOOB']}
                 onSave={(items) => updateItem('settings', s.id, { bankAccounts: items })}
               />
+              <EditableList
+                title="Posições do Cliente"
+                items={s.clientPositions || []}
+                onSave={(items) => updateItem('settings', s.id, { clientPositions: items })}
+              />
             </TabsContent>
 
             <TabsContent value="users">

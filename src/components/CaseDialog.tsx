@@ -342,10 +342,32 @@ export function CaseDialog({
             {!isSubprocess && (
               <div className="space-y-2">
                 <Label>Posição do Cliente</Label>
-                <Input
-                  value={fd.position}
-                  onChange={(e) => setFd({ ...fd, position: e.target.value })}
-                />
+                <Select
+                  value={fd.position || ''}
+                  onValueChange={(v) => setFd({ ...fd, position: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione a Posição" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(settings.clientPositions || []).map((pos: any) => {
+                      const label = typeof pos === 'string' ? pos : pos.label
+                      return (
+                        <SelectItem key={label} value={label}>
+                          {label}
+                        </SelectItem>
+                      )
+                    })}
+                    {fd.position &&
+                      !(settings.clientPositions || []).some(
+                        (p: any) => (typeof p === 'string' ? p : p.label) === fd.position,
+                      ) && (
+                        <SelectItem key={fd.position} value={fd.position}>
+                          {fd.position}
+                        </SelectItem>
+                      )}
+                  </SelectContent>
+                </Select>
               </div>
             )}
 
