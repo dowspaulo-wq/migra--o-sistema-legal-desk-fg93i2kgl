@@ -34,6 +34,7 @@ import {
   Trash,
   Check,
   Briefcase,
+  FileSignature,
 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
@@ -42,6 +43,7 @@ import { TaskDialog } from '@/components/TaskDialog'
 import { AppointmentDialog } from '@/components/AppointmentDialog'
 import { TransactionDialog } from '@/components/TransactionDialog'
 import { formatSafeLocalDate } from '@/lib/utils'
+import { createZapSignDoc } from '@/services/zapsign'
 
 const getTaskTypeStyle = (type: string) => {
   const t = (type || '').toLowerCase()
@@ -88,6 +90,7 @@ export default function CaseDetail() {
 
   const [editingTransaction, setEditingTransaction] = useState<any>(null)
   const [creatingTransaction, setCreatingTransaction] = useState(false)
+  const [zapsignLoading, setZapsignLoading] = useState<string | null>(null)
 
   const c = state.cases.find((x) => x.id === id)
   const client = state.clients.find((cl) => cl.id === c?.clientId)
@@ -154,6 +157,35 @@ export default function CaseDetail() {
     a.click()
     URL.revokeObjectURL(url)
     toast({ title: 'Sucesso', description: 'Documento gerado e baixado.' })
+  }
+
+  const handleZapSign = async (docType: string) => {
+    if (!c?.clientId) {
+      toast({
+        title: 'Atenção',
+        description: 'Este processo não tem cliente vinculado.',
+        variant: 'destructive',
+      })
+      return
+    }
+    setZapsignLoading(docType)
+    const { data, error } = await createZapSignDoc(c.id, c.clientId, docType)
+    setZapsignLoading(null)
+    if (error) {
+      toast({
+        title: 'Erro',
+        description: error.message || 'Falha ao criar documento.',
+        variant: 'destructive',
+      })
+    } else {
+      toast({
+        title: 'Sucesso',
+        description: 'Documento enviado para assinatura via ZapSign.',
+      })
+      if (data?.url) {
+        window.open(data.url, '_blank')
+      }
+    }
   }
 
   return (
@@ -397,13 +429,14 @@ export default function CaseDetail() {
       </div>
 
       <Tabs defaultValue="info" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-6 h-auto max-w-4xl gap-1 p-1">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-7 h-auto max-w-4xl gap-1 p-1">
           <TabsTrigger value="info">Informações</TabsTrigger>
           <TabsTrigger value="subprocessos">Subprocessos</TabsTrigger>
           <TabsTrigger value="tasks">Tarefas</TabsTrigger>
           <TabsTrigger value="agenda">Agenda</TabsTrigger>
           <TabsTrigger value="despesas">Despesas</TabsTrigger>
           <TabsTrigger value="docs">Documentos</TabsTrigger>
+          <TabsTrigger value="assinaturas">Assinaturas</TabsTrigger>
         </TabsList>
 
         <TabsContent value="info" className="mt-4 space-y-4">
@@ -1016,6 +1049,60 @@ export default function CaseDetail() {
               </div>
               <Button onClick={generateDoc} className="w-full" disabled={!selectedTpl}>
                 <Download className="mr-2 h-4 w-4" /> Gerar Documento (.doc)
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="assinaturas" className="mt-4">
+          <Card className="shadow-sm border-primary/20 bg-primary/5">
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2 text-primary">
+                <FileSignature className="h-5 w-5" /> Assinaturas Digitais (ZapSign)
+              </CardTitle>
+              <CardDescription>
+                Gere documentos legais e envie para assinatura digital do cliente.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl">
+              <Button
+                variant="outline"
+                className="h-auto py-6 flex flex-col gap-2"
+                disabled={zapsignLoading !== null}
+                onClick={() => handleZapSign('procuracao')}
+              >
+                <FileSignature className="h-6 w-6 text-primary" />
+                <span className="font-medium">Procuração</span>
+                <span className="text-xs text-muted-foreground">Procuração Ad Judicia</span>
+                {zapsignLoading === 'procuracao' && (
+                  <span className="text-xs text-primary animate-pulse">Gerando...</span>
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                className="h-auto py-6 flex flex-col gap-2"
+                disabled={zapsignLoading !== null}
+                onClick={() => handleZapSign('hipossuficiencia')}
+              >
+                <FileSignature className="h-6 w-6 text-primary" />
+                <span className="font-medium">Hipossuficiência</span>
+                <span className="text-xs text-muted-foreground">Declaração</span>
+                {zapsignLoading === 'hipossuficiencia' && (
+                  <span className="text-xs text-primary animate-pulse">Gerando...</span>
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                className="h-auto py-6 flex flex-col gap-2"
+                disabled={zapsignLoading !== null}
+                onClick={() => handleZapSign('contrato')}
+              >
+                <FileSignature className="h-6 w-6 text-primary" />
+                <span className="font-medium">Contrato</span>
+                <span className="text-xs text-muted-foreground">Honorários</span>
+                {zapsignLoading === 'contrato' && (
+                  <span className="text-xs text-primary animate-pulse">Gerando...</span>
+                )}
               </Button>
             </CardContent>
           </Card>

@@ -26,11 +26,14 @@ import {
   Plus,
   Star,
   Calendar,
+  RefreshCw,
 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { ClientDialog } from '@/components/ClientDialog'
 import { CaseDialog } from '@/components/CaseDialog'
 import { AppointmentDialog } from '@/components/AppointmentDialog'
+import { syncClientWithAsaas } from '@/services/asaas'
+import { toast } from '@/hooks/use-toast'
 
 export default function ClientDetail() {
   const { id } = useParams<{ id: string }>()
@@ -40,6 +43,7 @@ export default function ClientDetail() {
   const [isCreatingCase, setIsCreatingCase] = useState(false)
   const [isApptOpen, setIsApptOpen] = useState(false)
   const [editingAppt, setEditingAppt] = useState<any>(null)
+  const [syncingAsaas, setSyncingAsaas] = useState(false)
 
   const client = state.clients.find((c) => c.id === id)
   const allCases = state.cases.filter((c) => c.clientId === id)
@@ -62,6 +66,24 @@ export default function ClientDetail() {
 
   const handleApptDelete = (item: any) => {
     deleteItem('appointments', item.id)
+  }
+
+  const handleAsaasSync = async () => {
+    setSyncingAsaas(true)
+    const { data, error } = await syncClientWithAsaas(client.id)
+    setSyncingAsaas(false)
+    if (error) {
+      toast({
+        title: 'Erro',
+        description: error.message || 'Falha ao sincronizar com ASAAS.',
+        variant: 'destructive',
+      })
+    } else {
+      toast({
+        title: 'Sucesso',
+        description: data?.message || 'Cliente sincronizado com ASAAS.',
+      })
+    }
   }
 
   return (
@@ -114,6 +136,10 @@ export default function ClientDetail() {
             </Button>
             <Button variant="default" size="sm" onClick={() => setIsCreatingCase(true)}>
               <Plus className="h-4 w-4 mr-2" /> Cadastrar novo processo
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleAsaasSync} disabled={syncingAsaas}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${syncingAsaas ? 'animate-spin' : ''}`} />
+              {syncingAsaas ? 'Sincronizando...' : 'Sincronizar com ASAAS'}
             </Button>
             {state.currentUser.role === 'Admin' && (
               <AlertDialog>

@@ -20,7 +20,16 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Plus, ArrowUpRight, ArrowDownRight, Download, Trash, Filter, Edit } from 'lucide-react'
+import {
+  Plus,
+  ArrowUpRight,
+  ArrowDownRight,
+  Download,
+  Trash,
+  Filter,
+  Edit,
+  Send,
+} from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer } from 'recharts'
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import useLegalStore from '@/stores/useLegalStore'
@@ -29,6 +38,8 @@ import { downloadCSV } from '@/lib/export'
 import { TransactionDialog } from '@/components/TransactionDialog'
 import { formatSafeLocalDate } from '@/lib/utils'
 import { SupplierDialog } from '@/components/SupplierDialog'
+import { syncChargeWithAsaas } from '@/services/asaas'
+import { toast } from '@/hooks/use-toast'
 
 export default function Finance() {
   const { state, updateItem, deleteItem, addTransaction, addSupplier } = useLegalStore() as any
@@ -53,6 +64,7 @@ export default function Finance() {
 
   const [editingSupplier, setEditingSupplier] = useState<any>(null)
   const [creatingSupplier, setCreatingSupplier] = useState(false)
+  const [syncingAsaasId, setSyncingAsaasId] = useState<string | null>(null)
 
   const baseTransactions = useMemo(() => {
     // Only show transactions sent to finance
@@ -117,6 +129,24 @@ export default function Finance() {
     baseTransactions.forEach((t) => t.bankAccount && banks.add(t.bankAccount))
     return Array.from(banks).sort()
   }, [baseTransactions, state.settings?.bankAccounts])
+
+  const handleAsaasChargeSync = async (transactionId: string) => {
+    setSyncingAsaasId(transactionId)
+    const { data, error } = await syncChargeWithAsaas(transactionId)
+    setSyncingAsaasId(null)
+    if (error) {
+      toast({
+        title: 'Erro',
+        description: error.message || 'Falha ao enviar para ASAAS.',
+        variant: 'destructive',
+      })
+    } else {
+      toast({
+        title: 'Sucesso',
+        description: data?.message || 'Cobrança enviada para ASAAS.',
+      })
+    }
+  }
 
   if (!state.currentUser.canViewFinance) return <Navigate to="/" replace />
 
@@ -423,19 +453,36 @@ export default function Finance() {
                           {t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </TableCell>
                         <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              if (confirm('Deseja excluir este lançamento?')) {
-                                deleteItem('transactions', t.id)
-                              }
-                            }}
-                          >
-                            <Trash className="h-4 w-4" />
-                          </Button>
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-blue-500 hover:text-blue-700 hover:bg-blue-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleAsaasChargeSync(t.id)
+                              }}
+                              disabled={syncingAsaasId === t.id}
+                              title="Enviar para ASAAS"
+                            >
+                              <Send
+                                className={`h-4 w-4 ${syncingAsaasId === t.id ? 'animate-pulse' : ''}`}
+                              />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                if (confirm('Deseja excluir este lançamento?')) {
+                                  deleteItem('transactions', t.id)
+                                }
+                              }}
+                            >
+                              <Trash className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
