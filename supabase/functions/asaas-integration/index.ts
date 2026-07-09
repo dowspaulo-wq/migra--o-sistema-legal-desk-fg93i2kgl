@@ -1,6 +1,12 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'jsr:@supabase/supabase-js@2'
-import { corsHeaders } from '../_shared/cors.ts'
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, x-supabase-client-platform, apikey, content-type',
+}
 
 const ASAAS_BASE_URL = 'https://api.asaas.com/v3'
 
@@ -10,6 +16,13 @@ function formatPhone(phone: string): string | undefined {
   if (digits.length === 0) return undefined
   if (digits.startsWith('55')) return digits
   if (digits.length === 10 || digits.length === 11) return `55${digits}`
+  return digits
+}
+
+function formatCep(cep: string): string | undefined {
+  if (!cep) return undefined
+  const digits = cep.replace(/\D/g, '')
+  if (digits.length === 0) return undefined
   return digits
 }
 
@@ -48,13 +61,33 @@ Deno.serve(async (req: Request) => {
 
       const asaasId = (client as any).asaas_id
 
+      const fullAddress = [
+        (client as any).street,
+        (client as any).number,
+        (client as any).complement,
+        (client as any).neighborhood,
+        (client as any).city,
+      ]
+        .filter(Boolean)
+        .join(', ')
+
       const customerData: any = {
         name: client.name,
         cpfCnpj: client.document || undefined,
         email: client.email || undefined,
         phone: formatPhone(client.phone),
-        address: client.address || undefined,
+        mobilePhone: formatPhone(client.phone),
+        postalCode: formatCep((client as any).cep),
+        address: (client as any).street || client.address || undefined,
+        addressNumber: (client as any).number || undefined,
+        complement: (client as any).complement || undefined,
+        province: (client as any).neighborhood || undefined,
+        city: (client as any).city || undefined,
         notificationDisabled: false,
+      }
+
+      if (!customerData.address && fullAddress) {
+        customerData.address = fullAddress
       }
 
       Object.keys(customerData).forEach((k) => {

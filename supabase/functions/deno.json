@@ -1,8 +1,8 @@
 {
   "_versions": {
-    "create-user": 11,
-    "google-calendar": 14,
-    "asaas-integration": 1,
-    "zapsign-integration": 1
+    "create-user": 14,
+    "google-calendar": 16,
+    "asaas-integration": 4,
+    "zapsign-integration": 4
   }
 }

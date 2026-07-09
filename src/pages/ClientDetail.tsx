@@ -194,7 +194,7 @@ export default function ClientDetail() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground flex items-center gap-2">
-                <MessageCircle className="h-4 w-4" /> Telefone
+                <MessageCircle className="h-4 w-4" /> Celular
               </p>
               <p className="font-medium flex items-center gap-2 text-sm">
                 {client.phone || 'Não informado'}
@@ -212,9 +212,37 @@ export default function ClientDetail() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground flex items-center gap-2">
-                <MapPin className="h-4 w-4" /> Endereço
+                <MapPin className="h-4 w-4" /> CEP
               </p>
-              <p className="font-medium text-sm">{client.address || 'Não informado'}</p>
+              <p className="font-medium text-sm">{client.cep || 'Não informado'}</p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground flex items-center gap-2">
+                <MapPin className="h-4 w-4" /> Rua
+              </p>
+              <p className="font-medium text-sm">
+                {client.street || client.address || 'Não informado'}
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-sm text-muted-foreground">Número</p>
+                <p className="font-medium text-sm">{client.number || 'Não informado'}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Complemento</p>
+                <p className="font-medium text-sm">{client.complement || 'Não informado'}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-sm text-muted-foreground">Bairro</p>
+                <p className="font-medium text-sm">{client.neighborhood || 'Não informado'}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Cidade</p>
+                <p className="font-medium text-sm">{client.city || 'Não informado'}</p>
+              </div>
             </div>
           </CardContent>
         </Card>

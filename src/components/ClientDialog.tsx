@@ -22,6 +22,30 @@ import { Star } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 
+function getEmptyForm(users: any[]) {
+  const douglasUser = users.find((u: any) => u.name && u.name.toLowerCase().includes('douglas'))
+  return {
+    name: '',
+    document: '',
+    type: '',
+    email: '',
+    phone: '',
+    address: '',
+    cep: '',
+    street: '',
+    number: '',
+    complement: '',
+    neighborhood: '',
+    city: '',
+    birthday: '',
+    status: '',
+    isSpecial: false,
+    observacoes: '',
+    responsibleId: douglasUser ? douglasUser.id : '',
+    captacao: '',
+  }
+}
+
 export function ClientDialog({ open, onOpenChange, client, onSave, users, settings }: any) {
   const { state } = useLegalStore()
   const isAdmin = state.currentUser?.role === 'Admin'
@@ -42,21 +66,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
       /* intentionally ignored */
     }
 
-    const douglasUser = users.find((u: any) => u.name && u.name.toLowerCase().includes('douglas'))
-    return {
-      name: '',
-      document: '',
-      type: '',
-      email: '',
-      phone: '',
-      address: '',
-      birthday: '',
-      status: '',
-      isSpecial: false,
-      observacoes: '',
-      responsibleId: douglasUser ? douglasUser.id : '',
-      captacao: '',
-    }
+    return getEmptyForm(users)
   })
 
   useEffect(() => {
@@ -73,21 +83,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
         /* intentionally ignored */
       }
 
-      const douglasUser = users.find((u: any) => u.name && u.name.toLowerCase().includes('douglas'))
-      setFd({
-        name: '',
-        document: '',
-        type: '',
-        email: '',
-        phone: '',
-        address: '',
-        birthday: '',
-        status: '',
-        isSpecial: false,
-        observacoes: '',
-        responsibleId: douglasUser ? douglasUser.id : '',
-        captacao: '',
-      })
+      setFd(getEmptyForm(users))
     }
   }, [client, open, users])
 
@@ -99,21 +95,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
 
   const clearDraft = () => {
     sessionStorage.removeItem('client_form_draft')
-    const douglasUser = users.find((u: any) => u.name && u.name.toLowerCase().includes('douglas'))
-    setFd({
-      name: '',
-      document: '',
-      type: '',
-      email: '',
-      phone: '',
-      address: '',
-      birthday: '',
-      status: '',
-      isSpecial: false,
-      observacoes: '',
-      responsibleId: douglasUser ? douglasUser.id : '',
-      captacao: '',
-    })
+    setFd(getEmptyForm(users))
   }
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -123,6 +105,25 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
       toast({
         title: 'Campos Obrigatórios',
         description: 'Nome, Tipo, Status e Responsável são de preenchimento obrigatório.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    const requiredAddressFields = [
+      { key: 'cep', label: 'CEP' },
+      { key: 'street', label: 'Rua' },
+      { key: 'number', label: 'Número' },
+      { key: 'neighborhood', label: 'Bairro' },
+      { key: 'city', label: 'Cidade' },
+    ]
+    const missingFields = requiredAddressFields.filter(
+      (f) => !fd[f.key] || !String(fd[f.key]).trim(),
+    )
+    if (missingFields.length > 0) {
+      toast({
+        title: 'Campos de Endereço Obrigatórios',
+        description: `Os seguintes campos são obrigatórios para integração com ASAAS: ${missingFields.map((f) => f.label).join(', ')}.`,
         variant: 'destructive',
       })
       return
@@ -144,7 +145,11 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
       return
     }
 
-    const payload = { ...fd }
+    const fullAddress = [fd.street, fd.number, fd.complement, fd.neighborhood, fd.city]
+      .filter(Boolean)
+      .join(', ')
+
+    const payload = { ...fd, address: fullAddress }
     const { isNew, ...finalPayload } = payload
 
     if (!client) {
@@ -157,7 +162,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <form onSubmit={handleSubmit} className="grid gap-4">
           <DialogHeader>
             <DialogTitle>{client ? 'Editar' : 'Cadastrar'} Cliente</DialogTitle>
@@ -259,7 +264,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
             </div>
 
             <div className="space-y-2">
-              <Label>WhatsApp</Label>
+              <Label>Celular</Label>
               <Input value={fd.phone} onChange={(e) => setFd({ ...fd, phone: e.target.value })} />
             </div>
 
@@ -277,6 +282,63 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="col-span-2">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="h-px flex-1 bg-border" />
+                <span className="text-xs font-medium text-muted-foreground">Endereço</span>
+                <div className="h-px flex-1 bg-border" />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>CEP *</Label>
+              <Input
+                value={fd.cep || ''}
+                onChange={(e) => setFd({ ...fd, cep: e.target.value })}
+                placeholder="00000-000"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Cidade *</Label>
+              <Input
+                value={fd.city || ''}
+                onChange={(e) => setFd({ ...fd, city: e.target.value })}
+              />
+            </div>
+
+            <div className="col-span-2 space-y-2">
+              <Label>Rua *</Label>
+              <Input
+                value={fd.street || ''}
+                onChange={(e) => setFd({ ...fd, street: e.target.value })}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Número *</Label>
+              <Input
+                value={fd.number || ''}
+                onChange={(e) => setFd({ ...fd, number: e.target.value })}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Complemento</Label>
+              <Input
+                value={fd.complement || ''}
+                onChange={(e) => setFd({ ...fd, complement: e.target.value })}
+              />
+            </div>
+
+            <div className="col-span-2 space-y-2">
+              <Label>Bairro *</Label>
+              <Input
+                value={fd.neighborhood || ''}
+                onChange={(e) => setFd({ ...fd, neighborhood: e.target.value })}
+              />
             </div>
 
             <div className="col-span-2 space-y-2">

@@ -218,6 +218,7 @@ export type Database = {
       clients: {
         Row: {
           address: string | null
+          asaas_id: string | null
           birthday: string | null
           captacao: string | null
           classification: string | null
@@ -235,6 +236,7 @@ export type Database = {
         }
         Insert: {
           address?: string | null
+          asaas_id?: string | null
           birthday?: string | null
           captacao?: string | null
           classification?: string | null
@@ -252,6 +254,7 @@ export type Database = {
         }
         Update: {
           address?: string | null
+          asaas_id?: string | null
           birthday?: string | null
           captacao?: string | null
           classification?: string | null
@@ -515,6 +518,7 @@ export type Database = {
       transactions: {
         Row: {
           amount: number
+          asaas_id: string | null
           bankAccount: string | null
           category: string
           clientId: string | null
@@ -530,6 +534,7 @@ export type Database = {
         }
         Insert: {
           amount?: number
+          asaas_id?: string | null
           bankAccount?: string | null
           category: string
           clientId?: string | null
@@ -545,6 +550,7 @@ export type Database = {
         }
         Update: {
           amount?: number
+          asaas_id?: string | null
           bankAccount?: string | null
           category?: string
           clientId?: string | null
