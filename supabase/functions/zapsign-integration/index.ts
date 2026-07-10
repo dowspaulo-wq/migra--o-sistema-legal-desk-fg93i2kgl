@@ -105,11 +105,6 @@ function buildDocContent(
     : 'A combinar'
 
   if (docType === 'procuracao') {
-    return {
-      title: 'PROCURACAO AD JUDICIA ET EXTRA',
-      docName: `Procuracao - ${clientName}`,
-      body: [
-        `OUTORGANTE: ${qualification}`,
 =======
   if (docType === 'procuracao') {
     return {
