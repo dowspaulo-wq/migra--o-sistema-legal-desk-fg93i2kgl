@@ -34,6 +34,8 @@ import { CaseDialog } from '@/components/CaseDialog'
 import { AppointmentDialog } from '@/components/AppointmentDialog'
 import { syncClientWithAsaas } from '@/services/asaas'
 import { toast } from '@/hooks/use-toast'
+import { ClientFeesDialog } from '@/components/ClientFeesDialog'
+import { formatSafeLocalDate } from '@/lib/utils'
 
 export default function ClientDetail() {
   const { id } = useParams<{ id: string }>()
@@ -44,6 +46,7 @@ export default function ClientDetail() {
   const [isApptOpen, setIsApptOpen] = useState(false)
   const [editingAppt, setEditingAppt] = useState<any>(null)
   const [syncingAsaas, setSyncingAsaas] = useState(false)
+  const [isFeeOpen, setIsFeeOpen] = useState(false)
 
   const client = state.clients.find((c) => c.id === id)
   const allCases = state.cases.filter((c) => c.clientId === id)
@@ -51,6 +54,17 @@ export default function ClientDetail() {
   const clientAppointments = state.appointments
     .filter((a) => a.clientId === id)
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+
+  const clientFees = state.transactions
+    .filter((t) => t.clientId === id && t.category === 'Honorários Contratuais')
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+  const getLinkedCaseNumbers = (transactionId: string) => {
+    const linkedCaseIds = (state.transactionCases || [])
+      .filter((tc) => tc.transaction_id === transactionId)
+      .map((tc) => tc.case_id)
+    return state.cases.filter((c) => linkedCaseIds.includes(c.id)).map((c) => c.number)
+  }
 
   if (!client) return <div className="p-8 text-center">Cliente não encontrado.</div>
 
@@ -118,6 +132,13 @@ export default function ClientDetail() {
         users={state.users}
         clients={state.clients}
         settings={state.settings}
+      />
+
+      <ClientFeesDialog
+        open={isFeeOpen}
+        onOpenChange={setIsFeeOpen}
+        clientId={client.id}
+        cases={allCases}
       />
 
       <div className="flex items-start gap-4">
@@ -444,6 +465,62 @@ export default function ClientDetail() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-1">
+        <Card className="shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <FileText className="h-5 w-5" /> HONORÁRIOS ({clientFees.length})
+            </CardTitle>
+            <Button variant="outline" size="sm" onClick={() => setIsFeeOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" /> Novo Honorário
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {clientFees.length === 0 ? (
+              <p className="text-muted-foreground text-sm">
+                Nenhum honorário cadastrado para este cliente.
+              </p>
+            ) : (
+              <div className="space-y-3 mt-2">
+                {clientFees.map((t) => {
+                  const linkedNumbers = getLinkedCaseNumbers(t.id)
+                  return (
+                    <div
+                      key={t.id}
+                      className="flex flex-col sm:flex-row sm:items-center justify-between border p-4 rounded-lg hover:bg-slate-50 transition-colors gap-4"
+                    >
+                      <div className="flex flex-col gap-1">
+                        <span className="font-semibold text-sm">{t.description}</span>
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <span>Vencimento: {formatSafeLocalDate(t.date)}</span>
+                          {linkedNumbers.length > 0 && (
+                            <span>• Processos: {linkedNumbers.join(', ')}</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="font-bold text-green-600 text-sm">
+                          R$ {t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </span>
+                        <Badge
+                          variant={
+                            t.status === 'Pago' || t.status === 'Realizado'
+                              ? 'secondary'
+                              : 'default'
+                          }
+                        >
+                          {t.status}
+                        </Badge>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             )}
           </CardContent>

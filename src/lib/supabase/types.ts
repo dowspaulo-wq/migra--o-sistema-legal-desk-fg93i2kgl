@@ -221,17 +221,23 @@ export type Database = {
           asaas_id: string | null
           birthday: string | null
           captacao: string | null
+          cep: string | null
+          city: string | null
           classification: string | null
+          complement: string | null
           created_at: string
           document: string | null
           email: string | null
           id: string
           isSpecial: boolean
           name: string
+          neighborhood: string | null
+          number: string | null
           observacoes: string | null
           phone: string | null
           responsibleId: string | null
           status: string
+          street: string | null
           type: string
         }
         Insert: {
@@ -239,17 +245,23 @@ export type Database = {
           asaas_id?: string | null
           birthday?: string | null
           captacao?: string | null
+          cep?: string | null
+          city?: string | null
           classification?: string | null
+          complement?: string | null
           created_at?: string
           document?: string | null
           email?: string | null
           id?: string
           isSpecial?: boolean
           name: string
+          neighborhood?: string | null
+          number?: string | null
           observacoes?: string | null
           phone?: string | null
           responsibleId?: string | null
           status?: string
+          street?: string | null
           type: string
         }
         Update: {
@@ -257,17 +269,23 @@ export type Database = {
           asaas_id?: string | null
           birthday?: string | null
           captacao?: string | null
+          cep?: string | null
+          city?: string | null
           classification?: string | null
+          complement?: string | null
           created_at?: string
           document?: string | null
           email?: string | null
           id?: string
           isSpecial?: boolean
           name?: string
+          neighborhood?: string | null
+          number?: string | null
           observacoes?: string | null
           phone?: string | null
           responsibleId?: string | null
           status?: string
+          street?: string | null
           type?: string
         }
         Relationships: [

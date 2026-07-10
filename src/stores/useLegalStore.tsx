@@ -34,9 +34,17 @@ export interface CaseSystem {
   created_at?: string
 }
 
+export interface TransactionCase {
+  id: string
+  transaction_id: string
+  case_id: string
+  created_at: string
+}
+
 export interface LegalState extends BaseLegalState {
   suppliers: Supplier[]
   caseSystems: CaseSystem[]
+  transactionCases: TransactionCase[]
 }
 import { toast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase/client'
@@ -55,6 +63,15 @@ interface LegalContextType {
   addTransaction: (t: Omit<Transaction, 'id'> | Omit<Transaction, 'id'>[]) => void
   addSupplier: (s: Omit<Supplier, 'id'>) => void
   addPetition: (p: Omit<any, 'id' | 'created_at'>) => void
+  addClientFee: (fee: {
+    amount: number
+    description: string
+    date: string
+    clientId: string
+    caseIds: string[]
+    bankAccount?: string
+    status?: string
+  }) => Promise<void>
   updateUser: (id: string, changes: Partial<User>) => void
   addUser: (user: any) => void
   renameType: (table: string, column: string, oldVal: string, newVal: string) => void
@@ -64,7 +81,12 @@ const LegalContext = createContext<LegalContextType | undefined>(undefined)
 
 export function LegalStoreProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
-  const [state, setState] = useState<LegalState>({ ...initialData, suppliers: [], caseSystems: [] })
+  const [state, setState] = useState<LegalState>({
+    ...initialData,
+    suppliers: [],
+    caseSystems: [],
+    transactionCases: [],
+  })
 
   useEffect(() => {
     if (!user) return
@@ -83,6 +105,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           'whatsapp_messages',
           'suppliers',
           'case_systems',
+          'transaction_cases',
         ]
 
         // Fetch all tables
@@ -185,6 +208,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           caseSystems: (results[11]?.data || []).sort(
             (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
           ),
+          transactionCases: results[12]?.data || [],
         })
       } catch (err) {
         console.error('Failed to load initial data', err)
@@ -524,6 +548,68 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const addClientFee = useCallback(
+    async (fee: {
+      amount: number
+      description: string
+      date: string
+      clientId: string
+      caseIds: string[]
+      bankAccount?: string
+      status?: string
+    }) => {
+      const transactionData = {
+        description: fee.description,
+        amount: fee.amount,
+        type: 'income',
+        category: 'Honorários Contratuais',
+        status: fee.status || 'Previsto',
+        date: fee.date,
+        clientId: fee.clientId,
+        sendToFinance: true,
+        bankAccount: fee.bankAccount || 'ASAAS',
+      }
+
+      const { data: txnData, error: txnError } = await supabase
+        .from('transactions')
+        .insert(transactionData)
+        .select()
+        .single()
+
+      if (txnError)
+        return toast({ title: 'Erro', description: txnError.message, variant: 'destructive' })
+
+      setState((prev) => ({
+        ...prev,
+        transactions: [txnData, ...prev.transactions].sort(
+          (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+        ),
+      }))
+
+      if (fee.caseIds.length > 0) {
+        const links = fee.caseIds.map((caseId) => ({
+          transaction_id: txnData.id,
+          case_id: caseId,
+        }))
+
+        const { data: linkData, error: linkError } = await supabase
+          .from('transaction_cases')
+          .insert(links)
+          .select()
+
+        if (linkData && !linkError) {
+          setState((prev) => ({
+            ...prev,
+            transactionCases: [...(prev.transactionCases || []), ...linkData],
+          }))
+        }
+      }
+
+      toast({ title: 'Honorário criado com sucesso!' })
+    },
+    [],
+  )
+
   const updateUser = useCallback(async (id: string, changes: Partial<User>) => {
     setState((prev) => ({
       ...prev,
@@ -574,6 +660,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         addTransaction,
         addSupplier,
         addPetition,
+        addClientFee,
         updateUser,
         addUser,
         renameType,

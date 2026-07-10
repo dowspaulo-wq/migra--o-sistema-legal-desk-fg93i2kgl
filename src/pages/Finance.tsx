@@ -416,6 +416,7 @@ export default function Finance() {
                       <TableHead>Descrição</TableHead>
                       <TableHead>Categoria</TableHead>
                       <TableHead>Conta</TableHead>
+                      <TableHead>Processos</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Valor</TableHead>
                       <TableHead className="w-[50px]"></TableHead>
@@ -432,6 +433,36 @@ export default function Finance() {
                         <TableCell className="font-medium">{t.description}</TableCell>
                         <TableCell>{t.category}</TableCell>
                         <TableCell>{t.bankAccount || '-'}</TableCell>
+                        <TableCell>
+                          {(() => {
+                            const linkedIds = (state.transactionCases || [])
+                              .filter((tc: any) => tc.transaction_id === t.id)
+                              .map((tc: any) => tc.case_id)
+                            const linkedCases = state.cases.filter((c) => linkedIds.includes(c.id))
+                            if (linkedCases.length > 0) {
+                              return (
+                                <div className="flex flex-wrap gap-1">
+                                  {linkedCases.map((c) => (
+                                    <Badge key={c.id} variant="secondary" className="text-[10px]">
+                                      {c.number}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              )
+                            }
+                            if (t.processId) {
+                              const directCase = state.cases.find((c) => c.id === t.processId)
+                              return directCase ? (
+                                <Badge variant="secondary" className="text-[10px]">
+                                  {directCase.number}
+                                </Badge>
+                              ) : (
+                                '-'
+                              )
+                            }
+                            return '-'
+                          })()}
+                        </TableCell>
                         <TableCell>
                           <Badge
                             variant="outline"
@@ -488,7 +519,7 @@ export default function Finance() {
                     ))}
                     {filtered.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                           Nenhum lançamento encontrado.
                         </TableCell>
                       </TableRow>
