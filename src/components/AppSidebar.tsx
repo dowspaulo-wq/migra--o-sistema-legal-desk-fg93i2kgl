@@ -11,6 +11,7 @@ import {
   Settings,
   History,
   MessageCircle,
+  Wallet,
 } from 'lucide-react'
 import {
   Sidebar,
@@ -33,6 +34,7 @@ const navigation = [
   { name: 'Agenda', href: '/agenda', icon: CalendarIcon },
   { name: 'Tarefas', href: '/tarefas', icon: CheckSquare },
   { name: 'Financeiro', href: '/financeiro', icon: DollarSign },
+  { name: 'Dashboard Financeiro', href: '/dashboard-financeiro', icon: Wallet },
   { name: 'Petições', href: '/peticoes', icon: FileText },
   { name: 'Logs', href: '/logs', icon: History },
   { name: 'Configurações', href: '/configuracoes', icon: Settings },
@@ -45,6 +47,12 @@ export default function AppSidebar() {
 
   const navItems = navigation.filter((item) => {
     if (item.name === 'Financeiro' && !legalState.currentUser.canViewFinance) return false
+    if (
+      item.name === 'Dashboard Financeiro' &&
+      !legalState.currentUser.canViewFinance &&
+      legalState.currentUser.role !== 'Admin'
+    )
+      return false
     if (item.name === 'Configurações' && legalState.currentUser.role !== 'Admin') return false
     if (item.name === 'Agenda' && legalState.currentUser.role !== 'Admin') return false
     return true

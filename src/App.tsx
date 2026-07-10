@@ -11,6 +11,7 @@ import CaseDetail from './pages/CaseDetail'
 import Agenda from './pages/Agenda'
 import Tasks from './pages/Tasks'
 import Finance from './pages/Finance'
+import FinancialDashboard from './pages/FinancialDashboard'
 import Petitions from './pages/Petitions'
 import Logs from './pages/Logs'
 import SettingsPage from './pages/Settings'
@@ -59,6 +60,7 @@ const App = () => (
               />
               <Route path="/tarefas" element={<Tasks />} />
               <Route path="/financeiro" element={<Finance />} />
+              <Route path="/dashboard-financeiro" element={<FinancialDashboard />} />
               <Route path="/peticoes" element={<Petitions />} />
               <Route path="/logs" element={<Logs />} />
               <Route path="/configuracoes" element={<SettingsWrapper />} />

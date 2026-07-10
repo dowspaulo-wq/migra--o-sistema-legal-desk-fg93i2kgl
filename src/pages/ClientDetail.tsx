@@ -4,6 +4,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -28,6 +36,8 @@ import {
   Calendar,
   RefreshCw,
   Send,
+  Link2,
+  AlertTriangle,
 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { ClientDialog } from '@/components/ClientDialog'
@@ -36,7 +46,9 @@ import { AppointmentDialog } from '@/components/AppointmentDialog'
 import { syncClientWithAsaas, cancelChargeWithAsaas, syncChargeWithAsaas } from '@/services/asaas'
 import { toast } from '@/hooks/use-toast'
 import { ClientFeesDialog } from '@/components/ClientFeesDialog'
+import { LinkTransactionToCaseDialog } from '@/components/LinkTransactionToCaseDialog'
 import { formatSafeLocalDate } from '@/lib/utils'
+import { supabase } from '@/lib/supabase/client'
 
 export default function ClientDetail() {
   const { id } = useParams<{ id: string }>()
@@ -53,6 +65,7 @@ export default function ClientDetail() {
   const [feeDeleteError, setFeeDeleteError] = useState<string | null>(null)
   const [syncingFeeId, setSyncingFeeId] = useState<string | null>(null)
   const [bulkSyncing, setBulkSyncing] = useState(false)
+  const [linkingTx, setLinkingTx] = useState<any>(null)
 
   const client = state.clients.find((c) => c.id === id)
   const allCases = state.cases.filter((c) => c.clientId === id)
@@ -64,6 +77,27 @@ export default function ClientDetail() {
   const clientFees = state.transactions
     .filter((t) => t.clientId === id && t.category === 'Honorários Contratuais')
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+  const allClientTransactions = state.transactions
+    .filter((t) => t.clientId === id)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+  const isTransactionLinked = (transactionId: string, processId: string | null) => {
+    if (processId) return true
+    return (state.transactionCases || []).some((tc) => tc.transaction_id === transactionId)
+  }
+
+  const getTransactionLinkedCases = (transactionId: string, processId: string | null) => {
+    const linkedCaseIds = (state.transactionCases || [])
+      .filter((tc) => tc.transaction_id === transactionId)
+      .map((tc) => tc.case_id)
+    const allLinkedIds = processId ? [...linkedCaseIds, processId] : linkedCaseIds
+    return state.cases.filter((c) => allLinkedIds.includes(c.id))
+  }
+
+  const unlinkedCount = allClientTransactions.filter(
+    (t) => !isTransactionLinked(t.id, t.processId),
+  ).length
 
   const getLinkedCaseNumbers = (transactionId: string) => {
     const linkedCaseIds = (state.transactionCases || [])
@@ -99,9 +133,15 @@ export default function ClientDetail() {
         variant: 'destructive',
       })
     } else {
+      const unlinkedTxCount = allClientTransactions.filter(
+        (t) => !isTransactionLinked(t.id, t.processId),
+      ).length
       toast({
         title: 'Sucesso',
-        description: data?.message || 'Cliente sincronizado com ASAAS.',
+        description:
+          unlinkedTxCount > 0
+            ? `${data?.message || 'Cliente sincronizado com ASAAS.'} Atenção: ${unlinkedTxCount} transação(ões) sem processo vinculado.`
+            : data?.message || 'Cliente sincronizado com ASAAS.',
       })
     }
   }
@@ -171,11 +211,20 @@ export default function ClientDetail() {
       }
     }
     setBulkSyncing(false)
+    const unlinkedTxCount = allClientTransactions.filter(
+      (t) => !isTransactionLinked(t.id, t.processId),
+    ).length
+
     if (errorCount > 0) {
       toast({
         title: 'Sincronização parcial',
         description: `${successCount} cobrança(s) enviada(s) com sucesso. ${errorCount} falha(s). Último erro: ${lastErrorMsg}`,
         variant: 'destructive',
+      })
+    } else if (unlinkedTxCount > 0) {
+      toast({
+        title: 'Sucesso',
+        description: `${successCount} cobrança(s) enviada(s) para o ASAAS. Atenção: ${unlinkedTxCount} transação(ões) sem processo vinculado.`,
       })
     } else {
       toast({
@@ -183,6 +232,29 @@ export default function ClientDetail() {
         description: `${successCount} cobrança(s) enviada(s) para o ASAAS.`,
       })
     }
+  }
+
+  const handleLinkToCase = async (transactionId: string, caseId: string) => {
+    const { error: tcError } = await supabase
+      .from('transaction_cases')
+      .upsert(
+        { transaction_id: transactionId, case_id: caseId },
+        { onConflict: 'transaction_id,case_id' },
+      )
+
+    if (tcError) {
+      toast({
+        title: 'Erro',
+        description: 'Falha ao vincular processo.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    await updateItem('transactions', transactionId, { processId: caseId })
+
+    toast({ title: 'Sucesso', description: 'Processo vinculado com sucesso.' })
+    setLinkingTx(null)
   }
 
   return (
@@ -224,6 +296,14 @@ export default function ClientDetail() {
         onOpenChange={setIsFeeOpen}
         clientId={client.id}
         cases={allCases}
+      />
+
+      <LinkTransactionToCaseDialog
+        open={!!linkingTx}
+        onOpenChange={(v: boolean) => !v && setLinkingTx(null)}
+        transaction={linkingTx}
+        cases={allCases}
+        onLink={handleLinkToCase}
       />
 
       <AlertDialog
@@ -641,8 +721,12 @@ export default function ClientDetail() {
                         <span className="font-semibold text-sm">{t.description}</span>
                         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                           <span>Vencimento: {formatSafeLocalDate(t.date)}</span>
-                          {linkedNumbers.length > 0 && (
+                          {linkedNumbers.length > 0 ? (
                             <span>• Processos: {linkedNumbers.join(', ')}</span>
+                          ) : (
+                            <span className="text-amber-600 font-medium">
+                              • Sem processo vinculado
+                            </span>
                           )}
                         </div>
                       </div>
@@ -680,6 +764,17 @@ export default function ClientDetail() {
                             />
                           </Button>
                         )}
+                        {!isTransactionLinked(t.id, t.processId) && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-amber-500 hover:text-amber-700 hover:bg-amber-50"
+                            onClick={() => setLinkingTx(t)}
+                            title="Vincular a um Processo"
+                          >
+                            <Link2 className="h-4 w-4" />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="icon"
@@ -695,6 +790,110 @@ export default function ClientDetail() {
                     </div>
                   )
                 })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-1">
+        <Card className="shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <FileText className="h-5 w-5" /> Transações Financeiras (
+              {allClientTransactions.length})
+              {unlinkedCount > 0 && (
+                <Badge variant="destructive" className="ml-2 text-xs">
+                  {unlinkedCount} sem vínculo
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {allClientTransactions.length === 0 ? (
+              <p className="text-muted-foreground text-sm">
+                Nenhuma transação financeira cadastrada para este cliente.
+              </p>
+            ) : (
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Data</TableHead>
+                      <TableHead>Descrição</TableHead>
+                      <TableHead>Categoria</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Valor</TableHead>
+                      <TableHead>Processo Vinculado</TableHead>
+                      <TableHead className="w-[120px]"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {allClientTransactions.map((t) => {
+                      const linked = isTransactionLinked(t.id, t.processId)
+                      const linkedCases = getTransactionLinkedCases(t.id, t.processId)
+                      return (
+                        <TableRow key={t.id} className="group">
+                          <TableCell className="text-sm">{formatSafeLocalDate(t.date)}</TableCell>
+                          <TableCell className="font-medium text-sm">{t.description}</TableCell>
+                          <TableCell className="text-sm">{t.category}</TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className={
+                                t.status === 'Pago' || t.status === 'Realizado'
+                                  ? 'border-green-200 text-green-700 bg-green-50'
+                                  : t.status === 'Atrasado'
+                                    ? 'border-red-200 text-red-700 bg-red-50'
+                                    : 'border-orange-200 text-orange-700 bg-orange-50'
+                              }
+                            >
+                              {t.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell
+                            className={`text-right font-bold text-sm ${t.type === 'income' ? 'text-green-600' : 'text-red-600'}`}
+                          >
+                            {t.type === 'income' ? '+' : '-'} R${' '}
+                            {t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          </TableCell>
+                          <TableCell>
+                            {linked ? (
+                              <div className="flex flex-wrap gap-1">
+                                {linkedCases.map((c) => (
+                                  <Badge key={c.id} variant="secondary" className="text-[10px]">
+                                    {c.number}
+                                  </Badge>
+                                ))}
+                              </div>
+                            ) : (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] bg-amber-50 text-amber-700 border-amber-300"
+                              >
+                                <AlertTriangle className="h-3 w-3 mr-1" />
+                                Sem vínculo
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {!linked && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-xs h-7"
+                                onClick={() => setLinkingTx(t)}
+                              >
+                                <Link2 className="h-3 w-3 mr-1" />
+                                Vincular a um Processo
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
               </div>
             )}
           </CardContent>
