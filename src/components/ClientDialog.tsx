@@ -43,7 +43,7 @@ function getEmptyForm(users: any[]) {
     status: '',
     isSpecial: false,
     observacoes: '',
-    maritalStatus: '',
+    marital_status: '',
     responsibleId: douglasUser ? douglasUser.id : '',
     captacao: '',
   }
@@ -145,7 +145,11 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
     const mandatoryErrors: Record<string, string> = {}
     if (!fd.email?.trim()) mandatoryErrors.email = 'Este campo é obrigatório'
     if (!fd.phone?.trim()) mandatoryErrors.phone = 'Este campo é obrigatório'
-    if (!fd.document?.trim()) mandatoryErrors.document = 'Este campo é obrigatório'
+    if (!fd.document?.trim()) {
+      mandatoryErrors.document = 'Este campo é obrigatório'
+    } else if (!/^\d{11}$/.test(fd.document)) {
+      mandatoryErrors.document = 'O CPF deve conter exatamente 11 dígitos numéricos.'
+    }
     if (Object.keys(mandatoryErrors).length > 0) {
       setFormErrors(mandatoryErrors)
       toast({
@@ -196,7 +200,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
       .filter(Boolean)
       .join(', ')
 
-    const payload = { ...fd, maritalStatus: fd.maritalStatus || null, address: fullAddress }
+    const payload = { ...fd, marital_status: fd.marital_status || null, address: fullAddress }
     const { isNew, ...finalPayload } = payload
 
     if (!client) {
@@ -241,14 +245,19 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
 
             <div className="space-y-2">
               <Label>
-                CPF/CNPJ <span className="text-red-500">*</span>
+                CPF <span className="text-red-500">*</span>
               </Label>
               <Input
                 value={fd.document}
                 onChange={(e) => {
-                  setFd({ ...fd, document: e.target.value })
+                  const numericValue = e.target.value.replace(/\D/g, '').slice(0, 11)
+                  setFd({ ...fd, document: numericValue })
                   setFormErrors((prev) => ({ ...prev, document: '' }))
                 }}
+                inputMode="numeric"
+                pattern="[0-9]{11}"
+                maxLength={11}
+                placeholder="Somente números (11 dígitos)"
               />
               {formErrors.document && <p className="text-xs text-red-500">{formErrors.document}</p>}
             </div>
@@ -310,8 +319,8 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
             <div className="space-y-2">
               <Label>Estado Civil</Label>
               <Select
-                value={fd.maritalStatus || ''}
-                onValueChange={(v) => setFd({ ...fd, maritalStatus: v })}
+                value={fd.marital_status || ''}
+                onValueChange={(v) => setFd({ ...fd, marital_status: v })}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione o Estado Civil" />

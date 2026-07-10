@@ -421,7 +421,7 @@ export default function ClientDetail() {
             <div>
               <p className="text-sm text-muted-foreground">Estado Civil</p>
               <p className="font-medium text-sm">
-                {(client as any).maritalStatus || 'Não informado'}
+                {(client as any).marital_status || 'Não informado'}
               </p>
             </div>
             <div>
