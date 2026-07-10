@@ -30,6 +30,16 @@ import {
   Edit,
   Send,
 } from 'lucide-react'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer } from 'recharts'
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import useLegalStore from '@/stores/useLegalStore'
@@ -38,7 +48,7 @@ import { downloadCSV } from '@/lib/export'
 import { TransactionDialog } from '@/components/TransactionDialog'
 import { formatSafeLocalDate } from '@/lib/utils'
 import { SupplierDialog } from '@/components/SupplierDialog'
-import { syncChargeWithAsaas } from '@/services/asaas'
+import { syncChargeWithAsaas, cancelChargeWithAsaas } from '@/services/asaas'
 import { toast } from '@/hooks/use-toast'
 
 export default function Finance() {
@@ -65,6 +75,9 @@ export default function Finance() {
   const [editingSupplier, setEditingSupplier] = useState<any>(null)
   const [creatingSupplier, setCreatingSupplier] = useState(false)
   const [syncingAsaasId, setSyncingAsaasId] = useState<string | null>(null)
+  const [txToDelete, setTxToDelete] = useState<any>(null)
+  const [deletingTx, setDeletingTx] = useState(false)
+  const [txDeleteError, setTxDeleteError] = useState<string | null>(null)
 
   const baseTransactions = useMemo(() => {
     // Only show transactions sent to finance
@@ -148,6 +161,27 @@ export default function Finance() {
     }
   }
 
+  const handleTxDelete = async (forceLocal = false) => {
+    if (!txToDelete) return
+    setDeletingTx(true)
+    setTxDeleteError(null)
+
+    if (!forceLocal && txToDelete.asaas_id) {
+      const { error: asaasError } = await cancelChargeWithAsaas(txToDelete.id)
+      if (asaasError) {
+        setDeletingTx(false)
+        setTxDeleteError(asaasError.message || 'Falha ao cancelar cobrança no ASAAS.')
+        return
+      }
+    }
+
+    await deleteItem('transactions', txToDelete.id)
+    setDeletingTx(false)
+    setTxToDelete(null)
+    setTxDeleteError(null)
+    toast({ title: 'Lançamento excluído com sucesso.' })
+  }
+
   if (!state.currentUser.canViewFinance) return <Navigate to="/" replace />
 
   const income = filtered.filter((t) => t.type === 'income').reduce((a, b) => a + b.amount, 0)
@@ -199,6 +233,52 @@ export default function Finance() {
         onOpenChange={setCreatingSupplier}
         onSave={(d: any) => addSupplier(d)}
       />
+
+      <AlertDialog
+        open={!!txToDelete}
+        onOpenChange={(v) => {
+          if (!v) {
+            setTxToDelete(null)
+            setTxDeleteError(null)
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir Lançamento?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {txDeleteError
+                ? `Erro ao cancelar no ASAAS: ${txDeleteError}. Deseja excluir apenas localmente?`
+                : 'Esta ação é irreversível. O registro será removido e, se houver cobrança no ASAAS, será cancelada.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingTx}>Cancelar</AlertDialogCancel>
+            {txDeleteError ? (
+              <>
+                <AlertDialogAction
+                  onClick={() => handleTxDelete(true)}
+                  disabled={deletingTx}
+                  className="bg-amber-600 hover:bg-amber-700"
+                >
+                  Excluir apenas local
+                </AlertDialogAction>
+                <AlertDialogAction onClick={() => handleTxDelete(false)} disabled={deletingTx}>
+                  Tentar novamente
+                </AlertDialogAction>
+              </>
+            ) : (
+              <AlertDialogAction
+                onClick={() => handleTxDelete(false)}
+                disabled={deletingTx}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                {deletingTx ? 'Excluindo...' : 'Excluir'}
+              </AlertDialogAction>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
         <div>
@@ -506,9 +586,8 @@ export default function Finance() {
                               className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
                               onClick={(e) => {
                                 e.stopPropagation()
-                                if (confirm('Deseja excluir este lançamento?')) {
-                                  deleteItem('transactions', t.id)
-                                }
+                                setTxToDelete(t)
+                                setTxDeleteError(null)
                               }}
                             >
                               <Trash className="h-4 w-4" />

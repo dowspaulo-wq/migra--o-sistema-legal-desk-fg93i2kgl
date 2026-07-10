@@ -27,12 +27,13 @@ import {
   Star,
   Calendar,
   RefreshCw,
+  Send,
 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { ClientDialog } from '@/components/ClientDialog'
 import { CaseDialog } from '@/components/CaseDialog'
 import { AppointmentDialog } from '@/components/AppointmentDialog'
-import { syncClientWithAsaas } from '@/services/asaas'
+import { syncClientWithAsaas, cancelChargeWithAsaas, syncChargeWithAsaas } from '@/services/asaas'
 import { toast } from '@/hooks/use-toast'
 import { ClientFeesDialog } from '@/components/ClientFeesDialog'
 import { formatSafeLocalDate } from '@/lib/utils'
@@ -47,6 +48,11 @@ export default function ClientDetail() {
   const [editingAppt, setEditingAppt] = useState<any>(null)
   const [syncingAsaas, setSyncingAsaas] = useState(false)
   const [isFeeOpen, setIsFeeOpen] = useState(false)
+  const [feeToDelete, setFeeToDelete] = useState<any>(null)
+  const [deletingFee, setDeletingFee] = useState(false)
+  const [feeDeleteError, setFeeDeleteError] = useState<string | null>(null)
+  const [syncingFeeId, setSyncingFeeId] = useState<string | null>(null)
+  const [bulkSyncing, setBulkSyncing] = useState(false)
 
   const client = state.clients.find((c) => c.id === id)
   const allCases = state.cases.filter((c) => c.clientId === id)
@@ -100,6 +106,85 @@ export default function ClientDetail() {
     }
   }
 
+  const handleFeeDelete = async (forceLocal = false) => {
+    if (!feeToDelete) return
+    setDeletingFee(true)
+    setFeeDeleteError(null)
+
+    if (!forceLocal && feeToDelete.asaas_id) {
+      const { error: asaasError } = await cancelChargeWithAsaas(feeToDelete.id)
+      if (asaasError) {
+        setDeletingFee(false)
+        setFeeDeleteError(asaasError.message || 'Falha ao cancelar cobrança no ASAAS.')
+        return
+      }
+    }
+
+    await deleteItem('transactions', feeToDelete.id)
+    setDeletingFee(false)
+    setFeeToDelete(null)
+    setFeeDeleteError(null)
+    toast({ title: 'Honorário excluído com sucesso.' })
+  }
+
+  const handleFeeAsaasSync = async (transactionId: string) => {
+    setSyncingFeeId(transactionId)
+    const { data, error } = await syncChargeWithAsaas(transactionId)
+    setSyncingFeeId(null)
+    if (error) {
+      toast({
+        title: 'Erro',
+        description: error.message || 'Falha ao enviar para ASAAS.',
+        variant: 'destructive',
+      })
+    } else {
+      if (data?.asaas_id) {
+        updateItem('transactions', transactionId, { asaas_id: data.asaas_id })
+      }
+      toast({
+        title: 'Sucesso',
+        description: data?.message || 'Cobrança enviada para ASAAS.',
+      })
+    }
+  }
+
+  const handleBulkAsaasSync = async () => {
+    const pendingFees = clientFees.filter((t) => !t.asaas_id)
+    if (pendingFees.length === 0) {
+      toast({ title: 'Todas as cobranças já foram sincronizadas com o ASAAS.' })
+      return
+    }
+    setBulkSyncing(true)
+    let successCount = 0
+    let errorCount = 0
+    let lastErrorMsg = ''
+    for (const fee of pendingFees) {
+      const { data, error } = await syncChargeWithAsaas(fee.id)
+      if (error) {
+        errorCount++
+        lastErrorMsg = error.message || 'Erro desconhecido'
+      } else {
+        successCount++
+        if (data?.asaas_id) {
+          updateItem('transactions', fee.id, { asaas_id: data.asaas_id })
+        }
+      }
+    }
+    setBulkSyncing(false)
+    if (errorCount > 0) {
+      toast({
+        title: 'Sincronização parcial',
+        description: `${successCount} cobrança(s) enviada(s) com sucesso. ${errorCount} falha(s). Último erro: ${lastErrorMsg}`,
+        variant: 'destructive',
+      })
+    } else {
+      toast({
+        title: 'Sucesso',
+        description: `${successCount} cobrança(s) enviada(s) para o ASAAS.`,
+      })
+    }
+  }
+
   return (
     <div className="space-y-6">
       <AppointmentDialog
@@ -140,6 +225,52 @@ export default function ClientDetail() {
         clientId={client.id}
         cases={allCases}
       />
+
+      <AlertDialog
+        open={!!feeToDelete}
+        onOpenChange={(v) => {
+          if (!v) {
+            setFeeToDelete(null)
+            setFeeDeleteError(null)
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir Honorário?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {feeDeleteError
+                ? `Erro ao cancelar no ASAAS: ${feeDeleteError}. Deseja excluir apenas localmente?`
+                : 'Esta ação é irreversível. O registro será removido e, se houver cobrança no ASAAS, será cancelada.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingFee}>Cancelar</AlertDialogCancel>
+            {feeDeleteError ? (
+              <>
+                <AlertDialogAction
+                  onClick={() => handleFeeDelete(true)}
+                  disabled={deletingFee}
+                  className="bg-amber-600 hover:bg-amber-700"
+                >
+                  Excluir apenas local
+                </AlertDialogAction>
+                <AlertDialogAction onClick={() => handleFeeDelete(false)} disabled={deletingFee}>
+                  Tentar novamente
+                </AlertDialogAction>
+              </>
+            ) : (
+              <AlertDialogAction
+                onClick={() => handleFeeDelete(false)}
+                disabled={deletingFee}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                {deletingFee ? 'Excluindo...' : 'Excluir'}
+              </AlertDialogAction>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <div className="flex items-start gap-4">
         <Button variant="outline" size="icon" asChild>
@@ -477,9 +608,20 @@ export default function ClientDetail() {
             <CardTitle className="text-lg flex items-center gap-2">
               <FileText className="h-5 w-5" /> HONORÁRIOS ({clientFees.length})
             </CardTitle>
-            <Button variant="outline" size="sm" onClick={() => setIsFeeOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" /> Novo Honorário
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleBulkAsaasSync}
+                disabled={bulkSyncing || !clientFees.some((t) => !t.asaas_id)}
+              >
+                <Send className={`h-4 w-4 mr-2 ${bulkSyncing ? 'animate-pulse' : ''}`} />
+                {bulkSyncing ? 'Enviando...' : 'Enviar todas para o ASSAS'}
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setIsFeeOpen(true)}>
+                <Plus className="h-4 w-4 mr-2" /> Novo Honorário
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             {clientFees.length === 0 ? (
@@ -517,6 +659,38 @@ export default function ClientDetail() {
                         >
                           {t.status}
                         </Badge>
+                        {t.asaas_id ? (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] bg-blue-50 text-blue-700 border-blue-200"
+                          >
+                            ASAAS
+                          </Badge>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-blue-500 hover:text-blue-700 hover:bg-blue-50"
+                            onClick={() => handleFeeAsaasSync(t.id)}
+                            disabled={syncingFeeId === t.id}
+                            title="Enviar para o ASSAS"
+                          >
+                            <Send
+                              className={`h-4 w-4 ${syncingFeeId === t.id ? 'animate-pulse' : ''}`}
+                            />
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50"
+                          onClick={() => {
+                            setFeeToDelete(t)
+                            setFeeDeleteError(null)
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     </div>
                   )

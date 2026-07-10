@@ -13,3 +13,10 @@ export async function syncChargeWithAsaas(transactionId: string) {
   })
   return { data, error }
 }
+
+export async function cancelChargeWithAsaas(transactionId: string) {
+  const { data, error } = await supabase.functions.invoke('asaas-integration', {
+    body: { action: 'cancelPayment', transactionId },
+  })
+  return { data, error }
+}

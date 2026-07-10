@@ -71,6 +71,8 @@ interface LegalContextType {
     caseIds: string[]
     bankAccount?: string
     status?: string
+    installments?: number
+    paymentMethod?: string
   }) => Promise<void>
   updateUser: (id: string, changes: Partial<User>) => void
   addUser: (user: any) => void
@@ -261,11 +263,19 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         }
         if (table === 'cases') {
           newState.tasks = prev.tasks.filter((t) => t.relatedProcessId !== id)
-          newState.appointments = prev.appointments.filter((a) => a.processId !== id)
-          newState.transactions = prev.transactions.filter((t) => t.processId !== id)
+          newState.appointments = prev.appointments.filter((a) => a.processId === id)
+          newState.transactions = prev.transactions.filter((t) => t.processId === id)
+        }
+        if (table === 'transactions') {
+          newState.transactionCases = (prev.transactionCases || []).filter(
+            (tc) => tc.transaction_id !== id,
+          )
         }
         return newState
       })
+      if (table === 'transactions') {
+        await supabase.from('transaction_cases').delete().eq('transaction_id', id)
+      }
       await supabase
         .from(table as any)
         .delete()
@@ -557,40 +567,58 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       caseIds: string[]
       bankAccount?: string
       status?: string
+      installments?: number
+      paymentMethod?: string
     }) => {
-      const transactionData = {
-        description: fee.description,
-        amount: fee.amount,
-        type: 'income',
-        category: 'Honorários Contratuais',
-        status: fee.status || 'Previsto',
-        date: fee.date,
-        clientId: fee.clientId,
-        sendToFinance: true,
-        bankAccount: fee.bankAccount || 'ASAAS',
+      const inst = fee.installments || 1
+      const payMethod = fee.paymentMethod || 'PIX'
+      const installmentValue = fee.amount / inst
+
+      const [y, m, d] = fee.date.split('-')
+      const baseDate = new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10))
+
+      const transactionsToInsert: any[] = []
+      for (let i = 0; i < inst; i++) {
+        const currentDate = new Date(baseDate)
+        currentDate.setMonth(currentDate.getMonth() + i)
+        const dateStr = currentDate.toISOString().split('T')[0]
+
+        transactionsToInsert.push({
+          description: inst > 1 ? `${fee.description} (${i + 1}/${inst})` : fee.description,
+          amount: installmentValue,
+          type: 'income',
+          category: 'Honorários Contratuais',
+          status: fee.status || 'Previsto',
+          date: dateStr,
+          clientId: fee.clientId,
+          sendToFinance: true,
+          bankAccount: fee.bankAccount || 'ASAAS',
+          payment_method: payMethod,
+        })
       }
 
       const { data: txnData, error: txnError } = await supabase
         .from('transactions')
-        .insert(transactionData)
+        .insert(transactionsToInsert)
         .select()
-        .single()
 
       if (txnError)
         return toast({ title: 'Erro', description: txnError.message, variant: 'destructive' })
 
       setState((prev) => ({
         ...prev,
-        transactions: [txnData, ...prev.transactions].sort(
+        transactions: [...txnData, ...prev.transactions].sort(
           (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
         ),
       }))
 
-      if (fee.caseIds.length > 0) {
-        const links = fee.caseIds.map((caseId) => ({
-          transaction_id: txnData.id,
-          case_id: caseId,
-        }))
+      if (fee.caseIds.length > 0 && txnData) {
+        const links = txnData.flatMap((txn: any) =>
+          fee.caseIds.map((caseId) => ({
+            transaction_id: txn.id,
+            case_id: caseId,
+          })),
+        )
 
         const { data: linkData, error: linkError } = await supabase
           .from('transaction_cases')
@@ -605,7 +633,10 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      toast({ title: 'Honorário criado com sucesso!' })
+      toast({
+        title:
+          inst > 1 ? `${inst} parcelas de honorários criadas!` : 'Honorário criado com sucesso!',
+      })
     },
     [],
   )

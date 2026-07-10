@@ -179,9 +179,10 @@ Deno.serve(async (req: Request) => {
         throw new Error('Cliente não sincronizado com ASAAS. Sincronize o cliente primeiro.')
       }
 
+      const billingType = (transaction as any).payment_method === 'BOLETO' ? 'BOLETO' : 'PIX'
       const paymentData: any = {
         customer: clientAsaasId,
-        billingType: 'BOLETO',
+        billingType,
         value: Number(transaction.amount),
         dueDate: transaction.date,
         description: transaction.description,
@@ -209,6 +210,44 @@ Deno.serve(async (req: Request) => {
           message: 'Cobrança criada no ASAAS com sucesso.',
           asaas_id: created.id,
         }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
+    if (action === 'cancelPayment') {
+      const { data: txData, error: txErr2 } = await supabase
+        .from('transactions')
+        .select('asaas_id')
+        .eq('id', transactionId)
+        .single()
+
+      if (txErr2 || !txData) {
+        throw new Error('Transação não encontrada.')
+      }
+
+      const asaasPayId = (txData as any).asaas_id
+      if (!asaasPayId) {
+        return new Response(
+          JSON.stringify({ success: true, message: 'Transação não possui cobrança no ASAAS.' }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        )
+      }
+
+      const delRes = await fetch(`${ASAAS_BASE_URL}/payments/${asaasPayId}`, {
+        method: 'DELETE',
+        headers: { access_token: apiKey, 'Content-Type': 'application/json' },
+      })
+
+      if (!delRes.ok) {
+        const delErr = await delRes.json().catch(() => ({}))
+        const delMsg = (delErr as any)?.errors?.[0]?.description || delRes.statusText
+        throw new Error(`Erro ao cancelar cobrança no ASAAS: ${delMsg}`)
+      }
+
+      await supabase.from('transactions').update({ asaas_id: null }).eq('id', transactionId)
+
+      return new Response(
+        JSON.stringify({ success: true, message: 'Cobrança cancelada no ASAAS com sucesso.' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       )
     }

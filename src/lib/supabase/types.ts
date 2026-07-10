@@ -533,6 +533,42 @@ export type Database = {
           },
         ]
       }
+      transaction_cases: {
+        Row: {
+          case_id: string
+          created_at: string
+          id: string
+          transaction_id: string
+        }
+        Insert: {
+          case_id: string
+          created_at?: string
+          id?: string
+          transaction_id: string
+        }
+        Update: {
+          case_id?: string
+          created_at?: string
+          id?: string
+          transaction_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'transaction_cases_case_id_fkey'
+            columns: ['case_id']
+            isOneToOne: false
+            referencedRelation: 'cases'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'transaction_cases_transaction_id_fkey'
+            columns: ['transaction_id']
+            isOneToOne: false
+            referencedRelation: 'transactions'
+            referencedColumns: ['id']
+          },
+        ]
+      }
       transactions: {
         Row: {
           amount: number
@@ -544,6 +580,7 @@ export type Database = {
           date: string
           description: string
           id: string
+          payment_method: string | null
           processId: string | null
           sendToFinance: boolean | null
           status: string
@@ -560,6 +597,7 @@ export type Database = {
           date: string
           description: string
           id?: string
+          payment_method?: string | null
           processId?: string | null
           sendToFinance?: boolean | null
           status: string
@@ -576,6 +614,7 @@ export type Database = {
           date?: string
           description?: string
           id?: string
+          payment_method?: string | null
           processId?: string | null
           sendToFinance?: boolean | null
           status?: string
