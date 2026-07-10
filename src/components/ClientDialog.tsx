@@ -54,6 +54,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
     a.localeCompare(b),
   )
 
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [fd, setFd] = useState(() => {
     if (client) return client
 
@@ -70,6 +71,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
   })
 
   useEffect(() => {
+    setFormErrors({})
     if (client) {
       setFd(client)
     } else if (open) {
@@ -109,6 +111,21 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
       })
       return
     }
+
+    const mandatoryErrors: Record<string, string> = {}
+    if (!fd.email?.trim()) mandatoryErrors.email = 'Este campo é obrigatório'
+    if (!fd.phone?.trim()) mandatoryErrors.phone = 'Este campo é obrigatório'
+    if (!fd.document?.trim()) mandatoryErrors.document = 'Este campo é obrigatório'
+    if (Object.keys(mandatoryErrors).length > 0) {
+      setFormErrors(mandatoryErrors)
+      toast({
+        title: 'Campos Obrigatórios',
+        description: 'E-mail, Celular e CPF/CNPJ são de preenchimento obrigatório.',
+        variant: 'destructive',
+      })
+      return
+    }
+    setFormErrors({})
 
     const requiredAddressFields = [
       { key: 'cep', label: 'CEP' },
@@ -193,11 +210,17 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
             </div>
 
             <div className="space-y-2">
-              <Label>CPF/CNPJ</Label>
+              <Label>
+                CPF/CNPJ <span className="text-red-500">*</span>
+              </Label>
               <Input
                 value={fd.document}
-                onChange={(e) => setFd({ ...fd, document: e.target.value })}
+                onChange={(e) => {
+                  setFd({ ...fd, document: e.target.value })
+                  setFormErrors((prev) => ({ ...prev, document: '' }))
+                }}
               />
+              {formErrors.document && <p className="text-xs text-red-500">{formErrors.document}</p>}
             </div>
 
             <div className="space-y-2">
@@ -255,17 +278,32 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
             </div>
 
             <div className="space-y-2">
-              <Label>E-mail</Label>
+              <Label>
+                E-mail <span className="text-red-500">*</span>
+              </Label>
               <Input
                 type="email"
                 value={fd.email}
-                onChange={(e) => setFd({ ...fd, email: e.target.value })}
+                onChange={(e) => {
+                  setFd({ ...fd, email: e.target.value })
+                  setFormErrors((prev) => ({ ...prev, email: '' }))
+                }}
               />
+              {formErrors.email && <p className="text-xs text-red-500">{formErrors.email}</p>}
             </div>
 
             <div className="space-y-2">
-              <Label>Celular</Label>
-              <Input value={fd.phone} onChange={(e) => setFd({ ...fd, phone: e.target.value })} />
+              <Label>
+                Celular <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                value={fd.phone}
+                onChange={(e) => {
+                  setFd({ ...fd, phone: e.target.value })
+                  setFormErrors((prev) => ({ ...prev, phone: '' }))
+                }}
+              />
+              {formErrors.phone && <p className="text-xs text-red-500">{formErrors.phone}</p>}
             </div>
 
             <div className="space-y-2">
