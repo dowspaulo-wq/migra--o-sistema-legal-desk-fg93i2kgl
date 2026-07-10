@@ -43,6 +43,7 @@ function getEmptyForm(users: any[]) {
     status: '',
     isSpecial: false,
     observacoes: '',
+    maritalStatus: '',
     responsibleId: douglasUser ? douglasUser.id : '',
     captacao: '',
   }
@@ -195,7 +196,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
       .filter(Boolean)
       .join(', ')
 
-    const payload = { ...fd, address: fullAddress }
+    const payload = { ...fd, maritalStatus: fd.maritalStatus || null, address: fullAddress }
     const { isNew, ...finalPayload } = payload
 
     if (!client) {
@@ -304,6 +305,25 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
                 value={fd.birthday}
                 onChange={(e) => setFd({ ...fd, birthday: e.target.value })}
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Estado Civil</Label>
+              <Select
+                value={fd.maritalStatus || ''}
+                onValueChange={(v) => setFd({ ...fd, maritalStatus: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione o Estado Civil" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Solteiro(a)">Solteiro(a)</SelectItem>
+                  <SelectItem value="Casado(a)">Casado(a)</SelectItem>
+                  <SelectItem value="Divorciado(a)">Divorciado(a)</SelectItem>
+                  <SelectItem value="Viúvo(a)">Viúvo(a)</SelectItem>
+                  <SelectItem value="União Estável">União Estável</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-2">

@@ -73,6 +73,19 @@ function createPdfFromText(title: string, body: string): string {
   return bytesToBase64(stringToLatin1Bytes(pdf))
 }
 
+function buildQualification(client: any): string {
+  const clientName = client.name || 'N/A'
+  const maritalStatus = client.marital_status || 'N/A'
+  const document = client.document || 'N/A'
+  const street = client.street || 'N/A'
+  const numberStreet = client.number || 'N/A'
+  const neighborhood = client.neighborhood || 'N/A'
+  const city = client.city || 'N/A'
+  const state = client.state || 'N/A'
+  const email = client.email || 'N/A'
+  return `${clientName}, brasileiro(a), ${maritalStatus}, portador do CPF ${document}, residente e domiciliado na ${street}, ${numberStreet}, ${neighborhood}, ${city}, ${state}, ${email}`
+}
+
 function buildDocContent(
   docType: string,
   client: any,
@@ -82,6 +95,7 @@ function buildDocContent(
   const clientName = client.name || 'N/A'
   const document = client.document || 'N/A'
   const address = client.address || 'N/A'
+  const qualification = buildQualification(client)
   const caseNumber = caseData?.number || 'N/A'
   const court = caseData?.court || 'N/A'
   const comarca = caseData?.comarca ? caseData.comarca.toUpperCase() : 'N/A'
@@ -95,11 +109,15 @@ function buildDocContent(
       title: 'PROCURACAO AD JUDICIA ET EXTRA',
       docName: `Procuracao - ${clientName}`,
       body: [
-        `OUTORGANTE: ${clientName}`,
-        `Nacionalidade: Brasileiro(a)`,
-        `Profissao: N/A`,
-        `CPF/CNPJ: ${document}`,
-        `Endereco: ${address}`,
+        `OUTORGANTE: ${qualification}`,
+=======
+  if (docType === 'procuracao') {
+    return {
+      title: 'PROCURACAO AD JUDICIA ET EXTRA',
+      docName: `Procuracao - ${clientName}`,
+      body: [
+        `OUTORGANTE: ${qualification}`,
+        '',
         '',
         'OUTORGADO: DPSJUR Advocacia e Consultoria Juridica',
         '',
@@ -128,8 +146,7 @@ function buildDocContent(
       title: 'DECLARACAO DE HIPOSSUFICIENCIA',
       docName: `Declaracao de Hipossuficiencia - ${clientName}`,
       body: [
-        `Eu, ${clientName}, portador(a) do CPF/CNPJ nº ${document},`,
-        `residente e domiciliado(a) no endereco ${address}, declaro,`,
+        `Eu, ${qualification}, declaro,`,
         'sob as penas da lei, para os devidos fins de direito e',
         'especialmente para fins de concessao dos beneficios da',
         'Justica Gratuita, nos termos do art. 98 do Codigo de',
@@ -160,9 +177,7 @@ function buildDocContent(
       docName: `Contrato de Honorarios - ${clientName}`,
       body: [
         'CONTRATANTE:',
-        `Nome: ${clientName}`,
-        `CPF/CNPJ: ${document}`,
-        `Endereco: ${address}`,
+        qualification,
         '',
         'CONTRATADO:',
         'DPSJUR Advocacia e Consultoria Juridica',
@@ -222,7 +237,7 @@ Deno.serve(async (req: Request) => {
     if (action === 'createDoc') {
       const { data: client, error: clientErr } = await supabase
         .from('clients')
-        .select('*')
+        .select('*, marital_status')
         .eq('id', clientId)
         .single()
 

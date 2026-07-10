@@ -419,6 +419,12 @@ export default function ClientDetail() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
+              <p className="text-sm text-muted-foreground">Estado Civil</p>
+              <p className="font-medium text-sm">
+                {(client as any).maritalStatus || 'Não informado'}
+              </p>
+            </div>
+            <div>
               <p className="text-sm text-muted-foreground flex items-center gap-2">
                 <Mail className="h-4 w-4" /> Email
               </p>
