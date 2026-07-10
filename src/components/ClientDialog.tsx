@@ -21,6 +21,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Star } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
+import { BRAZILIAN_STATES, fetchCepData } from '@/lib/cep'
 
 function getEmptyForm(users: any[]) {
   const douglasUser = users.find((u: any) => u.name && u.name.toLowerCase().includes('douglas'))
@@ -37,6 +38,7 @@ function getEmptyForm(users: any[]) {
     complement: '',
     neighborhood: '',
     city: '',
+    state: '',
     birthday: '',
     status: '',
     isSpecial: false,
@@ -55,6 +57,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
   )
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
+  const [cepLoading, setCepLoading] = useState(false)
   const [fd, setFd] = useState(() => {
     if (client) return client
 
@@ -98,6 +101,32 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
   const clearDraft = () => {
     sessionStorage.removeItem('client_form_draft')
     setFd(getEmptyForm(users))
+  }
+
+  const handleCepChange = async (value: string) => {
+    setFd((prev: any) => ({ ...prev, cep: value }))
+    const cleanCep = value.replace(/\D/g, '')
+    if (cleanCep.length !== 8) return
+
+    setCepLoading(true)
+    const cepData = await fetchCepData(cleanCep)
+    setCepLoading(false)
+
+    if (cepData) {
+      setFd((prev: any) => ({
+        ...prev,
+        street: cepData.street || prev.street,
+        neighborhood: cepData.neighborhood || prev.neighborhood,
+        city: cepData.city || prev.city,
+        state: cepData.state || prev.state,
+      }))
+    } else {
+      toast({
+        title: 'CEP não encontrado',
+        description: 'Não foi possível buscar o endereço. Preencha manualmente.',
+        variant: 'destructive',
+      })
+    }
   }
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -330,21 +359,14 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
               </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="col-span-2 space-y-2">
               <Label>CEP *</Label>
               <Input
                 value={fd.cep || ''}
-                onChange={(e) => setFd({ ...fd, cep: e.target.value })}
+                onChange={(e) => handleCepChange(e.target.value)}
                 placeholder="00000-000"
               />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Cidade *</Label>
-              <Input
-                value={fd.city || ''}
-                onChange={(e) => setFd({ ...fd, city: e.target.value })}
-              />
+              {cepLoading && <p className="text-xs text-muted-foreground">Buscando endereço...</p>}
             </div>
 
             <div className="col-span-2 space-y-2">
@@ -377,6 +399,31 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
                 value={fd.neighborhood || ''}
                 onChange={(e) => setFd({ ...fd, neighborhood: e.target.value })}
               />
+            </div>
+
+            <div className="col-span-2 grid grid-cols-4 gap-4">
+              <div className="col-span-3 space-y-2">
+                <Label>Cidade *</Label>
+                <Input
+                  value={fd.city || ''}
+                  onChange={(e) => setFd({ ...fd, city: e.target.value })}
+                />
+              </div>
+              <div className="col-span-1 space-y-2">
+                <Label>UF</Label>
+                <Select value={fd.state || ''} onValueChange={(v) => setFd({ ...fd, state: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="UF" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {BRAZILIAN_STATES.map((uf) => (
+                      <SelectItem key={uf} value={uf}>
+                        {uf}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             <div className="col-span-2 space-y-2">

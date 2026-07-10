@@ -471,9 +471,15 @@ export default function ClientDetail() {
                 <p className="text-sm text-muted-foreground">Bairro</p>
                 <p className="font-medium text-sm">{client.neighborhood || 'Não informado'}</p>
               </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Cidade</p>
-                <p className="font-medium text-sm">{client.city || 'Não informado'}</p>
+              <div className="grid grid-cols-4 gap-2">
+                <div className="col-span-3">
+                  <p className="text-sm text-muted-foreground">Cidade</p>
+                  <p className="font-medium text-sm">{client.city || 'Não informado'}</p>
+                </div>
+                <div className="col-span-1">
+                  <p className="text-sm text-muted-foreground">UF</p>
+                  <p className="font-medium text-sm">{client.state || '—'}</p>
+                </div>
               </div>
             </div>
           </CardContent>
