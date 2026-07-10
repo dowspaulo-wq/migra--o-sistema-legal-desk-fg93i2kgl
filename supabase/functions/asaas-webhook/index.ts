@@ -8,6 +8,8 @@ const corsHeaders = {
     'authorization, x-client-info, x-supabase-client-platform, apikey, content-type, x-asaas-webhook-token',
 }
 
+const ASAAS_BASE_URL = 'https://api.asaas.com/v3'
+
 const EVENT_STATUS_MAP: Record<string, string> = {
   PAYMENT_CONFIRMED: 'Paga',
   PAYMENT_RECEIVED: 'Paga',
@@ -125,10 +127,63 @@ Deno.serve(async (req: Request) => {
       })
     }
 
+    if (eventType === 'PAYMENT_CONFIRMED') {
+      const apiKey = Deno.env.get('ASAAS_API_KEY')
+      if (!apiKey) {
+        console.error('ASAAS_API_KEY não configurada. Não foi possível emitir NF.')
+      } else {
+        try {
+          const invoiceRes = await fetch(`${ASAAS_BASE_URL}/invoices`, {
+            method: 'POST',
+            headers: { access_token: apiKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ payment: asaasPaymentId }),
+          })
+
+          if (invoiceRes.ok) {
+            const invoiceData = await invoiceRes.json()
+            console.log(`NF emitida com sucesso para pagamento ${asaasPaymentId}:`, invoiceData.id)
+
+            await supabase.from('logs').insert({
+              action: 'invoice_issued',
+              entity: 'transactions',
+              user: 'ASAAS Webhook',
+              date: new Date().toISOString(),
+              details: JSON.stringify({
+                asaas_id: asaasPaymentId,
+                invoice_id: invoiceData.id,
+                invoice_status: invoiceData.status,
+                transaction_id: existingTx.id,
+              }),
+            })
+          } else {
+            const invoiceErr = await invoiceRes.json().catch(() => ({}))
+            const errMsg = (invoiceErr as any)?.errors?.[0]?.description || invoiceRes.statusText
+            console.warn(
+              `NF já emitida ou erro ao emitir para pagamento ${asaasPaymentId}: ${errMsg}`,
+            )
+
+            await supabase.from('logs').insert({
+              action: 'invoice_issuance_skipped',
+              entity: 'transactions',
+              user: 'ASAAS Webhook',
+              date: new Date().toISOString(),
+              details: JSON.stringify({
+                asaas_id: asaasPaymentId,
+                reason: errMsg,
+                transaction_id: existingTx.id,
+              }),
+            })
+          }
+        } catch (invoiceError: any) {
+          console.error('Falha ao emitir NF:', invoiceError.message || invoiceError)
+        }
+      }
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
-        message: `Transação atualizada para '${targetStatus}' (evento: ${eventType}).`,
+        message: `Transação atualizada para '${targetStatus}' (evento: ${eventType}).${eventType === 'PAYMENT_CONFIRMED' ? ' NF emitida/verificada.' : ''}`,
         transaction_id: existingTx.id,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },

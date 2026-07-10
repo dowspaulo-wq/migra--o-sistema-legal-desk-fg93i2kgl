@@ -10,6 +10,21 @@ const corsHeaders = {
 
 const ASAAS_BASE_URL = 'https://api.asaas.com/v3'
 
+const ASAAS_STATUS_MAP: Record<string, string> = {
+  PENDING: 'Pendente',
+  RECEIVED: 'Paga',
+  CONFIRMED: 'Paga',
+  OVERDUE: 'Vencida',
+  REFUNDED: 'Estornada',
+  DELETED: 'Cancelada',
+}
+
+const ASAAS_PAYMENT_METHOD_MAP: Record<string, string> = {
+  PIX: 'PIX',
+  BOLETO: 'BOLETO',
+  CREDIT_CARD: 'CARTÃO',
+}
+
 function formatPhone(phone: string): string | undefined {
   if (!phone) return undefined
   const digits = phone.replace(/\D/g, '')
@@ -24,6 +39,10 @@ function formatCep(cep: string): string | undefined {
   const digits = cep.replace(/\D/g, '')
   if (digits.length === 0) return undefined
   return digits
+}
+
+function normalizeDocument(doc: string): string {
+  return (doc || '').replace(/\D/g, '')
 }
 
 Deno.serve(async (req: Request) => {
@@ -248,6 +267,148 @@ Deno.serve(async (req: Request) => {
 
       return new Response(
         JSON.stringify({ success: true, message: 'Cobrança cancelada no ASAAS com sucesso.' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
+    if (action === 'sync-history') {
+      const { data: clients, error: clientsErr } = await supabase
+        .from('clients')
+        .select('id, name, document, asaas_id')
+
+      if (clientsErr) {
+        throw new Error('Erro ao buscar clientes do banco de dados.')
+      }
+
+      const clientByAsaasId = new Map<string, any>()
+      const clientByDocument = new Map<string, any>()
+
+      for (const c of clients || []) {
+        if (c.asaas_id) {
+          clientByAsaasId.set(c.asaas_id, c)
+        }
+        if (c.document) {
+          const normalized = normalizeDocument(c.document)
+          if (normalized) {
+            clientByDocument.set(normalized, c)
+          }
+        }
+      }
+
+      let offset = 0
+      const limit = 100
+      let hasMore = true
+      let syncedCount = 0
+      let unmatchedCount = 0
+      const unmatchedPayments: any[] = []
+      const customerCache = new Map<string, any>()
+
+      while (hasMore) {
+        const url = `${ASAAS_BASE_URL}/payments?offset=${offset}&limit=${limit}&status=RECEIVED,CONFIRMED,PENDING,OVERDUE,REFUNDED`
+        const res = await fetch(url, {
+          method: 'GET',
+          headers: { access_token: apiKey, 'Content-Type': 'application/json' },
+        })
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          const msg = (err as any)?.errors?.[0]?.description || res.statusText
+          throw new Error(`Erro ao buscar pagamentos do ASAAS: ${msg}`)
+        }
+
+        const result = await res.json()
+        const payments: any[] = result.data || []
+
+        for (const payment of payments) {
+          const asaasCustomerId = payment.customer
+          let matchedClient: any = clientByAsaasId.get(asaasCustomerId) || null
+
+          if (!matchedClient && !customerCache.has(asaasCustomerId)) {
+            try {
+              const custRes = await fetch(`${ASAAS_BASE_URL}/customers/${asaasCustomerId}`, {
+                method: 'GET',
+                headers: { access_token: apiKey, 'Content-Type': 'application/json' },
+              })
+              if (custRes.ok) {
+                const custData = await custRes.json()
+                customerCache.set(asaasCustomerId, custData)
+                if (custData.cpfCnpj) {
+                  const normalizedDoc = normalizeDocument(custData.cpfCnpj)
+                  matchedClient = clientByDocument.get(normalizedDoc) || null
+                  if (matchedClient && !matchedClient.asaas_id) {
+                    await supabase
+                      .from('clients')
+                      .update({ asaas_id: asaasCustomerId })
+                      .eq('id', matchedClient.id)
+                    clientByAsaasId.set(asaasCustomerId, matchedClient)
+                  }
+                }
+              } else {
+                customerCache.set(asaasCustomerId, null)
+              }
+            } catch {
+              customerCache.set(asaasCustomerId, null)
+            }
+          }
+
+          if (!matchedClient) {
+            unmatchedCount++
+            unmatchedPayments.push({
+              asaas_id: payment.id,
+              customer: asaasCustomerId,
+              value: payment.value,
+              description: payment.description,
+            })
+            continue
+          }
+
+          const txStatus = ASAAS_STATUS_MAP[payment.status] || 'Pendente'
+          const txDate =
+            payment.paymentDate ||
+            payment.confirmationDate ||
+            payment.dueDate ||
+            new Date().toISOString().split('T')[0]
+          const txPaymentMethod = ASAAS_PAYMENT_METHOD_MAP[payment.billingType] || 'PIX'
+
+          const txData = {
+            description: payment.description || `Pagamento ASAAS ${payment.id}`,
+            amount: Number(payment.value) || 0,
+            type: 'income',
+            category: 'Honorários Contratuais',
+            status: txStatus,
+            date: txDate,
+            clientId: matchedClient.id,
+            asaas_id: payment.id,
+            sendToFinance: true,
+            bankAccount: 'ASAAS',
+            payment_method: txPaymentMethod,
+          }
+
+          const { error: upsertErr } = await supabase
+            .from('transactions')
+            .upsert(txData, { onConflict: 'asaas_id' })
+
+          if (upsertErr) {
+            console.error('Erro ao upsert transação:', upsertErr.message)
+          } else {
+            syncedCount++
+          }
+        }
+
+        hasMore = result.hasMore || false
+        offset += limit
+
+        if (offset > 10000) break
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: `Sincronização concluída. ${syncedCount} pagamento(s) sincronizado(s), ${unmatchedCount} não correspondido(s).`,
+          synced: syncedCount,
+          unmatched: unmatchedCount,
+          unmatchedDetails: unmatchedPayments.slice(0, 20),
+        }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       )
     }

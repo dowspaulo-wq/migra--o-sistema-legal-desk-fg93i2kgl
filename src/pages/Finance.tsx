@@ -48,8 +48,11 @@ import { downloadCSV } from '@/lib/export'
 import { TransactionDialog } from '@/components/TransactionDialog'
 import { formatSafeLocalDate } from '@/lib/utils'
 import { SupplierDialog } from '@/components/SupplierDialog'
-import { syncChargeWithAsaas, cancelChargeWithAsaas } from '@/services/asaas'
+import { syncChargeWithAsaas, cancelChargeWithAsaas, syncHistoryWithAsaas } from '@/services/asaas'
+import { LinkTransactionToCaseDialog } from '@/components/LinkTransactionToCaseDialog'
+import { supabase } from '@/lib/supabase/client'
 import { toast } from '@/hooks/use-toast'
+import { Link2 } from 'lucide-react'
 
 export default function Finance() {
   const { state, updateItem, deleteItem, addTransaction, addSupplier } = useLegalStore() as any
@@ -75,6 +78,8 @@ export default function Finance() {
   const [editingSupplier, setEditingSupplier] = useState<any>(null)
   const [creatingSupplier, setCreatingSupplier] = useState(false)
   const [syncingAsaasId, setSyncingAsaasId] = useState<string | null>(null)
+  const [syncingHistory, setSyncingHistory] = useState(false)
+  const [linkingTx, setLinkingTx] = useState<any>(null)
   const [txToDelete, setTxToDelete] = useState<any>(null)
   const [deletingTx, setDeletingTx] = useState(false)
   const [txDeleteError, setTxDeleteError] = useState<string | null>(null)
@@ -161,6 +166,47 @@ export default function Finance() {
     }
   }
 
+  const handleSyncHistory = async () => {
+    setSyncingHistory(true)
+    const { data, error } = await syncHistoryWithAsaas()
+    setSyncingHistory(false)
+    if (error) {
+      toast({
+        title: 'Erro',
+        description: error.message || 'Falha ao sincronizar histórico do ASAAS.',
+        variant: 'destructive',
+      })
+    } else {
+      toast({
+        title: 'Sucesso',
+        description: data?.message || 'Histórico sincronizado com ASAAS.',
+      })
+    }
+  }
+
+  const handleLinkToCase = async (transactionId: string, caseId: string) => {
+    const { error: tcError } = await supabase
+      .from('transaction_cases')
+      .upsert(
+        { transaction_id: transactionId, case_id: caseId },
+        { onConflict: 'transaction_id,case_id' },
+      )
+
+    if (tcError) {
+      toast({
+        title: 'Erro',
+        description: 'Falha ao vincular processo.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    await updateItem('transactions', transactionId, { processId: caseId })
+
+    toast({ title: 'Sucesso', description: 'Processo vinculado com sucesso.' })
+    setLinkingTx(null)
+  }
+
   const handleTxDelete = async (forceLocal = false) => {
     if (!txToDelete) return
     setDeletingTx(true)
@@ -234,6 +280,14 @@ export default function Finance() {
         onSave={(d: any) => addSupplier(d)}
       />
 
+      <LinkTransactionToCaseDialog
+        open={!!linkingTx}
+        onOpenChange={(v: boolean) => !v && setLinkingTx(null)}
+        transaction={linkingTx}
+        cases={state.cases}
+        onLink={handleLinkToCase}
+      />
+
       <AlertDialog
         open={!!txToDelete}
         onOpenChange={(v) => {
@@ -286,6 +340,10 @@ export default function Finance() {
           <p className="text-muted-foreground">Controle de honorários e despesas.</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={handleSyncHistory} disabled={syncingHistory}>
+            <Send className={`mr-2 h-4 w-4 ${syncingHistory ? 'animate-pulse' : ''}`} />
+            {syncingHistory ? 'Sincronizando...' : 'Sincronizar com Asaas'}
+          </Button>
           <Button
             variant="outline"
             onClick={() => {
@@ -565,6 +623,18 @@ export default function Finance() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-purple-500 hover:text-purple-700 hover:bg-purple-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setLinkingTx(t)
+                              }}
+                              title="Vincular a Processo"
+                            >
+                              <Link2 className="h-4 w-4" />
+                            </Button>
                             <Button
                               variant="ghost"
                               size="icon"
