@@ -1,0 +1,143 @@
+import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
+import { createClient } from 'jsr:@supabase/supabase-js@2'
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, x-supabase-client-platform, apikey, content-type, x-asaas-webhook-token',
+}
+
+const EVENT_STATUS_MAP: Record<string, string> = {
+  PAYMENT_CONFIRMED: 'Paga',
+  PAYMENT_RECEIVED: 'Paga',
+  PAYMENT_OVERDUE: 'Vencida',
+  PAYMENT_DELETED: 'Cancelada',
+  PAYMENT_REFUNDED: 'Estornada',
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
+  }
+
+  try {
+    const webhookToken = Deno.env.get('ASAAS_WEBHOOK_TOKEN')
+    if (webhookToken) {
+      const receivedToken = req.headers.get('x-asaas-webhook-token')
+      if (receivedToken !== webhookToken) {
+        return new Response(JSON.stringify({ error: 'Token de webhook inválido.' }), {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+    }
+
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error('Variáveis de ambiente do Supabase não configuradas.')
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey)
+
+    const payload = await req.json()
+    const eventType: string = payload?.event || ''
+    const payment = payload?.payment || {}
+    const asaasPaymentId: string = payment?.id || ''
+
+    if (!asaasPaymentId) {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: 'Webhook recebido sem ID de pagamento. Ignorado.',
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
+    const targetStatus = EVENT_STATUS_MAP[eventType]
+    if (!targetStatus) {
+      return new Response(
+        JSON.stringify({ success: true, message: `Evento ${eventType} não mapeado. Ignorado.` }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
+    const { data: existingTx, error: txErr } = await supabase
+      .from('transactions')
+      .select('id, status, asaas_id')
+      .eq('asaas_id', asaasPaymentId)
+      .single()
+
+    if (txErr || !existingTx) {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: 'Transação não encontrada para o asaas_id informado.',
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
+    if (existingTx.status === targetStatus) {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: 'Transação já está no status alvo. Idempotência garantida.',
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
+    const { error: updateErr } = await supabase
+      .from('transactions')
+      .update({ status: targetStatus })
+      .eq('id', existingTx.id)
+
+    if (updateErr) {
+      throw new Error(`Erro ao atualizar transação: ${updateErr.message}`)
+    }
+
+    const logDetails = JSON.stringify({
+      asaas_id: asaasPaymentId,
+      event: eventType,
+      previous_status: existingTx.status,
+      new_status: targetStatus,
+      transaction_id: existingTx.id,
+    })
+
+    const { data: existingLog } = await supabase
+      .from('logs')
+      .select('id')
+      .eq('action', 'webhook_update')
+      .eq('entity', 'transactions')
+      .eq('details', logDetails)
+      .limit(1)
+
+    if (!existingLog || existingLog.length === 0) {
+      await supabase.from('logs').insert({
+        action: 'webhook_update',
+        entity: 'transactions',
+        user: 'ASAAS Webhook',
+        date: new Date().toISOString(),
+        details: logDetails,
+      })
+    }
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        message: `Transação atualizada para '${targetStatus}' (evento: ${eventType}).`,
+        transaction_id: existingTx.id,
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    )
+  } catch (error: any) {
+    console.error('ASAAS Webhook Error:', error.message || error)
+    return new Response(JSON.stringify({ error: error.message || 'Erro interno' }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+})

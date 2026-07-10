@@ -3,6 +3,7 @@
     "create-user": 14,
     "google-calendar": 16,
     "asaas-integration": 5,
-    "zapsign-integration": 4
+    "zapsign-integration": 4,
+    "asaas-webhook": 1
   }
 }
