@@ -105,6 +105,7 @@ function buildDocContent(
     : 'A combinar'
 
   if (docType === 'procuracao') {
+  if (docType === 'procuracao') {
 =======
   if (docType === 'procuracao') {
     return {
