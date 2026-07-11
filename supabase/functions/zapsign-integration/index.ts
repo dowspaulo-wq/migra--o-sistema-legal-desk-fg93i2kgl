@@ -173,12 +173,10 @@ function buildDocContent(
         `O presente contrato tem por objeto a prestacao de servicos`,
         `advocaticios referentes ao processo nº ${caseNumber}, em`,
         `trambique perante a ${court} da Comarca de ${comarca}${state ? ` - ${state}` : ''}.`,
-        ...(processName
-          ? [
-              '',
-              `Incumbe ao Contratado propor ${processName} em desfavor de ${caseData?.adverseParty || 'N/A'}.`,
-            ]
-          : []),
+        ...(processName ? [
+          '',
+          `Incumbe ao Contratado propor ${processName} em desfavor de ${caseData?.adverseParty || 'N/A'}.`,
+        ] : []),
         '',
         'CLAUSULA 2a - DOS HONORARIOS',
         `Pelos servicos prestados, o CONTRATANTE pagara ao CONTRATADO`,
