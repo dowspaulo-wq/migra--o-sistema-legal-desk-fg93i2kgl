@@ -22,7 +22,13 @@ import { Star } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import { BRAZILIAN_STATES, fetchCepData } from '@/lib/cep'
-import { formatCPF, sanitizeDocument } from '@/lib/utils'
+import { sanitizeDocument } from '@/lib/utils'
+import {
+  formatDocument,
+  isValidDocumentFormat,
+  getDocumentMaskPlaceholder,
+  getDocumentMaxLength,
+} from '@/lib/document-format'
 
 function getEmptyForm(users: any[]) {
   const douglasUser = users.find((u: any) => u.name && u.name.toLowerCase().includes('douglas'))
@@ -148,8 +154,11 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
     if (!fd.phone?.trim()) mandatoryErrors.phone = 'Este campo é obrigatório'
     if (!fd.document?.trim()) {
       mandatoryErrors.document = 'Este campo é obrigatório'
-    } else if (!/^\d{3}\.\d{3}\.\d{3}-\d{2}$/.test(fd.document)) {
-      mandatoryErrors.document = 'O CPF deve estar no formato 000.000.000-00.'
+    } else if (!isValidDocumentFormat(fd.document, fd.type)) {
+      mandatoryErrors.document =
+        fd.type === 'PJ'
+          ? 'O CNPJ deve estar no formato 00.000.000/0000-00.'
+          : 'O CPF deve estar no formato 000.000.000-00.'
     }
     if (Object.keys(mandatoryErrors).length > 0) {
       setFormErrors(mandatoryErrors)
@@ -254,25 +263,37 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
 
             <div className="space-y-2">
               <Label>
-                CPF <span className="text-red-500">*</span>
+                {fd.type === 'PJ' ? 'CNPJ' : 'CPF'} <span className="text-red-500">*</span>
               </Label>
               <Input
                 value={fd.document}
                 onChange={(e) => {
-                  const formatted = formatCPF(e.target.value)
+                  const formatted = formatDocument(e.target.value, fd.type)
                   setFd({ ...fd, document: formatted })
                   setFormErrors((prev) => ({ ...prev, document: '' }))
                 }}
                 inputMode="numeric"
-                maxLength={14}
-                placeholder="000.000.000-00"
+                maxLength={getDocumentMaxLength(fd.type)}
+                placeholder={getDocumentMaskPlaceholder(fd.type)}
               />
               {formErrors.document && <p className="text-xs text-red-500">{formErrors.document}</p>}
             </div>
 
             <div className="space-y-2">
               <Label>Tipo *</Label>
-              <Select value={fd.type} onValueChange={(v) => setFd({ ...fd, type: v })}>
+              <Select
+                value={fd.type}
+                onValueChange={(v) => {
+                  const reFormatted = fd.document ? formatDocument(fd.document, v) : ''
+                  const isShorter = sanitizeDocument(fd.document).length > (v === 'PJ' ? 14 : 11)
+                  setFd({
+                    ...fd,
+                    type: v,
+                    document: isShorter ? '' : reFormatted,
+                  })
+                  setFormErrors((prev) => ({ ...prev, document: '' }))
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione o Tipo" />
                 </SelectTrigger>
