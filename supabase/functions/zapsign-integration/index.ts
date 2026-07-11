@@ -329,10 +329,9 @@ Deno.serve(async (req: Request) => {
         ],
       }
 
-      const res = await fetch(`${ZAPSIGN_BASE_URL}/docs/`, {
+      const res = await fetch(`${ZAPSIGN_BASE_URL}/docs/?api_token=${apiToken}`, {
         method: 'POST',
         headers: {
-          Authorization: `Token ${apiToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(zapsignBody),
@@ -424,10 +423,9 @@ Deno.serve(async (req: Request) => {
         ],
       }
 
-      const res = await fetch(`${ZAPSIGN_BASE_URL}/docs/`, {
+      const res = await fetch(`${ZAPSIGN_BASE_URL}/docs/?api_token=${apiToken}`, {
         method: 'POST',
         headers: {
-          Authorization: `Token ${apiToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(zapsignBody),
