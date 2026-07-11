@@ -20,7 +20,7 @@ import { toast } from '@/hooks/use-toast'
 import { Checkbox } from '@/components/ui/checkbox'
 import useLegalStore from '@/stores/useLegalStore'
 
-const CATEGORIES = [
+const DEFAULT_CATEGORIES = [
   'Custas Iniciais',
   'Custas Finais',
   'Depósito Recursal',
@@ -44,6 +44,10 @@ export function TransactionDialog({
   lockedClientId,
 }: any) {
   const { state } = useLegalStore() as any
+
+  const categories: string[] = (state?.settings?.transactionCategories as string[])?.length
+    ? (state.settings.transactionCategories as string[])
+    : DEFAULT_CATEGORIES
 
   const bankOptions = Array.from(
     new Set([
@@ -181,7 +185,7 @@ export function TransactionDialog({
                     <SelectValue placeholder="Categoria" />
                   </SelectTrigger>
                   <SelectContent>
-                    {CATEGORIES.map((c) => (
+                    {categories.map((c) => (
                       <SelectItem key={c} value={c}>
                         {c}
                       </SelectItem>

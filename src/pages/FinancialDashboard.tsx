@@ -36,6 +36,10 @@ export default function FinancialDashboard() {
     .filter((t: any) => t.type === 'expense')
     .reduce((s: number, t: any) => s + (t.amount || 0), 0)
 
+  const casesWithoutFees = useMemo(() => {
+    return state.cases.filter((c: any) => !c.feeValue || c.feeValue === 0)
+  }, [state.cases])
+
   const getClientName = (clientId: string) =>
     state.clients.find((c) => c.id === clientId)?.name || 'Cliente não encontrado'
 
@@ -124,6 +128,47 @@ export default function FinancialDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {casesWithoutFees.length > 0 && (
+        <Card className="bg-orange-50 border-orange-200">
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-orange-500" />
+              Processos sem honorários lançados ({casesWithoutFees.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="rounded-md border bg-white">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Nº do Processo</TableHead>
+                    <TableHead>Cliente</TableHead>
+                    <TableHead>Tipo</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {casesWithoutFees.slice(0, 10).map((c: any) => (
+                    <TableRow key={c.id}>
+                      <TableCell className="font-medium">{c.number}</TableCell>
+                      <TableCell>{getClientName(c.clientId)}</TableCell>
+                      <TableCell>{c.type || '-'}</TableCell>
+                      <TableCell>{c.status || '-'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            {casesWithoutFees.length > 10 && (
+              <p className="text-xs text-orange-600 mt-2">
+                E mais {casesWithoutFees.length - 10} processo(s) sem honorários. Acesse a lista de
+                processos para regularizar.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

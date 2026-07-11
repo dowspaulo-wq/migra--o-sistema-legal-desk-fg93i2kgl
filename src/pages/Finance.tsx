@@ -53,6 +53,7 @@ import { LinkTransactionToCaseDialog } from '@/components/LinkTransactionToCaseD
 import { supabase } from '@/lib/supabase/client'
 import { toast } from '@/hooks/use-toast'
 import { Link2 } from 'lucide-react'
+import { RecurringTransactionEditDialog } from '@/components/RecurringTransactionEditDialog'
 
 export default function Finance() {
   const { state, updateItem, deleteItem, addTransaction, addSupplier } = useLegalStore() as any
@@ -72,6 +73,40 @@ export default function Finance() {
   const [filterStartDate, setFilterStartDate] = useState(formatYYYYMMDD(firstDay))
   const [filterEndDate, setFilterEndDate] = useState(formatYYYYMMDD(lastDay))
 
+  const monthShortcuts = useMemo(() => {
+    const months = [
+      'jan',
+      'fev',
+      'mar',
+      'abr',
+      'mai',
+      'jun',
+      'jul',
+      'ago',
+      'set',
+      'out',
+      'nov',
+      'dez',
+    ]
+    const now = new Date()
+    return [-1, 0, 1].map((offset) => {
+      const target = new Date(now.getFullYear(), now.getMonth() + offset, 1)
+      return {
+        label: `${months[target.getMonth()]}/${target.getFullYear().toString().slice(2)}`,
+        offset,
+      }
+    })
+  }, [])
+
+  const setMonthRange = (offset: number) => {
+    const now = new Date()
+    const target = new Date(now.getFullYear(), now.getMonth() + offset, 1)
+    const first = new Date(target.getFullYear(), target.getMonth(), 1)
+    const last = new Date(target.getFullYear(), target.getMonth() + 1, 0)
+    setFilterStartDate(formatYYYYMMDD(first))
+    setFilterEndDate(formatYYYYMMDD(last))
+  }
+
   const [editingTransaction, setEditingTransaction] = useState<any>(null)
   const [creatingTransaction, setCreatingTransaction] = useState(false)
 
@@ -83,6 +118,12 @@ export default function Finance() {
   const [txToDelete, setTxToDelete] = useState<any>(null)
   const [deletingTx, setDeletingTx] = useState(false)
   const [txDeleteError, setTxDeleteError] = useState<string | null>(null)
+  const [recurringEditData, setRecurringEditData] = useState<{
+    id: string
+    changes: any
+    recurring_id: string
+    currentDate: string
+  } | null>(null)
 
   const baseTransactions = useMemo(() => {
     // Only show transactions sent to finance
@@ -240,13 +281,25 @@ export default function Finance() {
         open={!!editingTransaction}
         onOpenChange={(v: boolean) => !v && setEditingTransaction(null)}
         data={editingTransaction}
-        onSave={(d: any) => updateItem('transactions', editingTransaction.id, d)}
+        onSave={(d: any) => {
+          if (editingTransaction?.recurring_id) {
+            setRecurringEditData({
+              id: editingTransaction.id,
+              changes: d,
+              recurring_id: editingTransaction.recurring_id,
+              currentDate: editingTransaction.date,
+            })
+          } else {
+            updateItem('transactions', editingTransaction.id, d)
+          }
+        }}
       />
       <TransactionDialog
         open={creatingTransaction}
         onOpenChange={setCreatingTransaction}
         onSave={(d: any, isRecurring?: boolean, installments?: number) => {
           if (isRecurring && installments && installments > 1) {
+            const recurringId = crypto.randomUUID()
             const baseDateStr = d.date
             const [y, m, day] = baseDateStr.split('-')
             const baseDate = new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(day, 10))
@@ -260,6 +313,7 @@ export default function Finance() {
                 ...d,
                 date: dateStr,
                 description: `${d.description} (${i + 1}/${installments})`,
+                recurring_id: recurringId,
               })
             }
             addTransaction(toInsert)
@@ -286,6 +340,49 @@ export default function Finance() {
         transaction={linkingTx}
         cases={state.cases}
         onLink={handleLinkToCase}
+      />
+
+      <RecurringTransactionEditDialog
+        open={!!recurringEditData}
+        onOpenChange={(v: boolean) => !v && setRecurringEditData(null)}
+        onChoose={async (choice: 'single' | 'future') => {
+          if (!recurringEditData) return
+          const { id, changes, recurring_id, currentDate } = recurringEditData
+
+          if (choice === 'single') {
+            await updateItem('transactions', id, changes)
+          } else {
+            await updateItem('transactions', id, changes)
+
+            const today = new Date().toISOString().split('T')[0]
+            const { data: futureTxns } = await supabase
+              .from('transactions')
+              .select('id, date, status')
+              .eq('recurring_id', recurring_id)
+              .gt('date', currentDate)
+
+            const toUpdate = (futureTxns || []).filter(
+              (t: any) =>
+                t.date >= today && !['Pago', 'pago', 'Realizado', 'realizado'].includes(t.status),
+            )
+
+            const { date: _d, description: _desc, recurring_id: _r, ...sharedChanges } = changes
+
+            for (const t of toUpdate) {
+              await updateItem('transactions', t.id, sharedChanges)
+            }
+          }
+
+          setRecurringEditData(null)
+          setEditingTransaction(null)
+          toast({
+            title: 'Sucesso',
+            description:
+              choice === 'single'
+                ? 'Lançamento atualizado.'
+                : 'Lançamento e próximos vinculados atualizados.',
+          })
+        }}
       />
 
       <AlertDialog
@@ -413,9 +510,25 @@ export default function Finance() {
           <Card className="mt-4">
             <CardHeader className="pb-4">
               <div className="flex flex-col gap-4">
-                <div className="flex items-center gap-2 text-lg font-semibold">
-                  <Filter className="h-5 w-5 text-muted-foreground" />
-                  Filtros
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center gap-2 text-lg font-semibold">
+                    <Filter className="h-5 w-5 text-muted-foreground" />
+                    Filtros
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Atalhos por Mês:</span>
+                    {monthShortcuts.map((m) => (
+                      <Button
+                        key={m.offset}
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => setMonthRange(m.offset)}
+                      >
+                        {m.label}
+                      </Button>
+                    ))}
+                  </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
                   <div className="space-y-1.5">

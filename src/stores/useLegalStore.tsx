@@ -425,6 +425,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       const val = parseFloat(feeConfig.feeValue || '0')
       const inst = parseInt(feeConfig.feeInstallments || '1', 10)
       if (val > 0 && inst > 0) {
+        const recurringId = inst > 1 ? crypto.randomUUID() : null
         const transactions = []
         const [y, m, d] = feeConfig.feeFirstDueDate.split('-')
         const baseDate = new Date(parseInt(y), parseInt(m) - 1, parseInt(d))
@@ -446,6 +447,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
             clientId: data.clientId,
             sendToFinance: true,
             bankAccount: feeConfig.bankAccount,
+            ...(recurringId ? { recurring_id: recurringId } : {}),
           })
         }
 
@@ -573,6 +575,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       const inst = fee.installments || 1
       const payMethod = fee.paymentMethod || 'PIX'
       const installmentValue = fee.amount / inst
+      const recurringId = inst > 1 ? crypto.randomUUID() : null
 
       const [y, m, d] = fee.date.split('-')
       const baseDate = new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10))
@@ -594,6 +597,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           sendToFinance: true,
           bankAccount: fee.bankAccount || 'ASAAS',
           payment_method: payMethod,
+          ...(recurringId ? { recurring_id: recurringId } : {}),
         })
       }
 

@@ -16,7 +16,9 @@ import {
   Edit2,
   Check,
   X,
+  Wallet,
 } from 'lucide-react'
+import { FinancialEntitiesTab } from '@/components/FinancialEntitiesTab'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import {
@@ -358,6 +360,9 @@ export default function Settings() {
               <TabsTrigger value="options">
                 <Sliders className="h-4 w-4 mr-2" /> Opções Globais
               </TabsTrigger>
+              <TabsTrigger value="financeiro">
+                <Wallet className="h-4 w-4 mr-2" /> Financeiro
+              </TabsTrigger>
               <TabsTrigger value="users">
                 <Users className="h-4 w-4 mr-2" /> Usuários & Permissões
               </TabsTrigger>
@@ -465,6 +470,10 @@ export default function Settings() {
                 items={s.clientPositions || []}
                 onSave={(items) => updateItem('settings', s.id, { clientPositions: items })}
               />
+            </TabsContent>
+
+            <TabsContent value="financeiro" className="space-y-6">
+              <FinancialEntitiesTab />
             </TabsContent>
 
             <TabsContent value="users">
