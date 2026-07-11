@@ -86,6 +86,7 @@ function buildDocContent(
   const court = caseData?.court || 'N/A'
   const comarca = caseData?.comarca ? caseData.comarca.toUpperCase() : 'N/A'
   const state = caseData?.state ? caseData.state.toUpperCase() : ''
+  const processName = caseData?.process_name || ''
   const caseValue = caseData?.value
     ? `R$ ${Number(caseData.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
     : 'A combinar'
@@ -111,7 +112,7 @@ function buildDocContent(
         'substabelecer com ou sem reservas, e praticar todos os atos',
         'necessarios a defesa de seus interesses.',
         '',
-        `Especialmente para o processo nº ${caseNumber}, em trambique`,
+        `Especialmente para o processo nº ${caseNumber}${processName ? ` (${processName})` : ''}, em trambique`,
         `perante a ${court} da Comarca de ${comarca}${state ? ` - ${state}` : ''}.`,
         '',
         `${comarca}${state ? ` - ${state}` : ''}, ${today}.`,
@@ -141,7 +142,7 @@ function buildDocContent(
         'prestadas, ciente das responsabilidades civil e criminal por',
         'eventuais divergencias.',
         '',
-        `Processo relacionado: nº ${caseNumber}`,
+        `Processo relacionado: nº ${caseNumber}${processName ? ` - ${processName}` : ''}`,
         `Vara: ${court}`,
         `Comarca: ${comarca}${state ? ` - ${state}` : ''}`,
         '',
@@ -171,6 +172,10 @@ function buildDocContent(
         `O presente contrato tem por objeto a prestacao de servicos`,
         `advocaticios referentes ao processo nº ${caseNumber}, em`,
         `trambique perante a ${court} da Comarca de ${comarca}${state ? ` - ${state}` : ''}.`,
+        ...(processName ? [
+          '',
+          `Incumbe ao Contratado propor ${processName} em desfavor de ${caseData?.adverseParty || 'N/A'}.`,
+        ] : []),
         '',
         'CLAUSULA 2a - DOS HONORARIOS',
         `Pelos servicos prestados, o CONTRATANTE pagara ao CONTRATADO`,
