@@ -429,9 +429,7 @@ export default function CaseDetail() {
                   : 'Número de processo inválido para sincronização CNJ'
               }
             >
-              <RefreshCw
-                className={cn('h-4 w-4 mr-2', datajudSyncing && 'animate-spin')}
-              />
+              <RefreshCw className={cn('h-4 w-4 mr-2', datajudSyncing && 'animate-spin')} />
               {datajudSyncing ? 'Sincronizando...' : 'Sincronizar com Tribunal'}
             </Button>
           </div>
@@ -613,42 +611,6 @@ export default function CaseDetail() {
                       {c.status && normalizeStr(c.status).includes('concluido')
                         ? `TRAMITOU DURANTE ${getDetailedDuration(c.startDate, c.updatedAt, c.status)}`
                         : `TRAMITANDO HÁ ${getDetailedDuration(c.startDate, c.updatedAt, c.status)}`}
-                  <div className="col-span-2 border-t border-slate-100 pt-3 mt-1">
-                    <Label className="text-muted-foreground block mb-1">Duração do Processo</Label>
-                    <p className="font-medium text-slate-900 uppercase text-xs tracking-wide">
-                      {c.status && normalizeStr(c.status).includes('concluido')
-                        ? `TRAMITOU DURANTE ${getDetailedDuration(c.startDate, c.updatedAt, c.status)}`
-                        : `TRAMITANDO HÁ ${getDetailedDuration(c.startDate, c.updatedAt, c.status)}`}
-                    </p>
-                  </div>
-                </div>
-                  <div className="col-span-2 border-t border-slate-100 pt-3 mt-1">
-                    <Label className="text-muted-foreground block mb-1">Duração do Processo</Label>
-                    <p className="font-medium text-slate-900 uppercase text-xs tracking-wide">
-                      {c.status && normalizeStr(c.status).includes('concluido')
-                        ? `TRAMITOU DURANTE ${getDetailedDuration(c.startDate, c.updatedAt, c.status)}`
-                        : `TRAMITANDO HÁ ${getDetailedDuration(c.startDate, c.updatedAt, c.status)}`}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-=======
-              </CardContent>
-            </Card>
-=======
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-=======
-                  <div className="col-span-2 border-t border-slate-100 pt-3 mt-1">
-                    <Label className="text-muted-foreground block mb-1">Duração do Processo</Label>
-                    <p className="font-medium text-slate-900 uppercase text-xs tracking-wide">
-                      {c.status && normalizeStr(c.status).includes('concluido')
-                        ? `TRAMITOU DURANTE ${getDetailedDuration(c.startDate, c.updatedAt, c.status)}`
-                        : `TRAMITANDO HÁ ${getDetailedDuration(c.startDate, c.updatedAt, c.status)}`}
                     </p>
                   </div>
                 </div>
@@ -683,9 +645,7 @@ export default function CaseDetail() {
                   disabled={datajudSyncing}
                   className="w-full"
                 >
-                  <RefreshCw
-                    className={cn('h-4 w-4 mr-2', datajudSyncing && 'animate-spin')}
-                  />
+                  <RefreshCw className={cn('h-4 w-4 mr-2', datajudSyncing && 'animate-spin')} />
                   {datajudSyncing ? 'Sincronizando...' : 'Sincronizar com Tribunal'}
                 </Button>
                 {!isValidCNJNumber(c.number) && (
