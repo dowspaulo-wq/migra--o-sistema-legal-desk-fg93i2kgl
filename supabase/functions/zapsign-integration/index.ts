@@ -173,10 +173,12 @@ function buildDocContent(
         `O presente contrato tem por objeto a prestacao de servicos`,
         `advocaticios referentes ao processo nº ${caseNumber}, em`,
         `trambique perante a ${court} da Comarca de ${comarca}${state ? ` - ${state}` : ''}.`,
-        ...(processName ? [
-          '',
-          `Incumbe ao Contratado propor ${processName} em desfavor de ${caseData?.adverseParty || 'N/A'}.`,
-        ] : []),
+        ...(processName
+          ? [
+              '',
+              `Incumbe ao Contratado propor ${processName} em desfavor de ${caseData?.adverseParty || 'N/A'}.`,
+            ]
+          : []),
         '',
         'CLAUSULA 2a - DOS HONORARIOS',
         `Pelos servicos prestados, o CONTRATANTE pagara ao CONTRATADO`,
@@ -220,8 +222,11 @@ async function processDocxTemplate(
 
   xmlContent = xmlContent
     .replace(/\{\{client_name\}\}/g, client.name || '')
+    .replace(/\{\{name\}\}/g, client.name || '')
     .replace(/\{\{marital_status\}\}/g, client.marital_status || '')
     .replace(/\{\{cpf\}\}/g, (client.document || '').replace(/\D/g, ''))
+    .replace(/\{\{document\}\}/g, client.document || '')
+    .replace(/\{\{cpf_cnpj\}\}/g, client.document || '')
     .replace(/\{\{street\}\}/g, client.street || '')
     .replace(/\{\{number_street\}\}/g, client.number || '')
     .replace(/\{\{neighborhood\}\}/g, client.neighborhood || '')
@@ -232,6 +237,29 @@ async function processDocxTemplate(
     .replace(/\{\{adverse_party\}\}/g, caseData?.adverseParty || '')
     .replace(/\{\{court\}\}/g, caseData?.court || '')
     .replace(/\{\{comarca\}\}/g, (caseData?.comarca || '').toUpperCase())
+    .replace(/\{\{case_number\}\}/g, caseData?.number || '')
+    .replace(/\{\{client_document\}\}/g, client.document || '')
+    .replace(/\{\{client_email\}\}/g, client.email || '')
+    .replace(/\{\{client_phone\}\}/g, client.phone || '')
+    .replace(/\{\{address\}\}/g, client.address || '')
+    .replace(/\{\{cep\}\}/g, client.cep || '')
+    .replace(/\{\{complement\}\}/g, client.complement || '')
+    .replace(/\{\{birthday\}\}/g, client.birthday || '')
+    .replace(/\{\{type\}\}/g, client.type || '')
+    .replace(
+      /\{\{case_value\}\}/g,
+      caseData?.value
+        ? `R$ ${Number(caseData.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+        : '',
+    )
+    .replace(/\{\{case_type\}\}/g, caseData?.type || '')
+    .replace(/\{\{case_status\}\}/g, caseData?.status || '')
+    .replace(/\{\{position\}\}/g, caseData?.position || '')
+    .replace(/\{\{responsible\}\}/g, caseData?.responsibleId || '')
+    .replace(/\{\{start_date\}\}/g, caseData?.startDate || '')
+    .replace(/\{\{state_uf\}\}/g, caseData?.state || '')
+    .replace(/\{\{process_name\}\}/g, caseData?.process_name || '')
+    .replace(/\{\{description\}\}/g, caseData?.description || '')
 
   zip.file('word/document.xml', xmlContent)
   return await zip.generateAsync({ type: 'base64' })
@@ -429,7 +457,7 @@ Deno.serve(async (req: Request) => {
   } catch (error: any) {
     console.error('ZapSign Integration Error:', error.message || error)
     return new Response(JSON.stringify({ error: error.message || 'Erro interno' }), {
-      status: 200,
+      status: 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   }

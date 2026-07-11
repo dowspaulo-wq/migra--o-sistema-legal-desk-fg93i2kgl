@@ -22,6 +22,7 @@ import { Star } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import { BRAZILIAN_STATES, fetchCepData } from '@/lib/cep'
+import { formatCPF, sanitizeDocument } from '@/lib/utils'
 
 function getEmptyForm(users: any[]) {
   const douglasUser = users.find((u: any) => u.name && u.name.toLowerCase().includes('douglas'))
@@ -147,8 +148,8 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
     if (!fd.phone?.trim()) mandatoryErrors.phone = 'Este campo é obrigatório'
     if (!fd.document?.trim()) {
       mandatoryErrors.document = 'Este campo é obrigatório'
-    } else if (!/^\d{11}$/.test(fd.document)) {
-      mandatoryErrors.document = 'O CPF deve conter exatamente 11 dígitos numéricos.'
+    } else if (!/^\d{3}\.\d{3}\.\d{3}-\d{2}$/.test(fd.document)) {
+      mandatoryErrors.document = 'O CPF deve estar no formato 000.000.000-00.'
     }
     if (Object.keys(mandatoryErrors).length > 0) {
       setFormErrors(mandatoryErrors)
@@ -184,7 +185,10 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
       (c) => c.name.toLowerCase() === fd.name.toLowerCase() && c.id !== client?.id,
     )
     const isDupDoc = fd.document
-      ? state.clients.some((c) => c.document === fd.document && c.id !== client?.id)
+      ? state.clients.some(
+          (c) =>
+            sanitizeDocument(c.document) === sanitizeDocument(fd.document) && c.id !== client?.id,
+        )
       : false
 
     if (isDupName || isDupDoc) {
@@ -250,14 +254,13 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
               <Input
                 value={fd.document}
                 onChange={(e) => {
-                  const numericValue = e.target.value.replace(/\D/g, '').slice(0, 11)
-                  setFd({ ...fd, document: numericValue })
+                  const formatted = formatCPF(e.target.value)
+                  setFd({ ...fd, document: formatted })
                   setFormErrors((prev) => ({ ...prev, document: '' }))
                 }}
                 inputMode="numeric"
-                pattern="[0-9]{11}"
-                maxLength={11}
-                placeholder="Somente números (11 dígitos)"
+                maxLength={14}
+                placeholder="000.000.000-00"
               />
               {formErrors.document && <p className="text-xs text-red-500">{formErrors.document}</p>}
             </div>
