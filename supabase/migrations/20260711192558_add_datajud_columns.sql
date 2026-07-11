@@ -1,0 +1,3 @@
+ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS last_movement TEXT;
+ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS last_sync_at TIMESTAMPTZ;
+ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS court_details JSONB;

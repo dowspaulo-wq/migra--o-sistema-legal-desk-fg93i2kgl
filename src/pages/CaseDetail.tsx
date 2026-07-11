@@ -36,9 +36,11 @@ import {
   Briefcase,
   FileSignature,
   FileUp,
+  RefreshCw,
 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
+import { cn } from '@/lib/utils'
 import { CaseDialog } from '@/components/CaseDialog'
 import { TaskDialog } from '@/components/TaskDialog'
 import { AppointmentDialog } from '@/components/AppointmentDialog'
@@ -47,6 +49,7 @@ import { formatSafeLocalDate, getDetailedDuration, normalizeStr } from '@/lib/ut
 import { createZapSignDoc, createDocFromTemplate } from '@/services/zapsign'
 import { fetchDocumentTemplates } from '@/services/document-templates'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { syncCaseWithDataJud, isValidCNJNumber } from '@/services/datajud'
 
 const getTaskTypeStyle = (type: string) => {
   const t = (type || '').toLowerCase()
@@ -98,6 +101,7 @@ export default function CaseDetail() {
   const [templates, setTemplates] = useState<any[]>([])
   const [templateLoading, setTemplateLoading] = useState(false)
   const [generatingFromTemplate, setGeneratingFromTemplate] = useState<string | null>(null)
+  const [datajudSyncing, setDatajudSyncing] = useState(false)
 
   const c = state.cases.find((x) => x.id === id)
   const client = state.clients.find((cl) => cl.id === c?.clientId)
@@ -134,6 +138,48 @@ export default function CaseDetail() {
   const expense = processTransactions
     .filter((t) => t.type === 'expense')
     .reduce((acc, t) => acc + t.amount, 0)
+
+  const handleDataJudSync = async () => {
+    if (!c?.number || !isValidCNJNumber(c.number)) {
+      toast({
+        title: 'Atenção',
+        description:
+          'O número do processo não está no formato CNJ válido (NNNNNNN-DD.YYYY.J.TR.OOOO).',
+        variant: 'destructive',
+      })
+      return
+    }
+    setDatajudSyncing(true)
+    const { data, error } = await syncCaseWithDataJud(c.id, c.number)
+    setDatajudSyncing(false)
+    if (error) {
+      toast({
+        title: 'Erro',
+        description: error.message || 'Falha ao sincronizar com tribunal.',
+        variant: 'destructive',
+      })
+    } else if (data?.found) {
+      updateItem('cases', c.id, {
+        last_movement: data.last_movement,
+        last_sync_at: data.last_sync_at,
+        court_details: data.court_details,
+      })
+      toast({
+        title: 'Sucesso',
+        description: 'Movimentações sincronizadas com o tribunal.',
+      })
+    } else {
+      updateItem('cases', c.id, {
+        last_sync_at: data?.last_sync_at || new Date().toISOString(),
+        court_details: data?.court_details || { not_found: true },
+      })
+      toast({
+        title: 'Atenção',
+        description: 'Processo não encontrado no DataJud/CNJ.',
+        variant: 'destructive',
+      })
+    }
+  }
 
   if (!c) return <div className="p-8 text-center">Processo não encontrado.</div>
 
@@ -372,6 +418,22 @@ export default function CaseDetail() {
             <Button variant="outline" size="sm" onClick={() => setIsCaseOpen(true)}>
               <Edit className="h-4 w-4 mr-2" /> Editar
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDataJudSync}
+              disabled={datajudSyncing}
+              title={
+                isValidCNJNumber(c.number)
+                  ? 'Sincronizar movimentações com DataJud/CNJ'
+                  : 'Número de processo inválido para sincronização CNJ'
+              }
+            >
+              <RefreshCw
+                className={cn('h-4 w-4 mr-2', datajudSyncing && 'animate-spin')}
+              />
+              {datajudSyncing ? 'Sincronizando...' : 'Sincronizar com Tribunal'}
+            </Button>
           </div>
 
           <div
@@ -505,8 +567,8 @@ export default function CaseDetail() {
           <TabsTrigger value="tasks">Tarefas</TabsTrigger>
           <TabsTrigger value="agenda">Agenda</TabsTrigger>
           <TabsTrigger value="despesas">Despesas</TabsTrigger>
-          <TabsTrigger value="docs">Documentos</TabsTrigger>
-          <TabsTrigger value="assinaturas">Assinaturas</TabsTrigger>
+          <TabsTrigger value="docs">Documentos (em construção)</TabsTrigger>
+          <TabsTrigger value="assinaturas">Assinaturas (em construção)</TabsTrigger>
         </TabsList>
 
         <TabsContent value="info" className="mt-4 space-y-4">
@@ -553,6 +615,63 @@ export default function CaseDetail() {
                         : `TRAMITANDO HÁ ${getDetailedDuration(c.startDate, c.updatedAt, c.status)}`}
                     </p>
                   </div>
+                </div>
+              </CardContent>
+            </Card>
+=======
+                  <div className="col-span-2 border-t border-slate-100 pt-3 mt-1">
+                    <Label className="text-muted-foreground block mb-1">Duração do Processo</Label>
+                    <p className="font-medium text-slate-900 uppercase text-xs tracking-wide">
+                      {c.status && normalizeStr(c.status).includes('concluido')
+                        ? `TRAMITOU DURANTE ${getDetailedDuration(c.startDate, c.updatedAt, c.status)}`
+                        : `TRAMITANDO HÁ ${getDetailedDuration(c.startDate, c.updatedAt, c.status)}`}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-sm border-slate-200">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg flex items-center gap-2 text-slate-700">
+                  <RefreshCw className="h-5 w-5" /> Sincronização DataJud/CNJ
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <div>
+                  <Label className="text-muted-foreground block mb-1">Última Sincronização</Label>
+                  <p className="font-medium text-slate-900">
+                    {(c as any).last_sync_at
+                      ? new Date((c as any).last_sync_at).toLocaleString('pt-BR')
+                      : 'Nunca sincronizado'}
+                  </p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground block mb-1">Última Movimentação</Label>
+                  <p className="font-medium text-slate-900">
+                    {(c as any).last_movement || 'Nenhuma movimentação registrada'}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDataJudSync}
+                  disabled={datajudSyncing}
+                  className="w-full"
+                >
+                  <RefreshCw
+                    className={cn('h-4 w-4 mr-2', datajudSyncing && 'animate-spin')}
+                  />
+                  {datajudSyncing ? 'Sincronizando...' : 'Sincronizar com Tribunal'}
+                </Button>
+                {!isValidCNJNumber(c.number) && (
+                  <p className="text-xs text-amber-600 flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    Número de processo fora do padrão CNJ para sincronização.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
                 </div>
               </CardContent>
             </Card>

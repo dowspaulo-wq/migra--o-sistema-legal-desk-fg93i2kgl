@@ -4,6 +4,7 @@
     "google-calendar": 18,
     "asaas-integration": 10,
     "zapsign-integration": 11,
-    "asaas-webhook": 4
+    "asaas-webhook": 4,
+    "datajud-sync": 1
   }
 }
