@@ -1,10 +1,10 @@
 {
   "_versions": {
-    "create-user": 16,
-    "google-calendar": 18,
-    "asaas-integration": 10,
-    "zapsign-integration": 11,
-    "asaas-webhook": 4,
-    "datajud-sync": 1
+    "create-user": 17,
+    "google-calendar": 19,
+    "asaas-integration": 11,
+    "zapsign-integration": 12,
+    "asaas-webhook": 5,
+    "datajud-sync": 2
   }
 }

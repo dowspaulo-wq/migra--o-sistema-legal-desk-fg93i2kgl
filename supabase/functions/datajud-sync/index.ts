@@ -31,7 +31,9 @@ Deno.serve(async (req: Request) => {
     const { number, caseId } = await req.json()
 
     if (!number || !isValidCNJ(number)) {
-      throw new Error('Número de processo inválido. Formato esperado: NNNNNNN-DD.YYYY.J.TR.OOOO')
+      throw new Error(
+        'Número de processo inválido. Formato esperado: NNNNNNN-DD.YYYY.J.TR.OOOO',
+      )
     }
 
     const cleanNumber = number.replace(/[.\-_ ]/g, '')
@@ -91,7 +93,9 @@ Deno.serve(async (req: Request) => {
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '')
-      throw new Error(`Erro ao consultar DataJud (${res.status}): ${errText || res.statusText}`)
+      throw new Error(
+        `Erro ao consultar DataJud (${res.status}): ${errText || res.statusText}`,
+      )
     }
 
     const result = await res.json()
@@ -126,7 +130,9 @@ Deno.serve(async (req: Request) => {
     if (lastMovimento) {
       const nomeMov = lastMovimento.nome || ''
       const dataHora = lastMovimento.dataHora || ''
-      const dateStr = dataHora ? new Date(dataHora).toLocaleDateString('pt-BR') : ''
+      const dateStr = dataHora
+        ? new Date(dataHora).toLocaleDateString('pt-BR')
+        : ''
       lastMovementText = [nomeMov, dateStr].filter(Boolean).join(' - ')
     }
 

@@ -53,9 +53,7 @@ Deno.serve(async (req: Request) => {
   try {
     const apiKey = Deno.env.get('ASAAS_API_KEY')
     if (!apiKey) {
-      throw new Error(
-        'ASAAS_API_KEY não configurada. Defina a chave da API nos segredos do Supabase.',
-      )
+      throw new Error('ASAAS_API_KEY não configurada. Defina a chave da API nos segredos do Supabase.')
     }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')
@@ -86,9 +84,7 @@ Deno.serve(async (req: Request) => {
         (client as any).complement,
         (client as any).neighborhood,
         (client as any).city,
-      ]
-        .filter(Boolean)
-        .join(', ')
+      ].filter(Boolean).join(', ')
 
       const customerData: any = {
         name: client.name,
@@ -116,7 +112,7 @@ Deno.serve(async (req: Request) => {
       if (asaasId) {
         const res = await fetch(`${ASAAS_BASE_URL}/customers/${asaasId}`, {
           method: 'PUT',
-          headers: { access_token: apiKey, 'Content-Type': 'application/json' },
+          headers: { 'access_token': apiKey, 'Content-Type': 'application/json' },
           body: JSON.stringify(customerData),
         })
 
@@ -126,16 +122,13 @@ Deno.serve(async (req: Request) => {
           throw new Error(`Erro ao atualizar cliente no ASAAS: ${msg}`)
         }
 
-        return new Response(
-          JSON.stringify({ success: true, message: 'Cliente atualizado no ASAAS com sucesso.' }),
-          {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          },
-        )
+        return new Response(JSON.stringify({ success: true, message: 'Cliente atualizado no ASAAS com sucesso.' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
       } else {
         const res = await fetch(`${ASAAS_BASE_URL}/customers`, {
           method: 'POST',
-          headers: { access_token: apiKey, 'Content-Type': 'application/json' },
+          headers: { 'access_token': apiKey, 'Content-Type': 'application/json' },
           body: JSON.stringify(customerData),
         })
 
@@ -150,11 +143,7 @@ Deno.serve(async (req: Request) => {
         await supabase.from('clients').update({ asaas_id: created.id }).eq('id', clientId)
 
         return new Response(
-          JSON.stringify({
-            success: true,
-            message: 'Cliente criado no ASAAS com sucesso.',
-            asaas_id: created.id,
-          }),
+          JSON.stringify({ success: true, message: 'Cliente criado no ASAAS com sucesso.', asaas_id: created.id }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
         )
       }
@@ -212,7 +201,7 @@ Deno.serve(async (req: Request) => {
 
       const res = await fetch(`${ASAAS_BASE_URL}/payments`, {
         method: 'POST',
-        headers: { access_token: apiKey, 'Content-Type': 'application/json' },
+        headers: { 'access_token': apiKey, 'Content-Type': 'application/json' },
         body: JSON.stringify(paymentData),
       })
 
@@ -227,11 +216,7 @@ Deno.serve(async (req: Request) => {
       await supabase.from('transactions').update({ asaas_id: created.id }).eq('id', transactionId)
 
       return new Response(
-        JSON.stringify({
-          success: true,
-          message: 'Cobrança criada no ASAAS com sucesso.',
-          asaas_id: created.id,
-        }),
+        JSON.stringify({ success: true, message: 'Cobrança criada no ASAAS com sucesso.', asaas_id: created.id }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       )
     }
@@ -257,7 +242,7 @@ Deno.serve(async (req: Request) => {
 
       const delRes = await fetch(`${ASAAS_BASE_URL}/payments/${asaasPayId}`, {
         method: 'DELETE',
-        headers: { access_token: apiKey, 'Content-Type': 'application/json' },
+        headers: { 'access_token': apiKey, 'Content-Type': 'application/json' },
       })
 
       if (!delRes.ok) {
@@ -286,7 +271,7 @@ Deno.serve(async (req: Request) => {
       const clientByAsaasId = new Map<string, any>()
       const clientByDocument = new Map<string, any>()
 
-      for (const c of clients || []) {
+      for (const c of (clients || [])) {
         if (c.asaas_id) {
           clientByAsaasId.set(c.asaas_id, c)
         }
@@ -310,7 +295,7 @@ Deno.serve(async (req: Request) => {
         const url = `${ASAAS_BASE_URL}/payments?offset=${offset}&limit=${limit}&status=RECEIVED,CONFIRMED,PENDING,OVERDUE,REFUNDED`
         const res = await fetch(url, {
           method: 'GET',
-          headers: { access_token: apiKey, 'Content-Type': 'application/json' },
+          headers: { 'access_token': apiKey, 'Content-Type': 'application/json' },
         })
 
         if (!res.ok) {
@@ -330,7 +315,7 @@ Deno.serve(async (req: Request) => {
             try {
               const custRes = await fetch(`${ASAAS_BASE_URL}/customers/${asaasCustomerId}`, {
                 method: 'GET',
-                headers: { access_token: apiKey, 'Content-Type': 'application/json' },
+                headers: { 'access_token': apiKey, 'Content-Type': 'application/json' },
               })
               if (custRes.ok) {
                 const custData = await custRes.json()
@@ -366,11 +351,7 @@ Deno.serve(async (req: Request) => {
           }
 
           const txStatus = ASAAS_STATUS_MAP[payment.status] || 'Pendente'
-          const txDate =
-            payment.paymentDate ||
-            payment.confirmationDate ||
-            payment.dueDate ||
-            new Date().toISOString().split('T')[0]
+          const txDate = payment.paymentDate || payment.confirmationDate || payment.dueDate || new Date().toISOString().split('T')[0]
           const txPaymentMethod = ASAAS_PAYMENT_METHOD_MAP[payment.billingType] || 'PIX'
 
           const txData = {
