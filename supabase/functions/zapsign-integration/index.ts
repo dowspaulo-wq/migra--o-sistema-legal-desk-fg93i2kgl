@@ -413,8 +413,8 @@ Deno.serve(async (req: Request) => {
       const base64Docx = await processDocxTemplate(arrayBuffer, client, caseData)
 
       const zapsignBody = {
-        name: template.name,
-        base64_doc: base64Docx,
+        name: template.name.endsWith('.docx') ? template.name : `${template.name}.docx`,
+        base64_pdf: base64Docx,
         lang: 'pt_br',
         signers: [
           {
@@ -457,7 +457,7 @@ Deno.serve(async (req: Request) => {
   } catch (error: any) {
     console.error('ZapSign Integration Error:', error.message || error)
     return new Response(JSON.stringify({ error: error.message || 'Erro interno' }), {
-      status: 400,
+      status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   }

@@ -79,3 +79,43 @@ export function formatCPF(value: string): string {
 export function sanitizeDocument(doc: string | null | undefined): string {
   return (doc || '').replace(/\D/g, '')
 }
+
+/**
+ * Returns detailed process duration: "X dias (Y anos, Z meses e W dias)"
+ */
+export function getDetailedDuration(
+  start: string | null | undefined,
+  end?: string | null,
+  status?: string | null,
+): string {
+  if (!start) return '0 dias (0 dias)'
+  const isConcluido = status && normalizeStr(status).includes('concluido')
+  const endDate = isConcluido && end ? parseSafeLocalDate(end) : new Date()
+  const startDate = parseSafeLocalDate(start)
+
+  let totalDays = Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24))
+  if (totalDays < 0) totalDays = 0
+
+  let years = endDate.getFullYear() - startDate.getFullYear()
+  let months = endDate.getMonth() - startDate.getMonth()
+  let days = endDate.getDate() - startDate.getDate()
+
+  if (days < 0) {
+    months--
+    const prevMonth = new Date(endDate.getFullYear(), endDate.getMonth(), 0)
+    days += prevMonth.getDate()
+  }
+  if (months < 0) {
+    years--
+    months += 12
+  }
+
+  const parts = []
+  if (years > 0) parts.push(`${years} ${years === 1 ? 'ano' : 'anos'}`)
+  if (months > 0) parts.push(`${months} ${months === 1 ? 'mês' : 'meses'}`)
+  if (days > 0 || (years === 0 && months === 0))
+    parts.push(`${days} ${days === 1 ? 'dia' : 'dias'}`)
+
+  const detailed = parts.join(', ').replace(/, ([^,]*)$/, ' e $1')
+  return `${totalDays} dias (${detailed || '0 dias'})`
+}

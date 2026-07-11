@@ -42,7 +42,7 @@ import { DatePicker } from '@/components/ui/date-picker'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import { CaseDialog } from '@/components/CaseDialog'
-import { normalizeStr, normalizeProcessNumber } from '@/lib/utils'
+import { normalizeStr, normalizeProcessNumber, getDetailedDuration } from '@/lib/utils'
 import { downloadCSV } from '@/lib/export'
 import { Download } from 'lucide-react'
 
@@ -257,13 +257,6 @@ export default function Cases() {
         return toast({ title: 'Erro', description: 'Número já existe', variant: 'destructive' })
       addCase(fd)
     }
-  }
-
-  const getDays = (start: string, end?: string, status?: string) => {
-    if (!start) return 0
-    const isConcluido = status && normalizeStr(status).includes('concluido')
-    const endDate = isConcluido && end ? new Date(end) : new Date()
-    return Math.floor((endDate.getTime() - new Date(start).getTime()) / (1000 * 3600 * 24))
   }
 
   const getTypeColor = (type: string) => {
@@ -680,9 +673,8 @@ export default function Cases() {
                         <p>
                           Vara: {c.court} •{' '}
                           {c.status && normalizeStr(c.status).includes('concluido')
-                            ? `Tramitou durante ${getDays(c.startDate, c.updatedAt, c.status)}`
-                            : `Tramitando há ${getDays(c.startDate, c.updatedAt, c.status)}`}{' '}
-                          dias
+                            ? `Tramitou durante ${getDetailedDuration(c.startDate, c.updatedAt, c.status)}`
+                            : `Tramitando há ${getDetailedDuration(c.startDate, c.updatedAt, c.status)}`}
                         </p>
                         {resp && (
                           <span
@@ -866,9 +858,9 @@ export default function Cases() {
                           <span className="text-muted-foreground">
                             {c.status && normalizeStr(c.status).includes('concluido')
                               ? 'Tramitou durante:'
-                              : 'Duração:'}
+                              : 'Tramitando há:'}
                           </span>{' '}
-                          {getDays(c.startDate, c.updatedAt, c.status)} dias
+                          {getDetailedDuration(c.startDate, c.updatedAt, c.status)}
                         </p>
                         {c.description && (
                           <p

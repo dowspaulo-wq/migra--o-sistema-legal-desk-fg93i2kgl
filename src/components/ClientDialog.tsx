@@ -204,7 +204,12 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
       .filter(Boolean)
       .join(', ')
 
-    const payload = { ...fd, marital_status: fd.marital_status || null, address: fullAddress }
+    const payload = {
+      ...fd,
+      marital_status: fd.marital_status || null,
+      address: fullAddress,
+      phone: fd.phone?.replace(/\D/g, ''),
+    }
     const { isNew, ...finalPayload } = payload
 
     if (!client) {
@@ -358,11 +363,13 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
                 Celular <span className="text-red-500">*</span>
               </Label>
               <Input
-                value={fd.phone}
+                value={fd.phone || ''}
                 onChange={(e) => {
-                  setFd({ ...fd, phone: e.target.value })
+                  const numericValue = e.target.value.replace(/\D/g, '')
+                  setFd({ ...fd, phone: numericValue })
                   setFormErrors((prev) => ({ ...prev, phone: '' }))
                 }}
+                inputMode="numeric"
               />
               {formErrors.phone && <p className="text-xs text-red-500">{formErrors.phone}</p>}
             </div>

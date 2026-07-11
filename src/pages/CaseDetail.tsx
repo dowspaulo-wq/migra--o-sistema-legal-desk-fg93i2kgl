@@ -43,7 +43,7 @@ import { CaseDialog } from '@/components/CaseDialog'
 import { TaskDialog } from '@/components/TaskDialog'
 import { AppointmentDialog } from '@/components/AppointmentDialog'
 import { TransactionDialog } from '@/components/TransactionDialog'
-import { formatSafeLocalDate } from '@/lib/utils'
+import { formatSafeLocalDate, getDetailedDuration, normalizeStr } from '@/lib/utils'
 import { createZapSignDoc, createDocFromTemplate } from '@/services/zapsign'
 import { fetchDocumentTemplates } from '@/services/document-templates'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -543,6 +543,14 @@ export default function CaseDetail() {
                     <Label className="text-muted-foreground block mb-1">Última Atualização</Label>
                     <p className="font-medium text-slate-900">
                       {c.updatedAt ? formatSafeLocalDate(c.updatedAt) : 'Não informado'}
+                    </p>
+                  </div>
+                  <div className="col-span-2 border-t border-slate-100 pt-3 mt-1">
+                    <Label className="text-muted-foreground block mb-1">Duração do Processo</Label>
+                    <p className="font-medium text-slate-900 uppercase text-xs tracking-wide">
+                      {c.status && normalizeStr(c.status).includes('concluido')
+                        ? `TRAMITOU DURANTE ${getDetailedDuration(c.startDate, c.updatedAt, c.status)}`
+                        : `TRAMITANDO HÁ ${getDetailedDuration(c.startDate, c.updatedAt, c.status)}`}
                     </p>
                   </div>
                 </div>
