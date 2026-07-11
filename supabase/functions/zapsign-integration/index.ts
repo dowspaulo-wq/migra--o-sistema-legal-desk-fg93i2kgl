@@ -1,5 +1,6 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'jsr:@supabase/supabase-js@2'
+import JSZip from 'jszip'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -172,10 +173,12 @@ function buildDocContent(
         `O presente contrato tem por objeto a prestacao de servicos`,
         `advocaticios referentes ao processo nº ${caseNumber}, em`,
         `trambique perante a ${court} da Comarca de ${comarca}${state ? ` - ${state}` : ''}.`,
-        ...(processName ? [
-          '',
-          `Incumbe ao Contratado propor ${processName} em desfavor de ${caseData?.adverseParty || 'N/A'}.`,
-        ] : []),
+        ...(processName
+          ? [
+              '',
+              `Incumbe ao Contratado propor ${processName} em desfavor de ${caseData?.adverseParty || 'N/A'}.`,
+            ]
+          : []),
         '',
         'CLAUSULA 2a - DOS HONORARIOS',
         `Pelos servicos prestados, o CONTRATANTE pagara ao CONTRATADO`,
@@ -202,6 +205,40 @@ function buildDocContent(
   throw new Error('Tipo de documento invalido.')
 }
 
+async function processDocxTemplate(
+  arrayBuffer: ArrayBuffer,
+  client: any,
+  caseData: any,
+): Promise<string> {
+  const zip = await JSZip.loadAsync(arrayBuffer)
+  const docFile = zip.file('word/document.xml')
+  if (!docFile) throw new Error('Arquivo .docx invalido: documento XML nao encontrado.')
+
+  let xmlContent = await docFile.async('string')
+
+  xmlContent = xmlContent.replace(/\{\{([\s\S]*?)\}\}/g, (match) => {
+    return match.replace(/<[^>]+>/g, '')
+  })
+
+  xmlContent = xmlContent
+    .replace(/\{\{client_name\}\}/g, client.name || '')
+    .replace(/\{\{marital_status\}\}/g, client.marital_status || '')
+    .replace(/\{\{cpf\}\}/g, (client.document || '').replace(/\D/g, ''))
+    .replace(/\{\{street\}\}/g, client.street || '')
+    .replace(/\{\{number_street\}\}/g, client.number || '')
+    .replace(/\{\{neighborhood\}\}/g, client.neighborhood || '')
+    .replace(/\{\{city\}\}/g, client.city || '')
+    .replace(/\{\{state\}\}/g, client.state || '')
+    .replace(/\{\{email\}\}/g, client.email || '')
+    .replace(/\{\{process_number\}\}/g, caseData?.number || '')
+    .replace(/\{\{adverse_party\}\}/g, caseData?.adverseParty || '')
+    .replace(/\{\{court\}\}/g, caseData?.court || '')
+    .replace(/\{\{comarca\}\}/g, (caseData?.comarca || '').toUpperCase())
+
+  zip.file('word/document.xml', xmlContent)
+  return await zip.generateAsync({ type: 'base64' })
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -222,7 +259,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey)
-    const { action, caseId, clientId, docType } = await req.json()
+    const { action, caseId, clientId, docType, templateId } = await req.json()
 
     if (action === 'createDoc') {
       const { data: client, error: clientErr } = await supabase
@@ -288,6 +325,101 @@ Deno.serve(async (req: Request) => {
         JSON.stringify({
           success: true,
           message: 'Documento criado e enviado para assinatura via ZapSign.',
+          url: docUrl,
+          token: docToken,
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
+    if (action === 'createDocFromTemplate') {
+      const { data: template, error: templateErr } = await supabase
+        .from('document_templates')
+        .select('*')
+        .eq('id', templateId)
+        .single()
+
+      if (templateErr || !template) {
+        throw new Error('Template nao encontrado.')
+      }
+
+      const { data: fileData, error: downloadErr } = await supabase.storage
+        .from('document_templates')
+        .download(template.file_path)
+
+      if (downloadErr || !fileData) {
+        throw new Error('Erro ao baixar o template do armazenamento.')
+      }
+
+      const arrayBuffer = await fileData.arrayBuffer()
+
+      let caseData: any = null
+      if (caseId) {
+        const { data: c, error: caseErr } = await supabase
+          .from('cases')
+          .select('*')
+          .eq('id', caseId)
+          .single()
+        if (!caseErr && c) caseData = c
+      }
+
+      const clientIdToUse = caseData?.clientId || clientId
+      if (!clientIdToUse) {
+        throw new Error('Cliente nao identificado para este processo.')
+      }
+
+      const { data: client, error: clientErr } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('id', clientIdToUse)
+        .single()
+
+      if (clientErr || !client) {
+        throw new Error('Cliente nao encontrado.')
+      }
+
+      if (!client.email) {
+        throw new Error(
+          'Cliente nao possui e-mail cadastrado. O e-mail e necessario para a assinatura digital.',
+        )
+      }
+
+      const base64Docx = await processDocxTemplate(arrayBuffer, client, caseData)
+
+      const zapsignBody = {
+        name: template.name,
+        base64_doc: base64Docx,
+        lang: 'pt_br',
+        signers: [
+          {
+            email: client.email,
+            name: client.name,
+          },
+        ],
+      }
+
+      const res = await fetch(`${ZAPSIGN_BASE_URL}/docs/`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Token ${apiToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(zapsignBody),
+      })
+
+      if (!res.ok) {
+        const errText = await res.text()
+        throw new Error(`Erro ao criar documento no ZapSign: ${errText}`)
+      }
+
+      const created = await res.json()
+      const docToken = created.token || created.id
+      const docUrl = docToken ? `https://app.zapsign.com.br/doc/${docToken}` : null
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: 'Documento criado a partir do template e enviado para assinatura via ZapSign.',
           url: docUrl,
           token: docToken,
         }),

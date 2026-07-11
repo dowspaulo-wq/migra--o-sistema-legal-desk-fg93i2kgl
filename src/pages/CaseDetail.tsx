@@ -35,6 +35,7 @@ import {
   Check,
   Briefcase,
   FileSignature,
+  FileUp,
 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
@@ -43,7 +44,9 @@ import { TaskDialog } from '@/components/TaskDialog'
 import { AppointmentDialog } from '@/components/AppointmentDialog'
 import { TransactionDialog } from '@/components/TransactionDialog'
 import { formatSafeLocalDate } from '@/lib/utils'
-import { createZapSignDoc } from '@/services/zapsign'
+import { createZapSignDoc, createDocFromTemplate } from '@/services/zapsign'
+import { fetchDocumentTemplates } from '@/services/document-templates'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 const getTaskTypeStyle = (type: string) => {
   const t = (type || '').toLowerCase()
@@ -91,6 +94,10 @@ export default function CaseDetail() {
   const [editingTransaction, setEditingTransaction] = useState<any>(null)
   const [creatingTransaction, setCreatingTransaction] = useState(false)
   const [zapsignLoading, setZapsignLoading] = useState<string | null>(null)
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false)
+  const [templates, setTemplates] = useState<any[]>([])
+  const [templateLoading, setTemplateLoading] = useState(false)
+  const [generatingFromTemplate, setGeneratingFromTemplate] = useState<string | null>(null)
 
   const c = state.cases.find((x) => x.id === id)
   const client = state.clients.find((cl) => cl.id === c?.clientId)
@@ -188,6 +195,34 @@ export default function CaseDetail() {
     }
   }
 
+  const openTemplateDialog = async () => {
+    setTemplateDialogOpen(true)
+    setTemplateLoading(true)
+    const { data } = await fetchDocumentTemplates()
+    setTemplates(data || [])
+    setTemplateLoading(false)
+  }
+
+  const handleGenerateFromTemplate = async (templateId: string) => {
+    setGeneratingFromTemplate(templateId)
+    const { data, error } = await createDocFromTemplate(c.id, templateId)
+    setGeneratingFromTemplate(null)
+    if (error) {
+      toast({
+        title: 'Erro',
+        description: error.message || 'Falha ao gerar documento.',
+        variant: 'destructive',
+      })
+    } else {
+      toast({
+        title: 'Sucesso',
+        description: 'Documento gerado e enviado para assinatura.',
+      })
+      setTemplateDialogOpen(false)
+      if (data?.url) window.open(data.url, '_blank')
+    }
+  }
+
   return (
     <div className="space-y-6">
       <CaseDialog
@@ -265,6 +300,41 @@ export default function CaseDetail() {
         lockedClientId={c.clientId}
         onSave={(d: any) => addTransaction(d)}
       />
+
+      <Dialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Gerar Documento</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {templateLoading ? (
+              <p className="text-sm text-muted-foreground text-center py-4">Carregando...</p>
+            ) : templates.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                Nenhum template disponível.
+              </p>
+            ) : (
+              templates.map((t) => (
+                <div
+                  key={t.id}
+                  className="flex items-center justify-between border p-3 rounded-lg hover:bg-slate-50 cursor-pointer transition-colors"
+                  onClick={() => handleGenerateFromTemplate(t.id)}
+                >
+                  <div>
+                    <p className="font-medium text-sm">{t.name}</p>
+                    <Badge variant="outline" className="text-xs mt-1">
+                      {t.category}
+                    </Badge>
+                  </div>
+                  {generatingFromTemplate === t.id && (
+                    <span className="text-xs text-primary animate-pulse">Gerando...</span>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <div className="flex items-start gap-4">
         <Button variant="outline" size="icon" asChild>
@@ -1049,6 +1119,22 @@ export default function CaseDetail() {
               </div>
               <Button onClick={generateDoc} className="w-full" disabled={!selectedTpl}>
                 <Download className="mr-2 h-4 w-4" /> Gerar Documento (.doc)
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-sm border-primary/20 bg-primary/5 mt-4">
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2 text-primary">
+                <FileUp className="h-5 w-5" /> Gerar Documento de Template
+              </CardTitle>
+              <CardDescription>
+                Selecione um template .docx para preenchimento automático e envio para assinatura.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="max-w-md">
+              <Button onClick={openTemplateDialog} className="w-full">
+                <FileUp className="mr-2 h-4 w-4" /> Gerar Documento
               </Button>
             </CardContent>
           </Card>

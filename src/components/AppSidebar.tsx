@@ -12,6 +12,7 @@ import {
   History,
   MessageCircle,
   Wallet,
+  Files,
 } from 'lucide-react'
 import {
   Sidebar,
@@ -36,6 +37,7 @@ const navigation = [
   { name: 'Financeiro', href: '/financeiro', icon: DollarSign },
   { name: 'Dashboard Financeiro', href: '/dashboard-financeiro', icon: Wallet },
   { name: 'Petições', href: '/peticoes', icon: FileText },
+  { name: 'Modelos', href: '/modelos', icon: Files },
   { name: 'Logs', href: '/logs', icon: History },
   { name: 'Configurações', href: '/configuracoes', icon: Settings },
 ]

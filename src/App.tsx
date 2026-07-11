@@ -13,6 +13,7 @@ import Tasks from './pages/Tasks'
 import Finance from './pages/Finance'
 import FinancialDashboard from './pages/FinancialDashboard'
 import Petitions from './pages/Petitions'
+import DocumentTemplates from './pages/DocumentTemplates'
 import Logs from './pages/Logs'
 import SettingsPage from './pages/Settings'
 import { SystemManagement } from './components/SystemManagement'
@@ -62,6 +63,7 @@ const App = () => (
               <Route path="/financeiro" element={<Finance />} />
               <Route path="/dashboard-financeiro" element={<FinancialDashboard />} />
               <Route path="/peticoes" element={<Petitions />} />
+              <Route path="/modelos" element={<DocumentTemplates />} />
               <Route path="/logs" element={<Logs />} />
               <Route path="/configuracoes" element={<SettingsWrapper />} />
 
