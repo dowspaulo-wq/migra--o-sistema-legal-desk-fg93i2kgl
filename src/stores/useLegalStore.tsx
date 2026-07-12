@@ -73,6 +73,7 @@ interface LegalContextType {
     status?: string
     installments?: number
     paymentMethod?: string
+    feeType?: string
   }) => Promise<void>
   updateUser: (id: string, changes: Partial<User>) => void
   addUser: (user: any) => void
@@ -411,6 +412,11 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
 
   const addCase = useCallback(async (newCasePayload: any) => {
     const { feeConfig, ...caseData } = newCasePayload
+    if (feeConfig && feeConfig.hasFees) {
+      caseData.feeType = feeConfig.feeType
+      caseData.feeValue = parseFloat(feeConfig.feeValue || '0')
+      caseData.feeInstallments = parseInt(feeConfig.feeInstallments || '1', 10)
+    }
     const fullCase = { ...caseData, updatedAt: new Date().toISOString().split('T')[0] }
     const { data, error } = await supabase
       .from('cases')
@@ -422,6 +428,12 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     toast({ title: 'Processo adicionado' })
 
     if (feeConfig && feeConfig.hasFees) {
+      const isNonFinancial =
+        feeConfig.feeType === 'apenas quota littis' || feeConfig.feeType === 'pro bono'
+      if (isNonFinancial) {
+        toast({ title: 'Honorário não financeiro registrado (sem lançamentos no financeiro).' })
+        return
+      }
       const val = parseFloat(feeConfig.feeValue || '0')
       const inst = parseInt(feeConfig.feeInstallments || '1', 10)
       if (val > 0 && inst > 0) {
@@ -571,7 +583,33 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       status?: string
       installments?: number
       paymentMethod?: string
+      feeType?: string
     }) => {
+      const isNonFinancial = fee.feeType === 'apenas quota littis' || fee.feeType === 'pro bono'
+
+      if (isNonFinancial) {
+        if (fee.caseIds.length > 0) {
+          await supabase
+            .from('cases')
+            .update({
+              feeType: fee.feeType,
+              feeValue: fee.amount,
+            })
+            .in('id', fee.caseIds)
+
+          setState((prev) => ({
+            ...prev,
+            cases: prev.cases.map((c) =>
+              fee.caseIds.includes(c.id)
+                ? ({ ...c, feeType: fee.feeType!, feeValue: fee.amount } as any)
+                : c,
+            ),
+          }))
+        }
+        toast({ title: 'Honorário não financeiro registrado.' })
+        return
+      }
+
       const inst = fee.installments || 1
       const payMethod = fee.paymentMethod || 'PIX'
       const installmentValue = fee.amount / inst

@@ -40,6 +40,12 @@ export default function FinancialDashboard() {
     return state.cases.filter((c: any) => !c.feeValue || c.feeValue === 0)
   }, [state.cases])
 
+  const nonFinancialCases = useMemo(() => {
+    return state.cases.filter(
+      (c: any) => c.feeType === 'apenas quota littis' || c.feeType === 'pro bono',
+    )
+  }, [state.cases])
+
   const getClientName = (clientId: string) =>
     state.clients.find((c) => c.id === clientId)?.name || 'Cliente não encontrado'
 
@@ -166,6 +172,54 @@ export default function FinancialDashboard() {
                 processos para regularizar.
               </p>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {nonFinancialCases.length > 0 && (
+        <Card className="bg-purple-50 border-purple-200">
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Wallet className="h-5 w-5 text-purple-500" />
+              Honorários Não Financeiros ({nonFinancialCases.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="rounded-md border bg-white">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Nº do Processo</TableHead>
+                    <TableHead>Cliente</TableHead>
+                    <TableHead>Tipo de Honorário</TableHead>
+                    <TableHead>Valor</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {nonFinancialCases.map((c: any) => (
+                    <TableRow key={c.id}>
+                      <TableCell className="font-medium">{c.number}</TableCell>
+                      <TableCell>{getClientName(c.clientId)}</TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className="bg-purple-50 text-purple-700 border-purple-200"
+                        >
+                          {c.feeType}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {c.feeValue
+                          ? `R$ ${Number(c.feeValue).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+                          : '—'}
+                      </TableCell>
+                      <TableCell>{c.status || '—'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           </CardContent>
         </Card>
       )}

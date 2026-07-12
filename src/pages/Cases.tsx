@@ -42,7 +42,7 @@ import { DatePicker } from '@/components/ui/date-picker'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import { CaseDialog } from '@/components/CaseDialog'
-import { normalizeStr, normalizeProcessNumber, getDetailedDuration } from '@/lib/utils'
+import { normalizeStr, normalizeProcessNumber, getDetailedDuration, stripHtml } from '@/lib/utils'
 import { downloadCSV } from '@/lib/export'
 import { Download } from 'lucide-react'
 
@@ -692,9 +692,9 @@ export default function Cases() {
                       {c.description && (
                         <p
                           className="text-sm text-muted-foreground mt-2 line-clamp-2"
-                          title={c.description}
+                          title={stripHtml(c.description)}
                         >
-                          {c.description}
+                          {stripHtml(c.description)}
                         </p>
                       )}
                       {c.alerts && (
@@ -865,9 +865,9 @@ export default function Cases() {
                         {c.description && (
                           <p
                             className="text-xs text-muted-foreground line-clamp-2 mt-1"
-                            title={c.description}
+                            title={stripHtml(c.description)}
                           >
-                            {c.description}
+                            {stripHtml(c.description)}
                           </p>
                         )}
                       </div>

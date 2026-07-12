@@ -46,6 +46,7 @@ import { AppointmentDialog } from '@/components/AppointmentDialog'
 import { syncClientWithAsaas, cancelChargeWithAsaas, syncChargeWithAsaas } from '@/services/asaas'
 import { toast } from '@/hooks/use-toast'
 import { ClientFeesDialog } from '@/components/ClientFeesDialog'
+import { TransactionDialog } from '@/components/TransactionDialog'
 import { LinkTransactionToCaseDialog } from '@/components/LinkTransactionToCaseDialog'
 import { formatSafeLocalDate } from '@/lib/utils'
 import { supabase } from '@/lib/supabase/client'
@@ -66,6 +67,7 @@ export default function ClientDetail() {
   const [syncingFeeId, setSyncingFeeId] = useState<string | null>(null)
   const [bulkSyncing, setBulkSyncing] = useState(false)
   const [linkingTx, setLinkingTx] = useState<any>(null)
+  const [editingFee, setEditingFee] = useState<any>(null)
 
   const client = state.clients.find((c) => c.id === id)
   const allCases = state.cases.filter((c) => c.clientId === id)
@@ -296,6 +298,28 @@ export default function ClientDetail() {
         onOpenChange={setIsFeeOpen}
         clientId={client.id}
         cases={allCases}
+      />
+
+      <TransactionDialog
+        open={!!editingFee}
+        onOpenChange={(v: boolean) => !v && setEditingFee(null)}
+        data={editingFee}
+        onSave={(d: any) => {
+          updateItem('transactions', editingFee.id, d)
+          if (d.amount !== undefined) {
+            const linkedCaseIds = (state.transactionCases || [])
+              .filter((tc: any) => tc.transaction_id === editingFee.id)
+              .map((tc: any) => tc.case_id)
+            const allCaseIds = [
+              ...new Set([
+                ...linkedCaseIds,
+                ...(editingFee.processId ? [editingFee.processId] : []),
+              ]),
+            ]
+            allCaseIds.forEach((cid: string) => updateItem('cases', cid, { feeValue: d.amount }))
+          }
+          setEditingFee(null)
+        }}
       />
 
       <LinkTransactionToCaseDialog
@@ -787,6 +811,15 @@ export default function ClientDetail() {
                             <Link2 className="h-4 w-4" />
                           </Button>
                         )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-slate-500 hover:text-slate-700"
+                          onClick={() => setEditingFee(t)}
+                          title="Editar"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="icon"

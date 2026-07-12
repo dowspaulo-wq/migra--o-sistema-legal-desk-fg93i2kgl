@@ -21,6 +21,7 @@ import { Toggle } from '@/components/ui/toggle'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Star } from 'lucide-react'
+import { RichTextEditor } from '@/components/RichTextEditor'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 
@@ -482,6 +483,10 @@ export function CaseDialog({
                               <SelectItem value="Contratual">Contratual</SelectItem>
                               <SelectItem value="Êxito">Êxito</SelectItem>
                               <SelectItem value="Permuta">Permuta</SelectItem>
+                              <SelectItem value="apenas quota littis">
+                                Apenas Quota Litis
+                              </SelectItem>
+                              <SelectItem value="pro bono">Pro Bono</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
@@ -544,18 +549,18 @@ export function CaseDialog({
 
             <div className="col-span-full md:col-span-2 space-y-2">
               <Label>Descrição</Label>
-              <Textarea
-                value={fd.description}
-                onChange={(e) => setFd({ ...fd, description: e.target.value })}
+              <RichTextEditor
+                value={fd.description || ''}
+                onChange={(v) => setFd({ ...fd, description: v })}
                 readOnly={!isAdmin}
                 className={!isAdmin ? 'bg-muted/50 cursor-not-allowed' : ''}
               />
             </div>
             <div className="col-span-full md:col-span-1 space-y-2">
               <Label>Notas Internas</Label>
-              <Textarea
-                value={fd.internalNotes}
-                onChange={(e) => setFd({ ...fd, internalNotes: e.target.value })}
+              <RichTextEditor
+                value={fd.internalNotes || ''}
+                onChange={(v) => setFd({ ...fd, internalNotes: v })}
                 readOnly={!isAdmin}
                 className={!isAdmin ? 'bg-muted/50 cursor-not-allowed' : ''}
               />

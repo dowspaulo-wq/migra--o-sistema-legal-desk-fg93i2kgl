@@ -40,6 +40,7 @@ export function ClientFeesDialog({
   const [paymentMethod, setPaymentMethod] = useState('PIX')
   const [bankAccount, setBankAccount] = useState('ASAAS')
   const [status, setStatus] = useState('Previsto')
+  const [feeType, setFeeType] = useState('Contratual')
   const [selectedCases, setSelectedCases] = useState<string[]>([])
 
   useEffect(() => {
@@ -51,6 +52,7 @@ export function ClientFeesDialog({
       setPaymentMethod('PIX')
       setBankAccount(state.settings?.bankAccounts?.[0] || 'ASAAS')
       setStatus('Previsto')
+      setFeeType('Contratual')
       setSelectedCases([])
     }
   }, [open, state.settings])
@@ -90,6 +92,7 @@ export function ClientFeesDialog({
       status,
       installments: parsedInstallments,
       paymentMethod,
+      feeType,
     })
 
     onOpenChange(false)
@@ -105,6 +108,21 @@ export function ClientFeesDialog({
             <DialogTitle>Novo Honorário</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Tipo de Honorário *</Label>
+              <Select value={feeType} onValueChange={setFeeType}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Contratual">Contratual</SelectItem>
+                  <SelectItem value="Êxito">Êxito</SelectItem>
+                  <SelectItem value="Permuta">Permuta</SelectItem>
+                  <SelectItem value="apenas quota littis">Apenas Quota Litis</SelectItem>
+                  <SelectItem value="pro bono">Pro Bono</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-2">
               <Label>Descrição *</Label>
               <Input
@@ -210,13 +228,22 @@ export function ClientFeesDialog({
                 </div>
               </div>
             )}
-            {parseInt(installments, 10) > 1 && !isNaN(installmentValue) && (
-              <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-sm text-blue-700">
-                Serão criadas {installments} parcelas de R${' '}
-                {installmentValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} cada, com
-                vencimentos mensais.
+            {(feeType === 'apenas quota littis' || feeType === 'pro bono') && (
+              <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-sm text-amber-700">
+                ⚠️ Esta modalidade não gera lançamentos financeiros. O tipo será registrado apenas
+                no processo.
               </div>
             )}
+            {feeType !== 'apenas quota littis' &&
+              feeType !== 'pro bono' &&
+              parseInt(installments, 10) > 1 &&
+              !isNaN(installmentValue) && (
+                <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-sm text-blue-700">
+                  Serão criadas {installments} parcelas de R${' '}
+                  {installmentValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} cada, com
+                  vencimentos mensais.
+                </div>
+              )}
           </div>
           <DialogFooter>
             <Button type="submit">Salvar</Button>

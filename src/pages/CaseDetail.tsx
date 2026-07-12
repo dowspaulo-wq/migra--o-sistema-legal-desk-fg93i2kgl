@@ -45,7 +45,7 @@ import { CaseDialog } from '@/components/CaseDialog'
 import { TaskDialog } from '@/components/TaskDialog'
 import { AppointmentDialog } from '@/components/AppointmentDialog'
 import { TransactionDialog } from '@/components/TransactionDialog'
-import { formatSafeLocalDate, getDetailedDuration, normalizeStr } from '@/lib/utils'
+import { formatSafeLocalDate, getDetailedDuration, normalizeStr, stripHtml } from '@/lib/utils'
 import { createZapSignDoc, createDocFromTemplate } from '@/services/zapsign'
 import { fetchDocumentTemplates } from '@/services/document-templates'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -732,9 +732,10 @@ export default function CaseDetail() {
                   <Label className="text-muted-foreground mb-2 block font-semibold">
                     Descrição
                   </Label>
-                  <div className="text-sm bg-muted/30 p-3.5 rounded-md border border-border/50 whitespace-pre-wrap leading-relaxed text-slate-700">
-                    {c.description}
-                  </div>
+                  <div
+                    className="text-sm bg-muted/30 p-3.5 rounded-md border border-border/50 leading-relaxed text-slate-700 prose prose-sm max-w-none"
+                    dangerouslySetInnerHTML={{ __html: c.description }}
+                  />
                 </div>
               )}
               {c.internalNotes && (
@@ -742,9 +743,10 @@ export default function CaseDetail() {
                   <Label className="text-muted-foreground mb-2 block font-semibold">
                     Notas Internas
                   </Label>
-                  <div className="text-sm bg-yellow-50/40 p-3.5 rounded-md border border-yellow-200/50 whitespace-pre-wrap leading-relaxed text-slate-700">
-                    {c.internalNotes}
-                  </div>
+                  <div
+                    className="text-sm bg-yellow-50/40 p-3.5 rounded-md border border-yellow-200/50 leading-relaxed text-slate-700 prose prose-sm max-w-none"
+                    dangerouslySetInnerHTML={{ __html: c.internalNotes }}
+                  />
                 </div>
               )}
               {!c.alerts && !c.description && !c.internalNotes && (
@@ -963,8 +965,8 @@ export default function CaseDetail() {
                         </div>
                       </div>
                       {t.description && (
-                        <div className="text-sm text-muted-foreground bg-white/50 p-2.5 rounded-md border border-border/20 line-clamp-3 whitespace-pre-wrap mt-2">
-                          {t.description}
+                        <div className="text-sm text-muted-foreground bg-white/50 p-2.5 rounded-md border border-border/20 line-clamp-3 mt-2">
+                          {stripHtml(t.description)}
                         </div>
                       )}
                     </div>

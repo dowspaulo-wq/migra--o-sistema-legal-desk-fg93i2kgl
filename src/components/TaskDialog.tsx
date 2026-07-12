@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Check } from 'lucide-react'
+import { RichTextEditor } from '@/components/RichTextEditor'
 
 export function TaskDialog({
   open,
@@ -257,10 +258,10 @@ export function TaskDialog({
 
           <div className="space-y-2">
             <Label>Descrição</Label>
-            <Textarea
-              value={formData.description}
-              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              rows={6}
+            <RichTextEditor
+              value={formData.description || ''}
+              onChange={(v) => setFormData({ ...formData, description: v })}
+              className="min-h-[120px]"
             />
           </div>
         </div>

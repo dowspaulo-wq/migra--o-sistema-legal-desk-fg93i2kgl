@@ -291,6 +291,21 @@ export default function Finance() {
             })
           } else {
             updateItem('transactions', editingTransaction.id, d)
+            if (
+              d.amount !== undefined &&
+              editingTransaction?.category?.toLowerCase().includes('honor')
+            ) {
+              const linkedCaseIds = (state.transactionCases || [])
+                .filter((tc: any) => tc.transaction_id === editingTransaction.id)
+                .map((tc: any) => tc.case_id)
+              const allCaseIds = [
+                ...new Set([
+                  ...linkedCaseIds,
+                  ...(editingTransaction.processId ? [editingTransaction.processId] : []),
+                ]),
+              ]
+              allCaseIds.forEach((cid: string) => updateItem('cases', cid, { feeValue: d.amount }))
+            }
           }
         }}
       />

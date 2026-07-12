@@ -81,6 +81,16 @@ export function sanitizeDocument(doc: string | null | undefined): string {
 }
 
 /**
+ * Strips HTML tags from a string, returning plain text
+ */
+export function stripHtml(html: string | null | undefined): string {
+  if (!html) return ''
+  const tmp = document.createElement('div')
+  tmp.innerHTML = html
+  return tmp.textContent || tmp.innerText || ''
+}
+
+/**
  * Returns detailed process duration: "X dias (Y anos, Z meses e W dias)"
  */
 export function getDetailedDuration(
