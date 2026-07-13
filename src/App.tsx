@@ -20,6 +20,7 @@ import { SystemManagement } from './components/SystemManagement'
 import NotFound from './pages/NotFound'
 import Login from './pages/Login'
 import GoogleCallback from './pages/GoogleCallback'
+import UpdatePassword from './pages/UpdatePassword'
 import { LegalStoreProvider } from './stores/useLegalStore'
 import { AuthProvider } from './hooks/use-auth'
 import { RequireAdmin } from './components/RequireAdmin'
@@ -45,6 +46,7 @@ const App = () => (
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/google-callback" element={<GoogleCallback />} />
+            <Route path="/update-password" element={<UpdatePassword />} />
             <Route element={<Layout />}>
               <Route path="/" element={<Index />} />
               <Route path="/clientes" element={<Clients />} />

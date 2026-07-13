@@ -65,8 +65,8 @@ export default function Login() {
       })
     } else {
       toast({
-        title: 'Email enviado!',
-        description: 'Verifique sua caixa de entrada (e pasta de spam) para redefinir sua senha.',
+        title: 'Link enviado!',
+        description: 'Se este e-mail estiver cadastrado, você receberá um link em breve.',
       })
       setIsResetMode(false)
     }
