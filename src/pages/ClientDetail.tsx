@@ -50,6 +50,7 @@ import { TransactionDialog } from '@/components/TransactionDialog'
 import { LinkTransactionToCaseDialog } from '@/components/LinkTransactionToCaseDialog'
 import { formatSafeLocalDate } from '@/lib/utils'
 import { supabase } from '@/lib/supabase/client'
+import { getCaseStatusColor, getCaseStatusStyle } from '@/lib/case-status'
 
 export default function ClientDetail() {
   const { id } = useParams<{ id: string }>()
@@ -561,7 +562,21 @@ export default function ClientDetail() {
                         </div>
                         <div>
                           <p className="text-xs text-muted-foreground mb-1">Status</p>
-                          <Badge variant="outline">{c.status}</Badge>
+                          <Badge
+                            variant="outline"
+                            style={{
+                              borderColor: getCaseStatusColor(
+                                c.status,
+                                state.settings.caseStatuses || [],
+                              ),
+                              color: getCaseStatusColor(
+                                c.status,
+                                state.settings.caseStatuses || [],
+                              ),
+                            }}
+                          >
+                            {c.status}
+                          </Badge>
                         </div>
                         <div>
                           <p className="text-xs text-muted-foreground mb-1">Classificação</p>
@@ -589,6 +604,10 @@ export default function ClientDetail() {
                           <div
                             key={sub.id}
                             className="flex flex-col border border-slate-100 p-3 rounded-lg hover:bg-slate-50 gap-2 transition-colors bg-slate-50/50 relative"
+                            style={getCaseStatusStyle(
+                              sub.status,
+                              state.settings.caseStatuses || [],
+                            )}
                           >
                             <div className="absolute top-1/2 -left-4 w-4 h-px bg-slate-200" />
                             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 w-full">
@@ -620,7 +639,20 @@ export default function ClientDetail() {
                               </div>
                               <div>
                                 <p className="text-[10px] text-muted-foreground mb-1">Status</p>
-                                <Badge variant="outline" className="text-[10px]">
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px]"
+                                  style={{
+                                    borderColor: getCaseStatusColor(
+                                      sub.status,
+                                      state.settings.caseStatuses || [],
+                                    ),
+                                    color: getCaseStatusColor(
+                                      sub.status,
+                                      state.settings.caseStatuses || [],
+                                    ),
+                                  }}
+                                >
                                   {sub.status}
                                 </Badge>
                               </div>

@@ -20,6 +20,33 @@ import {
 import { Check } from 'lucide-react'
 import { RichTextEditor } from '@/components/RichTextEditor'
 
+const TASK_DRAFT_KEY = 'task_draft'
+
+const loadDraft = (): Partial<any> | null => {
+  try {
+    const raw = localStorage.getItem(TASK_DRAFT_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+const saveDraft = (data: any) => {
+  try {
+    localStorage.setItem(TASK_DRAFT_KEY, JSON.stringify(data))
+  } catch {
+    /* intentionally ignored */
+  }
+}
+
+const clearDraft = () => {
+  try {
+    localStorage.removeItem(TASK_DRAFT_KEY)
+  } catch {
+    /* intentionally ignored */
+  }
+}
+
 export function TaskDialog({
   open,
   onOpenChange,
@@ -36,6 +63,26 @@ export function TaskDialog({
 
   useEffect(() => {
     if (open && data) {
+      if (data.isNew) {
+        const draft = loadDraft()
+        if (draft) {
+          setFormData({
+            id: undefined,
+            title: draft.title || '',
+            description: draft.description || '',
+            dueDate: draft.dueDate || '',
+            status: 'Pendente',
+            priority: draft.priority || 'Média',
+            responsibleId: draft.responsibleId || '',
+            relatedProcessId: data.lockedProcessId || draft.relatedProcessId || '',
+            type: draft.type || 'Outro',
+            clientId: data.lockedClientId || draft.clientId || '',
+            internalNotes: draft.internalNotes || '',
+            isNew: true,
+          })
+          return
+        }
+      }
       setFormData({
         id: data.id,
         title: data.title || '',
@@ -53,11 +100,33 @@ export function TaskDialog({
     }
   }, [open, data])
 
+  useEffect(() => {
+    if (open && formData.isNew && formData.title !== undefined) {
+      saveDraft({
+        title: formData.title,
+        description: formData.description,
+        dueDate: formData.dueDate,
+        priority: formData.priority,
+        responsibleId: formData.responsibleId,
+        relatedProcessId: formData.relatedProcessId,
+        type: formData.type,
+        clientId: formData.clientId,
+        internalNotes: formData.internalNotes,
+      })
+    }
+  }, [formData, open])
+
   const handleSave = () => {
     const { isNew, ...payload } = formData
     if (payload.clientId === 'none') payload.clientId = null
     if (payload.relatedProcessId === 'none') payload.relatedProcessId = null
+    if (isNew) clearDraft()
     onSave(payload)
+    onOpenChange(false)
+  }
+
+  const handleCancel = () => {
+    if (formData.isNew) clearDraft()
     onOpenChange(false)
   }
 
@@ -283,7 +352,7 @@ export function TaskDialog({
             <div />
           )}
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
+            <Button variant="outline" onClick={handleCancel}>
               Cancelar
             </Button>
             <Button onClick={handleSave}>Salvar</Button>
