@@ -89,6 +89,7 @@ export function CaseDialog({
       responsibleId: douglasUser ? douglasUser.id : '',
       isSpecial: false,
       isProblematic: false,
+      isRestricted: false,
       description: '',
       internalNotes: '',
       alerts: '',
@@ -236,6 +237,17 @@ export function CaseDialog({
                     className={`text-xl ${fd.isProblematic ? 'opacity-100' : 'opacity-40 grayscale'}`}
                   >
                     💩
+                  </span>
+                </Toggle>
+                <Toggle
+                  pressed={fd.isRestricted || false}
+                  onPressedChange={(v) => setFd({ ...fd, isRestricted: v })}
+                  variant="outline"
+                  className={fd.isRestricted ? 'bg-red-50 border-red-200' : ''}
+                  title="🔒 Visibilidade Interna Restrita"
+                >
+                  <span className={`text-base ${fd.isRestricted ? 'opacity-100' : 'opacity-40'}`}>
+                    🔒
                   </span>
                 </Toggle>
               </div>

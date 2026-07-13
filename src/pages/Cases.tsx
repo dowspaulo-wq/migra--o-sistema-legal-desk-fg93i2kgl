@@ -202,6 +202,8 @@ export default function Cases() {
   }
 
   const filtered = state.cases.filter((c) => {
+    if (state.currentUser.role !== 'Admin' && c.isRestricted) return false
+
     const client = state.clients.find((cl) => cl.id === c.clientId)
     const clientName = client?.name || ''
 
@@ -639,6 +641,14 @@ export default function Cases() {
                             💩
                           </span>
                         )}
+                        {c.isRestricted && (
+                          <span
+                            className="text-base leading-none"
+                            title="Visibilidade Interna Restrita"
+                          >
+                            🔒
+                          </span>
+                        )}
                         <Badge variant="outline">{c.status}</Badge>
                         <Badge variant="secondary" className="text-[10px]">
                           {c.classification || 'SB'}
@@ -800,6 +810,14 @@ export default function Cases() {
                           )}
                           {c.isSpecial && (
                             <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                          )}
+                          {c.isRestricted && (
+                            <span
+                              className="text-base leading-none"
+                              title="Visibilidade Interna Restrita"
+                            >
+                              🔒
+                            </span>
                           )}
                         </div>
                       </div>

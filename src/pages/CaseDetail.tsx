@@ -37,6 +37,7 @@ import {
   FileSignature,
   FileUp,
   RefreshCw,
+  Lock,
 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
@@ -120,7 +121,9 @@ export default function CaseDetail() {
           : 0
       return (Number.isNaN(timeB) ? 0 : timeB) - (Number.isNaN(timeA) ? 0 : timeA)
     })
-  const subcases = state.cases.filter((sc) => sc.parentId === id)
+  const subcases = state.cases.filter(
+    (sc) => sc.parentId === id && (state.currentUser?.role === 'Admin' || !sc.isRestricted),
+  )
   const processAppointments = state.appointments
     .filter((a) => a.processId === id)
     .sort((a: any, b: any) => {
@@ -182,6 +185,24 @@ export default function CaseDetail() {
   }
 
   if (!c) return <div className="p-8 text-center">Processo não encontrado.</div>
+
+  if (c.isRestricted && state.currentUser?.role !== 'Admin') {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
+        <Lock className="h-16 w-16 text-red-500" />
+        <h2 className="text-2xl font-bold text-red-600">Acesso Negado</h2>
+        <p className="text-muted-foreground text-center max-w-md">
+          Você não tem permissão para visualizar este processo. Ele está marcado como de
+          visibilidade interna restrita e apenas administradores podem acessá-lo.
+        </p>
+        <Button variant="outline" asChild>
+          <Link to="/processos">
+            <ArrowLeft className="h-4 w-4 mr-2" /> Voltar para Processos
+          </Link>
+        </Button>
+      </div>
+    )
+  }
 
   const generateDoc = () => {
     if (!selectedTpl)
@@ -412,6 +433,11 @@ export default function CaseDetail() {
               {c.isProblematic && (
                 <span className="text-2xl" title="Problemático">
                   💩
+                </span>
+              )}
+              {c.isRestricted && (
+                <span className="text-2xl" title="Visibilidade Interna Restrita">
+                  🔒
                 </span>
               )}
             </h1>

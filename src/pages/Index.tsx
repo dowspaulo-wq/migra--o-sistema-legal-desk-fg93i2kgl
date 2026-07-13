@@ -74,8 +74,11 @@ export default function Index() {
     )
   })
 
+  const visibleCases =
+    state.currentUser.role === 'Admin' ? state.cases : state.cases.filter((c) => !c.isRestricted)
+
   const processStatusData = Object.entries(
-    state.cases.reduce(
+    visibleCases.reduce(
       (acc, c) => {
         acc[c.status || ''] = (acc[c.status || ''] || 0) + 1
         return acc
@@ -94,7 +97,7 @@ export default function Index() {
   const casesPerUser = state.users
     .map((u) => ({
       name: u.name,
-      value: state.cases.filter((c) => c.responsibleId === u.id).length,
+      value: visibleCases.filter((c) => c.responsibleId === u.id).length,
     }))
     .filter((x) => x.value > 0)
 
@@ -672,7 +675,7 @@ export default function Index() {
             <Briefcase className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{state.cases.length}</div>
+            <div className="text-2xl font-bold">{visibleCases.length}</div>
           </CardContent>
         </Card>
         <Card className="shadow-sm">
@@ -863,7 +866,7 @@ export default function Index() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {state.cases.slice(0, 5).map((c) => (
+              {visibleCases.slice(0, 5).map((c) => (
                 <div
                   key={c.id}
                   className="flex justify-between items-start border-b pb-2 last:border-0"
