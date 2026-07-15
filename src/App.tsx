@@ -15,6 +15,7 @@ import FinancialDashboard from './pages/FinancialDashboard'
 import Petitions from './pages/Petitions'
 import DocumentTemplates from './pages/DocumentTemplates'
 import Logs from './pages/Logs'
+import Acessos from './pages/Acessos'
 import SettingsPage from './pages/Settings'
 import { SystemManagement } from './components/SystemManagement'
 import NotFound from './pages/NotFound'
@@ -66,7 +67,22 @@ const App = () => (
               <Route path="/dashboard-financeiro" element={<FinancialDashboard />} />
               <Route path="/peticoes" element={<Petitions />} />
               <Route path="/modelos" element={<DocumentTemplates />} />
-              <Route path="/logs" element={<Logs />} />
+              <Route
+                path="/logs"
+                element={
+                  <RequireAdmin>
+                    <Logs />
+                  </RequireAdmin>
+                }
+              />
+              <Route
+                path="/acessos"
+                element={
+                  <RequireAdmin>
+                    <Acessos />
+                  </RequireAdmin>
+                }
+              />
               <Route path="/configuracoes" element={<SettingsWrapper />} />
 
               {/* Aliases to satisfy English path assumptions and potential external links */}

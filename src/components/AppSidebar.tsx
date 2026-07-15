@@ -13,6 +13,7 @@ import {
   MessageCircle,
   Wallet,
   Files,
+  KeyRound,
 } from 'lucide-react'
 import {
   Sidebar,
@@ -39,6 +40,7 @@ const navigation = [
   { name: 'Petições', href: '/peticoes', icon: FileText },
   { name: 'Modelos (em construção)', href: '/modelos', icon: Files },
   { name: 'Logs', href: '/logs', icon: History },
+  { name: 'Acessos', href: '/acessos', icon: KeyRound },
   { name: 'Configurações', href: '/configuracoes', icon: Settings },
 ]
 
@@ -54,6 +56,8 @@ export default function AppSidebar() {
       !legalState.currentUser.canViewFinance &&
       legalState.currentUser.role !== 'Admin'
     )
+      return false
+    if (item.name === 'Acessos' && !['Admin', 'ADM', 'admin'].includes(legalState.currentUser.role))
       return false
     if (item.name === 'Configurações' && legalState.currentUser.role !== 'Admin') return false
     if (item.name === 'Agenda' && legalState.currentUser.role !== 'Admin') return false
