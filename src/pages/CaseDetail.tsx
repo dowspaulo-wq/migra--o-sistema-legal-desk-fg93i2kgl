@@ -527,7 +527,10 @@ export default function CaseDetail() {
                   <span className="text-sm font-semibold text-slate-700 block mb-1">
                     Descrição do Caso
                   </span>
-                  <div className="text-sm text-slate-600 whitespace-pre-wrap">{c.description}</div>
+                  <div
+                    className="text-sm text-slate-600 prose prose-sm max-w-none"
+                    dangerouslySetInnerHTML={{ __html: c.description }}
+                  />
                 </div>
               )}
             </div>

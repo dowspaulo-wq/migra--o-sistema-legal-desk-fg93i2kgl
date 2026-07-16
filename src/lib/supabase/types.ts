@@ -443,6 +443,7 @@ export type Database = {
           id: string
           logoUrl: string | null
           showFinanceDashboard: boolean
+          subprocessTypes: Json | null
           taskStatuses: Json | null
           taskTypes: Json | null
           themeColor: string
@@ -460,6 +461,7 @@ export type Database = {
           id?: string
           logoUrl?: string | null
           showFinanceDashboard?: boolean
+          subprocessTypes?: Json | null
           taskStatuses?: Json | null
           taskTypes?: Json | null
           themeColor?: string
@@ -477,6 +479,7 @@ export type Database = {
           id?: string
           logoUrl?: string | null
           showFinanceDashboard?: boolean
+          subprocessTypes?: Json | null
           taskStatuses?: Json | null
           taskTypes?: Json | null
           themeColor?: string
