@@ -696,6 +696,41 @@ export type Database = {
           },
         ]
       }
+      user_sessions: {
+        Row: {
+          date: string
+          id: string
+          last_activity_at: string
+          login_at: string
+          logout_at: string | null
+          profile_id: string
+        }
+        Insert: {
+          date?: string
+          id?: string
+          last_activity_at?: string
+          login_at?: string
+          logout_at?: string | null
+          profile_id: string
+        }
+        Update: {
+          date?: string
+          id?: string
+          last_activity_at?: string
+          login_at?: string
+          logout_at?: string | null
+          profile_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'user_sessions_profile_id_fkey'
+            columns: ['profile_id']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+        ]
+      }
       whatsapp_messages: {
         Row: {
           contact_name: string

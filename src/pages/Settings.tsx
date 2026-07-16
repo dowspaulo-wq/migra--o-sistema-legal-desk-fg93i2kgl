@@ -470,6 +470,14 @@ export default function Settings() {
                 items={s.clientPositions || []}
                 onSave={(items) => updateItem('settings', s.id, { clientPositions: items })}
               />
+              <EditableColorList
+                title="Subprocessos (Editar Nomes)"
+                items={s.subprocessTypes || ['Recurso', 'Precatória', 'Incidente', 'Outros']}
+                onSave={(items: any[]) => updateItem('settings', s.id, { subprocessTypes: items })}
+                onRename={(oldLabel: string, newLabel: string) =>
+                  renameType('cases', 'type', oldLabel, newLabel)
+                }
+              />
             </TabsContent>
 
             <TabsContent value="financeiro" className="space-y-6">

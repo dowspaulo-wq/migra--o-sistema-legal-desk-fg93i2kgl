@@ -40,8 +40,6 @@ const PREDEFINED_ALERTS = [
   '🕵️ Segredo de Justiça',
 ]
 
-const SUBPROCESS_TYPES = ['Recurso', 'Precatória', 'Incidente', 'Outros']
-
 export function CaseDialog({
   open,
   onOpenChange,
@@ -66,6 +64,18 @@ export function CaseDialog({
 
   const caseStatusesSettings = settings.caseStatuses || []
   const sortedStatuses = [...caseStatusesSettings].sort((a: any, b: any) => {
+    const labelA = typeof a === 'string' ? a : a.label
+    const labelB = typeof b === 'string' ? b : b.label
+    return labelA.localeCompare(labelB)
+  })
+
+  const subprocessTypesSettings = settings.subprocessTypes || [
+    'Recurso',
+    'Precatória',
+    'Incidente',
+    'Outros',
+  ]
+  const sortedSubprocessTypes = [...subprocessTypesSettings].sort((a: any, b: any) => {
     const labelA = typeof a === 'string' ? a : a.label
     const labelB = typeof b === 'string' ? b : b.label
     return labelA.localeCompare(labelB)
@@ -280,13 +290,9 @@ export function CaseDialog({
                   <SelectValue placeholder="Selecione o Tipo" />
                 </SelectTrigger>
                 <SelectContent>
-                  {isSubprocess
-                    ? SUBPROCESS_TYPES.map((t) => (
-                        <SelectItem key={t} value={t}>
-                          {t}
-                        </SelectItem>
-                      ))
-                    : sortedTypes.map((t: any) => {
+                  {isSubprocess ? (
+                    <>
+                      {sortedSubprocessTypes.map((t: any) => {
                         const label = typeof t === 'string' ? t : t.label
                         return (
                           <SelectItem key={label} value={label}>
@@ -294,6 +300,25 @@ export function CaseDialog({
                           </SelectItem>
                         )
                       })}
+                      {fd.type &&
+                        !sortedSubprocessTypes.some(
+                          (t: any) => (typeof t === 'string' ? t : t.label) === fd.type,
+                        ) && (
+                          <SelectItem key={fd.type} value={fd.type}>
+                            {fd.type}
+                          </SelectItem>
+                        )}
+                    </>
+                  ) : (
+                    sortedTypes.map((t: any) => {
+                      const label = typeof t === 'string' ? t : t.label
+                      return (
+                        <SelectItem key={label} value={label}>
+                          {label}
+                        </SelectItem>
+                      )
+                    })
+                  )}
                 </SelectContent>
               </Select>
             </div>
