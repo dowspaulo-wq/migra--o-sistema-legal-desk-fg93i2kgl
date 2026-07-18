@@ -24,6 +24,7 @@ import { Star } from 'lucide-react'
 import { RichTextEditor } from '@/components/RichTextEditor'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
+import { getFeeTypeOptions, isSuccessFeeType } from '@/lib/fee-types'
 
 const PREDEFINED_ALERTS = [
   '💣 Liminar contrária',
@@ -132,7 +133,7 @@ export function CaseDialog({
 
   const [feeConfig, setFeeConfig] = useState({
     hasFees: false,
-    feeType: 'Contratual',
+    feeType: 'Honorários Contratuais',
     feeValue: '',
     feeInstallments: '1',
     feeFirstDueDate: new Date().toISOString().split('T')[0],
@@ -517,13 +518,13 @@ export function CaseDialog({
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="Contratual">Contratual</SelectItem>
-                              <SelectItem value="Êxito">Êxito</SelectItem>
-                              <SelectItem value="Permuta">Permuta</SelectItem>
-                              <SelectItem value="apenas quota littis">
-                                Apenas Quota Litis
-                              </SelectItem>
-                              <SelectItem value="pro bono">Pro Bono</SelectItem>
+                              {getFeeTypeOptions(settings.transactionCategories as string[]).map(
+                                (t) => (
+                                  <SelectItem key={t} value={t}>
+                                    {t}
+                                  </SelectItem>
+                                ),
+                              )}
                             </SelectContent>
                           </Select>
                         </div>
@@ -552,10 +553,13 @@ export function CaseDialog({
                           />
                         </div>
                         <div className="space-y-1.5">
-                          <Label className="text-blue-900">1º Vencimento</Label>
+                          <Label className="text-blue-900">
+                            1º Vencimento {isSuccessFeeType(feeConfig.feeType) ? '(Opcional)' : ''}
+                          </Label>
                           <Input
                             type="date"
                             className="bg-white"
+                            required={!isSuccessFeeType(feeConfig.feeType)}
                             value={feeConfig.feeFirstDueDate}
                             onChange={(e) =>
                               setFeeConfig({ ...feeConfig, feeFirstDueDate: e.target.value })
@@ -572,8 +576,13 @@ export function CaseDialog({
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="ASAAS">ASAAS</SelectItem>
-                              <SelectItem value="SICOOB">SICOOB</SelectItem>
+                              {(
+                                settings.bankAccounts || ['ASAAS', 'SICOOB', 'CAIXA', 'PESSOAL']
+                              ).map((b: string) => (
+                                <SelectItem key={b} value={b}>
+                                  {b}
+                                </SelectItem>
+                              ))}
                             </SelectContent>
                           </Select>
                         </div>

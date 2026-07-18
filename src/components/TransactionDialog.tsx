@@ -51,7 +51,7 @@ export function TransactionDialog({
 
   const bankOptions = Array.from(
     new Set([
-      ...(state?.settings?.bankAccounts || ['ASAAS', 'SICOOB']),
+      ...(state?.settings?.bankAccounts || ['ASAAS', 'SICOOB', 'CAIXA', 'PESSOAL']),
       ...(data?.bankAccount ? [data.bankAccount] : []),
     ]),
   )
@@ -239,6 +239,7 @@ export function TransactionDialog({
                     <SelectItem value="Pago">Pago / Recebido</SelectItem>
                     <SelectItem value="Pendente">Pendente</SelectItem>
                     <SelectItem value="Atrasado">Atrasado</SelectItem>
+                    <SelectItem value="Êxito">Êxito</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

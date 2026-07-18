@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
+import { getFeeTypeOptions, isSuccessFeeType, isNonFinancialFeeType } from '@/lib/fee-types'
 
 export function ClientFeesDialog({
   open,
@@ -33,6 +34,9 @@ export function ClientFeesDialog({
 }) {
   const { state, addClientFee } = useLegalStore()
 
+  const transactionCategories = (state.settings?.transactionCategories as string[]) || []
+  const feeTypeOptions = getFeeTypeOptions(transactionCategories)
+
   const [description, setDescription] = useState('')
   const [amount, setAmount] = useState('')
   const [date, setDate] = useState(new Date().toISOString().split('T')[0])
@@ -40,8 +44,11 @@ export function ClientFeesDialog({
   const [paymentMethod, setPaymentMethod] = useState('PIX')
   const [bankAccount, setBankAccount] = useState('ASAAS')
   const [status, setStatus] = useState('Previsto')
-  const [feeType, setFeeType] = useState('Contratual')
+  const [feeType, setFeeType] = useState('Honorários Contratuais')
   const [selectedCases, setSelectedCases] = useState<string[]>([])
+
+  const isSuccessFee = isSuccessFeeType(feeType)
+  const isNonFinancial = isNonFinancialFeeType(feeType)
 
   useEffect(() => {
     if (open) {
@@ -52,13 +59,13 @@ export function ClientFeesDialog({
       setPaymentMethod('PIX')
       setBankAccount(state.settings?.bankAccounts?.[0] || 'ASAAS')
       setStatus('Previsto')
-      setFeeType('Contratual')
+      setFeeType(transactionCategories[0] || 'Honorários Contratuais')
       setSelectedCases([])
     }
   }, [open, state.settings])
 
   const bankOptions = Array.from(
-    new Set([...(state.settings?.bankAccounts || ['ASAAS', 'SICOOB'])]),
+    new Set([...(state.settings?.bankAccounts || ['ASAAS', 'SICOOB', 'CAIXA', 'PESSOAL'])]),
   )
 
   const toggleCase = (caseId: string) => {
@@ -67,13 +74,22 @@ export function ClientFeesDialog({
     )
   }
 
+  const handleFeeTypeChange = (newFeeType: string) => {
+    setFeeType(newFeeType)
+    if (isSuccessFeeType(newFeeType)) {
+      setStatus('Êxito')
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!description || !amount || !date) {
+    if (!description || !amount || (!date && !isSuccessFee)) {
       toast({
         title: 'Campos Obrigatórios',
-        description: 'Preencha descrição, valor e data.',
+        description: isSuccessFee
+          ? 'Preencha descrição e valor. O vencimento é opcional para honorários de êxito.'
+          : 'Preencha descrição, valor e data.',
         variant: 'destructive',
       })
       return
@@ -85,7 +101,7 @@ export function ClientFeesDialog({
     await addClientFee({
       amount: parsedAmount,
       description,
-      date,
+      date: date || new Date().toISOString().split('T')[0],
       clientId,
       caseIds: selectedCases,
       bankAccount,
@@ -110,16 +126,16 @@ export function ClientFeesDialog({
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Tipo de Honorário *</Label>
-              <Select value={feeType} onValueChange={setFeeType}>
+              <Select value={feeType} onValueChange={handleFeeTypeChange}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Contratual">Contratual</SelectItem>
-                  <SelectItem value="Êxito">Êxito</SelectItem>
-                  <SelectItem value="Permuta">Permuta</SelectItem>
-                  <SelectItem value="apenas quota littis">Apenas Quota Litis</SelectItem>
-                  <SelectItem value="pro bono">Pro Bono</SelectItem>
+                  {feeTypeOptions.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {t}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -156,10 +172,10 @@ export function ClientFeesDialog({
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Vencimento *</Label>
+                <Label>Vencimento {isSuccessFee ? '(Opcional)' : '*'}</Label>
                 <Input
                   type="date"
-                  required
+                  required={!isSuccessFee}
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
                 />
@@ -190,6 +206,7 @@ export function ClientFeesDialog({
                     <SelectItem value="Pago">Pago</SelectItem>
                     <SelectItem value="Pendente">Pendente</SelectItem>
                     <SelectItem value="Atrasado">Atrasado</SelectItem>
+                    <SelectItem value="Êxito">Êxito</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -228,20 +245,28 @@ export function ClientFeesDialog({
                 </div>
               </div>
             )}
-            {(feeType === 'apenas quota littis' || feeType === 'pro bono') && (
+            {isNonFinancial && (
               <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-sm text-amber-700">
                 ⚠️ Esta modalidade não gera lançamentos financeiros. O tipo será registrado apenas
                 no processo.
               </div>
             )}
-            {feeType !== 'apenas quota littis' &&
-              feeType !== 'pro bono' &&
+            {isSuccessFee && (
+              <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-sm text-blue-700">
+                ℹ️ Honorários de Êxito: o vencimento é opcional pois a data de recebimento é
+                incerta. O status será definido como "Êxito".
+              </div>
+            )}
+            {!isNonFinancial &&
+              !isSuccessFee &&
               parseInt(installments, 10) > 1 &&
               !isNaN(installmentValue) && (
                 <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-sm text-blue-700">
                   Serão criadas {installments} parcelas de R${' '}
-                  {installmentValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} cada, com
-                  vencimentos mensais.
+                  {installmentValue.toLocaleString('pt-BR', {
+                    minimumFractionDigits: 2,
+                  })}{' '}
+                  cada, com vencimentos mensais.
                 </div>
               )}
           </div>

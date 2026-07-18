@@ -462,7 +462,7 @@ export default function Settings() {
               />
               <EditableList
                 title="Contas Bancárias"
-                items={s.bankAccounts || ['ASAAS', 'SICOOB']}
+                items={s.bankAccounts || ['ASAAS', 'SICOOB', 'CAIXA', 'PESSOAL']}
                 onSave={(items) => updateItem('settings', s.id, { bankAccounts: items })}
               />
               <EditableList

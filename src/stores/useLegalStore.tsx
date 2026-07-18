@@ -50,6 +50,7 @@ import { toast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/hooks/use-auth'
 import { normalizeStr } from '@/lib/utils'
+import { isNonFinancialFeeType, isSuccessFeeType } from '@/lib/fee-types'
 
 interface LegalContextType {
   state: LegalState
@@ -428,8 +429,8 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     toast({ title: 'Processo adicionado' })
 
     if (feeConfig && feeConfig.hasFees) {
-      const isNonFinancial =
-        feeConfig.feeType === 'apenas quota littis' || feeConfig.feeType === 'pro bono'
+      const isNonFinancial = isNonFinancialFeeType(feeConfig.feeType || '')
+      const isSuccessFee = isSuccessFeeType(feeConfig.feeType || '')
       if (isNonFinancial) {
         toast({ title: 'Honorário não financeiro registrado (sem lançamentos no financeiro).' })
         return
@@ -439,7 +440,8 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       if (val > 0 && inst > 0) {
         const recurringId = inst > 1 ? crypto.randomUUID() : null
         const transactions = []
-        const [y, m, d] = feeConfig.feeFirstDueDate.split('-')
+        const dueDateStr = feeConfig.feeFirstDueDate || new Date().toISOString().split('T')[0]
+        const [y, m, d] = dueDateStr.split('-')
         const baseDate = new Date(parseInt(y), parseInt(m) - 1, parseInt(d))
         const installmentValue = val / inst
 
@@ -452,8 +454,8 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
             description: `Honorários (${feeConfig.feeType}) - Parcela ${i + 1}/${inst} - Processo ${data.number}`,
             amount: installmentValue,
             type: 'income',
-            category: 'Honorários Contratuais',
-            status: 'Previsto',
+            category: feeConfig.feeType || 'Honorários Contratuais',
+            status: isSuccessFee ? 'Êxito' : 'Previsto',
             date: dateStr,
             processId: data.id,
             clientId: data.clientId,
@@ -585,7 +587,8 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       paymentMethod?: string
       feeType?: string
     }) => {
-      const isNonFinancial = fee.feeType === 'apenas quota littis' || fee.feeType === 'pro bono'
+      const isNonFinancial = isNonFinancialFeeType(fee.feeType || '')
+      const isSuccessFee = isSuccessFeeType(fee.feeType || '')
 
       if (isNonFinancial) {
         if (fee.caseIds.length > 0) {
@@ -628,13 +631,14 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           description: inst > 1 ? `${fee.description} (${i + 1}/${inst})` : fee.description,
           amount: installmentValue,
           type: 'income',
-          category: 'Honorários Contratuais',
-          status: fee.status || 'Previsto',
+          category: fee.feeType || 'Honorários Contratuais',
+          status: isSuccessFee ? fee.status || 'Êxito' : fee.status || 'Previsto',
           date: dateStr,
           clientId: fee.clientId,
           sendToFinance: true,
           bankAccount: fee.bankAccount || 'ASAAS',
           payment_method: payMethod,
+          ...(fee.caseIds.length === 1 ? { processId: fee.caseIds[0] } : {}),
           ...(recurringId ? { recurring_id: recurringId } : {}),
         })
       }

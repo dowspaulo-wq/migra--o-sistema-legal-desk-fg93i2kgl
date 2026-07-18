@@ -184,7 +184,9 @@ export default function Finance() {
   }, [baseTransactions])
 
   const bankOptions = useMemo(() => {
-    const banks = new Set<string>(state.settings?.bankAccounts || ['ASAAS', 'SICOOB'])
+    const banks = new Set<string>(
+      state.settings?.bankAccounts || ['ASAAS', 'SICOOB', 'CAIXA', 'PESSOAL'],
+    )
     baseTransactions.forEach((t) => t.bankAccount && banks.add(t.bankAccount))
     return Array.from(banks).sort()
   }, [baseTransactions, state.settings?.bankAccounts])
@@ -559,6 +561,7 @@ export default function Finance() {
                         <SelectItem value="Pago">Pago</SelectItem>
                         <SelectItem value="Pendente">Pendente</SelectItem>
                         <SelectItem value="Atrasado">Atrasado</SelectItem>
+                        <SelectItem value="Êxito">Êxito</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
