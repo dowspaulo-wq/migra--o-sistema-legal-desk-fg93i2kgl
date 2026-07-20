@@ -586,6 +586,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       installments?: number
       paymentMethod?: string
       feeType?: string
+      percentage?: number
     }) => {
       const isNonFinancial = isNonFinancialFeeType(fee.feeType || '')
       const isSuccessFee = isSuccessFeeType(fee.feeType || '')
@@ -638,6 +639,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           sendToFinance: true,
           bankAccount: fee.bankAccount || 'ASAAS',
           payment_method: payMethod,
+          ...(fee.percentage != null ? { percentage: fee.percentage } : {}),
           ...(fee.caseIds.length === 1 ? { processId: fee.caseIds[0] } : {}),
           ...(recurringId ? { recurring_id: recurringId } : {}),
         })

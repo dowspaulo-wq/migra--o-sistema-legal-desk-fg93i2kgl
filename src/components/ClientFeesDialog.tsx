@@ -45,6 +45,7 @@ export function ClientFeesDialog({
   const [bankAccount, setBankAccount] = useState('ASAAS')
   const [status, setStatus] = useState('Previsto')
   const [feeType, setFeeType] = useState('Honorários Contratuais')
+  const [percentage, setPercentage] = useState('')
   const [selectedCases, setSelectedCases] = useState<string[]>([])
 
   const isSuccessFee = isSuccessFeeType(feeType)
@@ -60,6 +61,7 @@ export function ClientFeesDialog({
       setBankAccount(state.settings?.bankAccounts?.[0] || 'ASAAS')
       setStatus('Previsto')
       setFeeType(transactionCategories[0] || 'Honorários Contratuais')
+      setPercentage('')
       setSelectedCases([])
     }
   }, [open, state.settings])
@@ -109,6 +111,7 @@ export function ClientFeesDialog({
       installments: parsedInstallments,
       paymentMethod,
       feeType,
+      percentage: isSuccessFee ? parseFloat(percentage.replace(',', '.')) || undefined : undefined,
     })
 
     onOpenChange(false)
@@ -170,6 +173,20 @@ export function ClientFeesDialog({
                 />
               </div>
             </div>
+            {isSuccessFee && (
+              <div className="space-y-2">
+                <Label>Percentual (%)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  placeholder="Ex: 30"
+                  value={percentage}
+                  onChange={(e) => setPercentage(e.target.value)}
+                />
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Vencimento {isSuccessFee ? '(Opcional)' : '*'}</Label>
@@ -255,6 +272,13 @@ export function ClientFeesDialog({
               <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-sm text-blue-700">
                 ℹ️ Honorários de Êxito: o vencimento é opcional pois a data de recebimento é
                 incerta. O status será definido como "Êxito".
+                {percentage && (
+                  <>
+                    {' '}
+                    Percentual de {parseFloat(percentage.replace(',', '.'))}% aplicado sobre o valor
+                    do processo.
+                  </>
+                )}
               </div>
             )}
             {!isNonFinancial &&
