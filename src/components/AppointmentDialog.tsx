@@ -20,7 +20,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/hooks/use-toast'
 import { DatePicker } from '@/components/ui/date-picker'
 
-import { Trash } from 'lucide-react'
+import { Trash, CheckCircle2 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 
 export function AppointmentDialog({
@@ -80,13 +80,22 @@ export function AppointmentDialog({
 
   const isAudience = fd.type === 'Aud.conciliação' || fd.type === 'AIJ'
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSubmit = (e?: React.FormEvent, forceStatus?: string) => {
+    if (e) e.preventDefault()
 
-    if (!fd.type || !fd.priority || !fd.responsibleId || !fd.clientId) {
+    if (
+      !fd.title?.trim() ||
+      !fd.date ||
+      !fd.time ||
+      !fd.type ||
+      !fd.priority ||
+      !fd.responsibleId ||
+      !fd.clientId
+    ) {
       toast({
         title: 'Campos Obrigatórios',
-        description: 'Por favor, preencha Tipo, Prioridade, Responsável e Cliente.',
+        description:
+          'Por favor, preencha Título, Data, Hora, Tipo, Prioridade, Responsável e Cliente.',
         variant: 'destructive',
       })
       return
@@ -122,7 +131,7 @@ export function AppointmentDialog({
       processId: fd.processId,
       description: fd.description,
       modality: fd.modality || null,
-      status: fd.status || 'Pendente',
+      status: forceStatus || fd.status || 'Pendente',
     }
 
     onSave(payload)
@@ -281,7 +290,19 @@ export function AppointmentDialog({
             ) : (
               <div />
             )}
-            <Button type="submit">Salvar na Agenda</Button>
+            <div className="flex gap-2">
+              {data?.id && data.itemType !== 'birthday' && data.status !== 'Concluído' && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="bg-green-50 hover:bg-green-100 text-green-600 border-green-200"
+                  onClick={() => handleSubmit(undefined, 'Concluído')}
+                >
+                  <CheckCircle2 className="h-4 w-4 mr-2" /> Concluir
+                </Button>
+              )}
+              <Button type="submit">Salvar na Agenda</Button>
+            </div>
           </DialogFooter>
         </form>
       </DialogContent>
