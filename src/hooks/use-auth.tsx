@@ -20,6 +20,48 @@ export const useAuth = () => {
   return context
 }
 
+const nowISO = () => new Date().toISOString()
+const todayDate = () => new Date().toISOString().split('T')[0]
+
+async function createSession(profileId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('user_sessions')
+    .insert({
+      profile_id: profileId,
+      login_at: nowISO(),
+      last_activity_at: nowISO(),
+      date: todayDate(),
+    })
+    .select('id')
+    .single()
+  if (error) console.error('Failed to create session:', error)
+  return data?.id ?? null
+}
+
+async function findOpenSession(profileId: string, recentOnly = false): Promise<string | null> {
+  let q = supabase
+    .from('user_sessions')
+    .select('id')
+    .eq('profile_id', profileId)
+    .is('logout_at', null)
+  if (recentOnly) {
+    q = q.gte('last_activity_at', new Date(Date.now() - 10 * 60 * 1000).toISOString())
+  }
+  const { data } = await q.order('last_activity_at', { ascending: false }).limit(1)
+  return data?.[0]?.id ?? null
+}
+
+async function updateSessionActivity(sessionId: string) {
+  await supabase.from('user_sessions').update({ last_activity_at: nowISO() }).eq('id', sessionId)
+}
+
+async function closeSession(sessionId: string) {
+  await supabase
+    .from('user_sessions')
+    .update({ logout_at: nowISO(), last_activity_at: nowISO() })
+    .eq('id', sessionId)
+}
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null)
   const [session, setSession] = useState<Session | null>(null)
@@ -33,6 +75,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setSession(session)
       setUser(session?.user ?? null)
       setLoading(false)
+      if (event === 'SIGNED_OUT' && currentSessionIdRef.current) {
+        const sid = currentSessionIdRef.current
+        currentSessionIdRef.current = null
+        closeSession(sid).then()
+      }
     })
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
@@ -42,97 +89,46 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return () => subscription.unsubscribe()
   }, [])
 
-  // Heartbeat mechanism for session tracking
   useEffect(() => {
     if (!user) {
       currentSessionIdRef.current = null
       return
     }
-
     const ping = async () => {
       try {
         if (currentSessionIdRef.current) {
-          await supabase
-            .from('user_sessions')
-            .update({ last_activity_at: new Date().toISOString() })
-            .eq('id', currentSessionIdRef.current)
+          await updateSessionActivity(currentSessionIdRef.current)
+          return
+        }
+        const existing = await findOpenSession(user.id, true)
+        if (existing) {
+          currentSessionIdRef.current = existing
+          await updateSessionActivity(existing)
         } else {
-          // Find an active session for this user within the last 10 minutes
-          const tenMinsAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString()
-          const { data } = await supabase
-            .from('user_sessions')
-            .select('id')
-            .eq('profile_id', user.id)
-            .is('logout_at', null)
-            .gte('last_activity_at', tenMinsAgo)
-            .order('last_activity_at', { ascending: false })
-            .limit(1)
-
-          if (data && data.length > 0) {
-            currentSessionIdRef.current = data[0].id
-            await supabase
-              .from('user_sessions')
-              .update({ last_activity_at: new Date().toISOString() })
-              .eq('id', data[0].id)
-          } else {
-            // Create a new session
-            const { data: newData } = await supabase
-              .from('user_sessions')
-              .insert({
-                profile_id: user.id,
-                login_at: new Date().toISOString(),
-                last_activity_at: new Date().toISOString(),
-              })
-              .select('id')
-              .single()
-
-            if (newData) {
-              currentSessionIdRef.current = newData.id
-            }
-          }
+          const newId = await createSession(user.id)
+          if (newId) currentSessionIdRef.current = newId
         }
       } catch (error) {
         console.error('Heartbeat ping failed:', error)
       }
     }
-
-    // Ping immediately when user changes
     ping()
-
-    // Ping every 3 minutes
     const interval = setInterval(ping, 3 * 60 * 1000)
-
     return () => clearInterval(interval)
   }, [user])
 
   const signIn = async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (!error && data.user) {
-      try {
-        const { data: sessionData } = await supabase
-          .from('user_sessions')
-          .insert({
-            profile_id: data.user.id,
-            login_at: new Date().toISOString(),
-            last_activity_at: new Date().toISOString(),
-          })
-          .select('id')
-          .single()
-
-        if (sessionData) {
-          currentSessionIdRef.current = sessionData.id
-        }
-      } catch (err) {
-        console.error('Failed to create session:', err)
-      }
-
+      const sid = await createSession(data.user.id)
+      if (sid) currentSessionIdRef.current = sid
       supabase
         .from('logs')
         .insert({
           action: 'LOGIN',
           entity: 'auth',
           user: data.user.id,
-          date: new Date().toISOString(),
+          date: nowISO(),
           details: 'Login realizado',
         })
         .then()
@@ -144,28 +140,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const {
       data: { user },
     } = await supabase.auth.getUser()
-
     if (user) {
-      if (currentSessionIdRef.current) {
-        await supabase
-          .from('user_sessions')
-          .update({
-            logout_at: new Date().toISOString(),
-            last_activity_at: new Date().toISOString(),
-          })
-          .eq('id', currentSessionIdRef.current)
-        currentSessionIdRef.current = null
+      const sid = currentSessionIdRef.current
+      currentSessionIdRef.current = null
+      if (sid) {
+        await closeSession(sid)
+      } else {
+        const active = await findOpenSession(user.id)
+        if (active) await closeSession(active)
       }
-
       await supabase.from('logs').insert({
         action: 'LOGOUT',
         entity: 'auth',
         user: user.id,
-        date: new Date().toISOString(),
+        date: nowISO(),
         details: 'Logout realizado',
       })
     }
-
     const { error } = await supabase.auth.signOut()
     return { error }
   }
