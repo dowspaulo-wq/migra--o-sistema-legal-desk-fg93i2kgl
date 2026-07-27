@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import {
   Table,
@@ -49,10 +49,25 @@ export default function Acessos() {
     return user ? user.name : idOrName
   }
 
-  const formatDate = (dateStr: string | null) => {
+  const formatDate = (dateStr: string | null, loginAtStr?: string | null) => {
+    if (loginAtStr) {
+      const loginDate = new Date(loginAtStr)
+      if (!isNaN(loginDate.getTime())) {
+        return loginDate.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+      }
+    }
+
     if (!dateStr) return '--'
+
+    const parts = dateStr.split('-')
+    if (parts.length === 3) {
+      const [year, month, day] = parts
+      return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/${year}`
+    }
+
     const date = new Date(dateStr)
-    return date.toLocaleDateString('pt-BR')
+    if (isNaN(date.getTime())) return '--'
+    return date.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
   }
 
   const formatTime = (dateStr: string | null) => {
@@ -63,6 +78,7 @@ export default function Acessos() {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
+      timeZone: 'America/Sao_Paulo',
     })
   }
 
@@ -85,6 +101,46 @@ export default function Acessos() {
 
     return '--'
   }
+
+  const uniqueSessions = useMemo(() => {
+    if (!sessions || sessions.length === 0) return []
+
+    const result: any[] = []
+
+    for (const session of sessions) {
+      const loginTime = new Date(session.login_at).getTime()
+      if (isNaN(loginTime)) {
+        result.push(session)
+        continue
+      }
+
+      const duplicateIndex = result.findIndex((item) => {
+        if (item.profile_id !== session.profile_id) return false
+        const itemLoginTime = new Date(item.login_at).getTime()
+        return Math.abs(loginTime - itemLoginTime) <= 10000
+      })
+
+      if (duplicateIndex === -1) {
+        result.push(session)
+      } else {
+        const existing = result[duplicateIndex]
+        const existingIsActive = !existing.logout_at
+        const currentIsActive = !session.logout_at
+
+        if (currentIsActive && !existingIsActive) {
+          result[duplicateIndex] = session
+        } else if (!existingIsActive && !currentIsActive) {
+          const existingAct = new Date(existing.last_activity_at || 0).getTime()
+          const currentAct = new Date(session.last_activity_at || 0).getTime()
+          if (currentAct > existingAct) {
+            result[duplicateIndex] = session
+          }
+        }
+      }
+    }
+
+    return result
+  }, [sessions])
 
   return (
     <div className="space-y-6 pb-12">
@@ -110,20 +166,20 @@ export default function Acessos() {
                     Carregando acessos...
                   </TableCell>
                 </TableRow>
-              ) : sessions.length === 0 ? (
+              ) : uniqueSessions.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
                     Nenhum acesso registrado.
                   </TableCell>
                 </TableRow>
               ) : (
-                sessions.map((session) => (
+                uniqueSessions.map((session) => (
                   <TableRow key={session.id}>
                     <TableCell className="font-medium py-4">
                       {getUserName(session.profile_id)}
                     </TableCell>
                     <TableCell className="py-4">
-                      {formatDate(session.date || session.login_at)}
+                      {formatDate(session.date, session.login_at)}
                     </TableCell>
                     <TableCell className="py-4">{formatTime(session.login_at)}</TableCell>
                     <TableCell className="py-4 text-muted-foreground">

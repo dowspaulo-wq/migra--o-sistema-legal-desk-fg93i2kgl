@@ -21,7 +21,14 @@ export const useAuth = () => {
 }
 
 const nowISO = () => new Date().toISOString()
-const todayDate = () => new Date().toISOString().split('T')[0]
+
+const getLocalDateString = () => {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
 
 async function createSession(profileId: string): Promise<string | null> {
   const { data, error } = await supabase
@@ -30,7 +37,7 @@ async function createSession(profileId: string): Promise<string | null> {
       profile_id: profileId,
       login_at: nowISO(),
       last_activity_at: nowISO(),
-      date: todayDate(),
+      date: getLocalDateString(),
     })
     .select('id')
     .single()
@@ -38,16 +45,14 @@ async function createSession(profileId: string): Promise<string | null> {
   return data?.id ?? null
 }
 
-async function findOpenSession(profileId: string, recentOnly = false): Promise<string | null> {
-  let q = supabase
+async function findOpenSession(profileId: string): Promise<string | null> {
+  const { data } = await supabase
     .from('user_sessions')
     .select('id')
     .eq('profile_id', profileId)
     .is('logout_at', null)
-  if (recentOnly) {
-    q = q.gte('last_activity_at', new Date(Date.now() - 10 * 60 * 1000).toISOString())
-  }
-  const { data } = await q.order('last_activity_at', { ascending: false }).limit(1)
+    .order('login_at', { ascending: false })
+    .limit(1)
   return data?.[0]?.id ?? null
 }
 
@@ -67,6 +72,42 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const currentSessionIdRef = useRef<string | null>(null)
+  const sessionPromiseRef = useRef<Promise<string | null> | null>(null)
+
+  const ensureActiveSession = async (profileId: string): Promise<string | null> => {
+    if (currentSessionIdRef.current) {
+      await updateSessionActivity(currentSessionIdRef.current)
+      return currentSessionIdRef.current
+    }
+
+    if (sessionPromiseRef.current) {
+      return sessionPromiseRef.current
+    }
+
+    sessionPromiseRef.current = (async () => {
+      try {
+        const existing = await findOpenSession(profileId)
+        if (existing) {
+          currentSessionIdRef.current = existing
+          await updateSessionActivity(existing)
+          return existing
+        }
+
+        const newId = await createSession(profileId)
+        if (newId) {
+          currentSessionIdRef.current = newId
+        }
+        return newId
+      } catch (err) {
+        console.error('Error ensuring active session:', err)
+        return null
+      } finally {
+        sessionPromiseRef.current = null
+      }
+    })()
+
+    return sessionPromiseRef.current
+  }
 
   useEffect(() => {
     const {
@@ -78,6 +119,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (event === 'SIGNED_OUT' && currentSessionIdRef.current) {
         const sid = currentSessionIdRef.current
         currentSessionIdRef.current = null
+        sessionPromiseRef.current = null
         closeSession(sid).then()
       }
     })
@@ -92,26 +134,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     if (!user) {
       currentSessionIdRef.current = null
+      sessionPromiseRef.current = null
       return
     }
+
     const ping = async () => {
       try {
-        if (currentSessionIdRef.current) {
-          await updateSessionActivity(currentSessionIdRef.current)
-          return
-        }
-        const existing = await findOpenSession(user.id, true)
-        if (existing) {
-          currentSessionIdRef.current = existing
-          await updateSessionActivity(existing)
-        } else {
-          const newId = await createSession(user.id)
-          if (newId) currentSessionIdRef.current = newId
-        }
+        await ensureActiveSession(user.id)
       } catch (error) {
         console.error('Heartbeat ping failed:', error)
       }
     }
+
     ping()
     const interval = setInterval(ping, 3 * 60 * 1000)
     return () => clearInterval(interval)
@@ -120,8 +154,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const signIn = async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (!error && data.user) {
-      const sid = await createSession(data.user.id)
-      if (sid) currentSessionIdRef.current = sid
+      await ensureActiveSession(data.user.id)
       supabase
         .from('logs')
         .insert({
@@ -138,25 +171,31 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const signOut = async () => {
     const {
-      data: { user },
+      data: { user: currentUser },
     } = await supabase.auth.getUser()
-    if (user) {
+    const userId = currentUser?.id || user?.id
+
+    if (userId) {
       const sid = currentSessionIdRef.current
       currentSessionIdRef.current = null
+      sessionPromiseRef.current = null
+
       if (sid) {
         await closeSession(sid)
       } else {
-        const active = await findOpenSession(user.id)
+        const active = await findOpenSession(userId)
         if (active) await closeSession(active)
       }
+
       await supabase.from('logs').insert({
         action: 'LOGOUT',
         entity: 'auth',
-        user: user.id,
+        user: userId,
         date: nowISO(),
         details: 'Logout realizado',
       })
     }
+
     const { error } = await supabase.auth.signOut()
     return { error }
   }
