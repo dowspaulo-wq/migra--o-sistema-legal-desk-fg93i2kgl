@@ -196,7 +196,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
             (a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime(),
           ),
           transactions: (results[5].data || []).sort(
-            (a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+            (a: any, b: any) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime(),
           ),
           logs: (results[6].data || []).sort(
             (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
@@ -473,7 +473,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           setState((prev) => ({
             ...prev,
             transactions: [...tData, ...prev.transactions].sort(
-              (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+              (a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime(),
             ),
           }))
           toast({ title: `${inst} parcela(s) de honorários gerada(s).` })
@@ -532,10 +532,9 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         setState((prev) => ({
           ...prev,
           transactions: [...data, ...prev.transactions].sort(
-            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+            (a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime(),
           ),
-        }))
-        toast({
+        }))        toast({
           title:
             items.length > 1
               ? `${items.length} Lançamentos adicionados com sucesso!`
@@ -619,14 +618,21 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       const installmentValue = fee.amount / inst
       const recurringId = inst > 1 ? crypto.randomUUID() : null
 
-      const [y, m, d] = fee.date.split('-')
-      const baseDate = new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10))
-
       const transactionsToInsert: any[] = []
       for (let i = 0; i < inst; i++) {
-        const currentDate = new Date(baseDate)
-        currentDate.setMonth(currentDate.getMonth() + i)
-        const dateStr = currentDate.toISOString().split('T')[0]
+        let dateStr: string | null = null
+        if (fee.date && fee.date.trim() !== '') {
+          const parts = fee.date.split('-')
+          if (parts.length === 3) {
+            const y = parseInt(parts[0], 10)
+            const m = parseInt(parts[1], 10) - 1
+            const d = parseInt(parts[2], 10)
+            const baseDate = new Date(y, m, d)
+            const currentDate = new Date(baseDate)
+            currentDate.setMonth(currentDate.getMonth() + i)
+            dateStr = currentDate.toISOString().split('T')[0]
+          }
+        }
 
         transactionsToInsert.push({
           description: inst > 1 ? `${fee.description} (${i + 1}/${inst})` : fee.description,
@@ -656,7 +662,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       setState((prev) => ({
         ...prev,
         transactions: [...txnData, ...prev.transactions].sort(
-          (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+          (a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime(),
         ),
       }))
 

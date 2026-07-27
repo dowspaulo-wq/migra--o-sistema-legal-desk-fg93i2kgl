@@ -53,14 +53,16 @@ export function ClientFeesDialog({
 
   useEffect(() => {
     if (open) {
+      const initialType = transactionCategories[0] || 'Honorários Contratuais'
+      const isInitialSuccess = isSuccessFeeType(initialType)
       setDescription('')
       setAmount('')
-      setDate(new Date().toISOString().split('T')[0])
+      setDate(isInitialSuccess ? '' : new Date().toISOString().split('T')[0])
       setInstallments('1')
       setPaymentMethod('PIX')
       setBankAccount(state.settings?.bankAccounts?.[0] || 'ASAAS')
-      setStatus('Previsto')
-      setFeeType(transactionCategories[0] || 'Honorários Contratuais')
+      setStatus(isInitialSuccess ? 'Êxito' : 'Previsto')
+      setFeeType(initialType)
       setPercentage('')
       setSelectedCases([])
     }
@@ -80,6 +82,10 @@ export function ClientFeesDialog({
     setFeeType(newFeeType)
     if (isSuccessFeeType(newFeeType)) {
       setStatus('Êxito')
+      setDate('')
+    } else if (!date) {
+      setDate(new Date().toISOString().split('T')[0])
+      if (status === 'Êxito') setStatus('Previsto')
     }
   }
 
