@@ -36,13 +36,45 @@ export default function Acessos() {
     fetchSessions()
   }, [])
 
-  if (!['Admin', 'ADM', 'admin'].includes(state.currentUser?.role || '')) {
-    return (
-      <div className="p-8 text-center text-destructive font-bold">
-        Acesso negado. Apenas administradores.
-      </div>
-    )
-  }
+  const uniqueSessions = useMemo(() => {
+    if (!sessions || sessions.length === 0) return []
+
+    const result: any[] = []
+
+    for (const session of sessions) {
+      const loginTime = new Date(session.login_at).getTime()
+      if (isNaN(loginTime)) {
+        result.push(session)
+        continue
+      }
+
+      const duplicateIndex = result.findIndex((item) => {
+        if (item.profile_id !== session.profile_id) return false
+        const itemLoginTime = new Date(item.login_at).getTime()
+        return Math.abs(loginTime - itemLoginTime) <= 10000
+      })
+
+      if (duplicateIndex === -1) {
+        result.push(session)
+      } else {
+        const existing = result[duplicateIndex]
+        const existingIsActive = !existing.logout_at
+        const currentIsActive = !session.logout_at
+
+        if (currentIsActive && !existingIsActive) {
+          result[duplicateIndex] = session
+        } else if (!existingIsActive && !currentIsActive) {
+          const existingAct = new Date(existing.last_activity_at || 0).getTime()
+          const currentAct = new Date(session.last_activity_at || 0).getTime()
+          if (currentAct > existingAct) {
+            result[duplicateIndex] = session
+          }
+        }
+      }
+    }
+
+    return result
+  }, [sessions])
 
   const getUserName = (idOrName: string) => {
     const user = state.users.find((u) => u.id === idOrName)
@@ -102,45 +134,15 @@ export default function Acessos() {
     return '--'
   }
 
-  const uniqueSessions = useMemo(() => {
-    if (!sessions || sessions.length === 0) return []
+  const isAdmin = ['Admin', 'ADM', 'admin'].includes(state.currentUser?.role || '')
 
-    const result: any[] = []
-
-    for (const session of sessions) {
-      const loginTime = new Date(session.login_at).getTime()
-      if (isNaN(loginTime)) {
-        result.push(session)
-        continue
-      }
-
-      const duplicateIndex = result.findIndex((item) => {
-        if (item.profile_id !== session.profile_id) return false
-        const itemLoginTime = new Date(item.login_at).getTime()
-        return Math.abs(loginTime - itemLoginTime) <= 10000
-      })
-
-      if (duplicateIndex === -1) {
-        result.push(session)
-      } else {
-        const existing = result[duplicateIndex]
-        const existingIsActive = !existing.logout_at
-        const currentIsActive = !session.logout_at
-
-        if (currentIsActive && !existingIsActive) {
-          result[duplicateIndex] = session
-        } else if (!existingIsActive && !currentIsActive) {
-          const existingAct = new Date(existing.last_activity_at || 0).getTime()
-          const currentAct = new Date(session.last_activity_at || 0).getTime()
-          if (currentAct > existingAct) {
-            result[duplicateIndex] = session
-          }
-        }
-      }
-    }
-
-    return result
-  }, [sessions])
+  if (!isAdmin) {
+    return (
+      <div className="p-8 text-center text-destructive font-bold">
+        Acesso negado. Apenas administradores.
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6 pb-12">
