@@ -534,7 +534,8 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           transactions: [...data, ...prev.transactions].sort(
             (a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime(),
           ),
-        }))        toast({
+        }))
+        toast({
           title:
             items.length > 1
               ? `${items.length} Lançamentos adicionados com sucesso!`
