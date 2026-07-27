@@ -28,10 +28,10 @@ Deno.serve(async (req: Request) => {
     if (webhookToken) {
       const receivedToken = req.headers.get('x-asaas-webhook-token')
       if (receivedToken !== webhookToken) {
-        return new Response(JSON.stringify({ error: 'Token de webhook inválido.' }), {
-          status: 401,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
+        return new Response(
+          JSON.stringify({ error: 'Token de webhook inválido.' }),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        )
       }
     }
 
@@ -50,10 +50,7 @@ Deno.serve(async (req: Request) => {
 
     if (!asaasPaymentId) {
       return new Response(
-        JSON.stringify({
-          success: true,
-          message: 'Webhook recebido sem ID de pagamento. Ignorado.',
-        }),
+        JSON.stringify({ success: true, message: 'Webhook recebido sem ID de pagamento. Ignorado.' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       )
     }
@@ -74,20 +71,14 @@ Deno.serve(async (req: Request) => {
 
     if (txErr || !existingTx) {
       return new Response(
-        JSON.stringify({
-          success: true,
-          message: 'Transação não encontrada para o asaas_id informado.',
-        }),
+        JSON.stringify({ success: true, message: 'Transação não encontrada para o asaas_id informado.' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       )
     }
 
     if (existingTx.status === targetStatus) {
       return new Response(
-        JSON.stringify({
-          success: true,
-          message: 'Transação já está no status alvo. Idempotência garantida.',
-        }),
+        JSON.stringify({ success: true, message: 'Transação já está no status alvo. Idempotência garantida.' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       )
     }
@@ -133,9 +124,45 @@ Deno.serve(async (req: Request) => {
         console.error('ASAAS_API_KEY não configurada. Não foi possível emitir NF.')
       } else {
         try {
+          const listRes = await fetch(`${ASAAS_BASE_URL}/payments/${asaasPaymentId}/invoices`, {
+            method: 'GET',
+            headers: { 'access_token': apiKey, 'Content-Type': 'application/json' },
+          })
+
+          if (listRes.ok) {
+            const listData = await listRes.json()
+            const existingInvoices = listData.data || []
+            if (existingInvoices.length > 0) {
+              console.log(`NF já existente para pagamento ${asaasPaymentId}: ${existingInvoices[0].id}. Pulando emissão manual.`)
+
+              await supabase.from('logs').insert({
+                action: 'invoice_already_issued',
+                entity: 'transactions',
+                user: 'ASAAS Webhook',
+                date: new Date().toISOString(),
+                details: JSON.stringify({
+                  asaas_id: asaasPaymentId,
+                  invoice_id: existingInvoices[0].id,
+                  invoice_status: existingInvoices[0].status,
+                  transaction_id: existingTx.id,
+                  source: 'auto_nf_settings',
+                }),
+              })
+
+              return new Response(
+                JSON.stringify({
+                  success: true,
+                  message: `Transação atualizada para '${targetStatus}' (evento: ${eventType}). NF já emitida automaticamente.`,
+                  transaction_id: existingTx.id,
+                }),
+                { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+              )
+            }
+          }
+
           const invoiceRes = await fetch(`${ASAAS_BASE_URL}/invoices`, {
             method: 'POST',
-            headers: { access_token: apiKey, 'Content-Type': 'application/json' },
+            headers: { 'access_token': apiKey, 'Content-Type': 'application/json' },
             body: JSON.stringify({ payment: asaasPaymentId }),
           })
 
@@ -158,9 +185,7 @@ Deno.serve(async (req: Request) => {
           } else {
             const invoiceErr = await invoiceRes.json().catch(() => ({}))
             const errMsg = (invoiceErr as any)?.errors?.[0]?.description || invoiceRes.statusText
-            console.warn(
-              `NF já emitida ou erro ao emitir para pagamento ${asaasPaymentId}: ${errMsg}`,
-            )
+            console.warn(`NF já emitida ou erro ao emitir para pagamento ${asaasPaymentId}: ${errMsg}`)
 
             await supabase.from('logs').insert({
               action: 'invoice_issuance_skipped',
@@ -190,9 +215,9 @@ Deno.serve(async (req: Request) => {
     )
   } catch (error: any) {
     console.error('ASAAS Webhook Error:', error.message || error)
-    return new Response(JSON.stringify({ error: error.message || 'Erro interno' }), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return new Response(
+      JSON.stringify({ error: error.message || 'Erro interno' }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    )
   }
 })
