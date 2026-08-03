@@ -58,6 +58,7 @@ import { AppointmentDialog } from '@/components/AppointmentDialog'
 import { TransactionDialog } from '@/components/TransactionDialog'
 import { formatSafeLocalDate, getDetailedDuration, normalizeStr, stripHtml } from '@/lib/utils'
 import { createZapSignDoc, createDocFromTemplate } from '@/services/zapsign'
+import { generateInternalDocument } from '@/services/document-signatures'
 import { fetchDocumentTemplates } from '@/services/document-templates'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { syncCaseWithDataJud, isValidCNJNumber } from '@/services/datajud'
@@ -113,6 +114,11 @@ export default function CaseDetail() {
   const [templateLoading, setTemplateLoading] = useState(false)
   const [generatingFromTemplate, setGeneratingFromTemplate] = useState<string | null>(null)
   const [datajudSyncing, setDatajudSyncing] = useState(false)
+  const [internalSigLoading, setInternalSigLoading] = useState<string | null>(null)
+  const [internalSigResult, setInternalSigResult] = useState<{
+    url: string
+    docType: string
+  } | null>(null)
 
   const c = state.cases.find((x) => x.id === id)
   const client = state.clients.find((cl) => cl.id === c?.clientId)
@@ -202,6 +208,33 @@ export default function CaseDetail() {
         title: 'Atenção',
         description: 'Processo não encontrado no DataJud/CNJ.',
         variant: 'destructive',
+      })
+    }
+  }
+
+  const handleInternalSignature = async (docType: string) => {
+    if (!c?.clientId) {
+      toast({
+        title: 'Atenção',
+        description: 'Este processo não tem cliente vinculado.',
+        variant: 'destructive',
+      })
+      return
+    }
+    setInternalSigLoading(docType)
+    const { data, error } = await generateInternalDocument(c.id, c.clientId, docType)
+    setInternalSigLoading(null)
+    if (error) {
+      toast({
+        title: 'Erro',
+        description: error.message,
+        variant: 'destructive',
+      })
+    } else if (data) {
+      setInternalSigResult({ url: data.signUrl, docType })
+      toast({
+        title: 'Sucesso',
+        description: 'Documento gerado para assinatura eletrônica.',
       })
     }
   }
@@ -616,8 +649,8 @@ export default function CaseDetail() {
           <TabsTrigger value="tasks">Tarefas</TabsTrigger>
           <TabsTrigger value="agenda">Agenda</TabsTrigger>
           <TabsTrigger value="despesas">Financeiro</TabsTrigger>
-          <TabsTrigger value="docs">Documentos (em construção)</TabsTrigger>
-          <TabsTrigger value="assinaturas">Assinaturas (em construção)</TabsTrigger>
+          <TabsTrigger value="docs">Documentos</TabsTrigger>
+          <TabsTrigger value="assinaturas">Assinaturas</TabsTrigger>
         </TabsList>
 
         <TabsContent value="info" className="mt-4 space-y-4">
@@ -1328,6 +1361,97 @@ export default function CaseDetail() {
 
         <TabsContent value="assinaturas" className="mt-4">
           <Card className="shadow-sm border-primary/20 bg-primary/5">
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2 text-primary">
+                <FileSignature className="h-5 w-5" /> Assinatura Eletrônica Interna
+              </CardTitle>
+              <CardDescription>
+                Gere documentos para assinatura eletrônica interna com captura de selfie,
+                geolocalização e trilha de auditoria.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl">
+              <Button
+                variant="outline"
+                className="h-auto py-6 flex flex-col gap-2"
+                disabled={internalSigLoading !== null}
+                onClick={() => handleInternalSignature('procuracao')}
+              >
+                <FileSignature className="h-6 w-6 text-primary" />
+                <span className="font-medium">Procuração</span>
+                <span className="text-xs text-muted-foreground">Ad Judicia</span>
+                {internalSigLoading === 'procuracao' && (
+                  <span className="text-xs text-primary animate-pulse">Gerando...</span>
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                className="h-auto py-6 flex flex-col gap-2"
+                disabled={internalSigLoading !== null}
+                onClick={() => handleInternalSignature('hipossuficiencia')}
+              >
+                <FileSignature className="h-6 w-6 text-primary" />
+                <span className="font-medium">Hipossuficiência</span>
+                <span className="text-xs text-muted-foreground">Declaração</span>
+                {internalSigLoading === 'hipossuficiencia' && (
+                  <span className="text-xs text-primary animate-pulse">Gerando...</span>
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                className="h-auto py-6 flex flex-col gap-2"
+                disabled={internalSigLoading !== null}
+                onClick={() => handleInternalSignature('contrato')}
+              >
+                <FileSignature className="h-6 w-6 text-primary" />
+                <span className="font-medium">Contrato</span>
+                <span className="text-xs text-muted-foreground">Prestação de Serviços</span>
+                {internalSigLoading === 'contrato' && (
+                  <span className="text-xs text-primary animate-pulse">Gerando...</span>
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Dialog
+            open={!!internalSigResult}
+            onOpenChange={(v: boolean) => !v && setInternalSigResult(null)}
+          >
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Documento Gerado para Assinatura</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Compartilhe o link abaixo com o signatário para realizar a assinatura eletrônica
+                  com captura de selfie e geolocalização:
+                </p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 text-xs bg-muted px-3 py-2 rounded truncate">
+                    {internalSigResult?.url}
+                  </code>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      navigator.clipboard.writeText(internalSigResult?.url || '')
+                      toast({ title: 'Link copiado!' })
+                    }}
+                  >
+                    Copiar
+                  </Button>
+                </div>
+                <Button
+                  className="w-full"
+                  onClick={() => window.open(internalSigResult?.url, '_blank')}
+                >
+                  Abrir Link de Assinatura
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          <Card className="shadow-sm border-primary/20 bg-primary/5 mt-4">
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2 text-primary">
                 <FileSignature className="h-5 w-5" /> Assinaturas Digitais (ZapSign)
