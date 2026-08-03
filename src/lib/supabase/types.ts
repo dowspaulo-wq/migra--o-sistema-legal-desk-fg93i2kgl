@@ -628,10 +628,11 @@ export type Database = {
           category: string
           clientId: string | null
           created_at: string
-          date: string
+          date: string | null
           description: string
           id: string
           payment_method: string | null
+          percentage: number | null
           processId: string | null
           recurring_id: string | null
           sendToFinance: boolean | null
@@ -646,10 +647,11 @@ export type Database = {
           category: string
           clientId?: string | null
           created_at?: string
-          date: string
+          date?: string | null
           description: string
           id?: string
           payment_method?: string | null
+          percentage?: number | null
           processId?: string | null
           recurring_id?: string | null
           sendToFinance?: boolean | null
@@ -664,10 +666,11 @@ export type Database = {
           category?: string
           clientId?: string | null
           created_at?: string
-          date?: string
+          date?: string | null
           description?: string
           id?: string
           payment_method?: string | null
+          percentage?: number | null
           processId?: string | null
           recurring_id?: string | null
           sendToFinance?: boolean | null

@@ -78,12 +78,29 @@ export default function ClientDetail() {
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
   const clientFees = state.transactions
-    .filter((t) => t.clientId === id && t.category === 'Honorários Contratuais')
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .filter(
+      (t) =>
+        t.clientId === id &&
+        (t.category === 'Honorários Contratuais' ||
+          t.category.startsWith('Honorários') ||
+          t.category === 'Honorários de Êxito' ||
+          t.category === 'Honorários Sucumbenciais' ||
+          t.category === 'Honorários Periciais' ||
+          t.category === 'Honorários de Permuta'),
+    )
+    .sort((a, b) => {
+      const timeA = a.date ? new Date(a.date).getTime() : 0
+      const timeB = b.date ? new Date(b.date).getTime() : 0
+      return (Number.isNaN(timeB) ? 0 : timeB) - (Number.isNaN(timeA) ? 0 : timeA)
+    })
 
   const allClientTransactions = state.transactions
     .filter((t) => t.clientId === id)
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .sort((a, b) => {
+      const timeA = a.date ? new Date(a.date).getTime() : 0
+      const timeB = b.date ? new Date(b.date).getTime() : 0
+      return (Number.isNaN(timeB) ? 0 : timeB) - (Number.isNaN(timeA) ? 0 : timeA)
+    })
 
   const isTransactionLinked = (transactionId: string, processId: string | null) => {
     if (processId) return true
@@ -954,17 +971,28 @@ export default function ClientDetail() {
                             )}
                           </TableCell>
                           <TableCell>
-                            {!linked && (
+                            <div className="flex items-center justify-end gap-1">
+                              {!linked && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-xs h-7"
+                                  onClick={() => setLinkingTx(t)}
+                                >
+                                  <Link2 className="h-3 w-3 mr-1" />
+                                  Vincular a um Processo
+                                </Button>
+                              )}
                               <Button
-                                variant="outline"
-                                size="sm"
-                                className="text-xs h-7"
-                                onClick={() => setLinkingTx(t)}
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-slate-500 hover:text-slate-700"
+                                onClick={() => setEditingFee(t)}
+                                title="Editar"
                               >
-                                <Link2 className="h-3 w-3 mr-1" />
-                                Vincular a um Processo
+                                <Edit className="h-3.5 w-3.5" />
                               </Button>
-                            )}
+                            </div>
                           </TableCell>
                         </TableRow>
                       )

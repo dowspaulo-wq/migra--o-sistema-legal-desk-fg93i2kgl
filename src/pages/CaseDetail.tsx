@@ -12,6 +12,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   ArrowLeft,
@@ -38,6 +46,8 @@ import {
   FileUp,
   RefreshCw,
   Lock,
+  Link2,
+  AlertTriangle,
 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
@@ -134,13 +144,25 @@ export default function CaseDetail() {
   const parentProcess = c?.parentId ? state.cases.find((x) => x.id === c.parentId) : null
   const responsibleUser = state.users.find((u) => u.id === c?.responsibleId)
 
-  const processTransactions = state.transactions.filter((t) => t.processId === id)
+  const processTransactions = state.transactions
+    .filter((t) => {
+      if (t.processId === id) return true
+      return (state.transactionCases || []).some(
+        (tc: any) => tc.case_id === id && tc.transaction_id === t.id,
+      )
+    })
+    .sort((a, b) => {
+      const timeA = a.date ? new Date(a.date).getTime() : 0
+      const timeB = b.date ? new Date(b.date).getTime() : 0
+      return (Number.isNaN(timeB) ? 0 : timeB) - (Number.isNaN(timeA) ? 0 : timeA)
+    })
+
   const income = processTransactions
     .filter((t) => t.type === 'income')
-    .reduce((acc, t) => acc + t.amount, 0)
+    .reduce((acc, t) => acc + (Number(t.amount) || 0), 0)
   const expense = processTransactions
     .filter((t) => t.type === 'expense')
-    .reduce((acc, t) => acc + t.amount, 0)
+    .reduce((acc, t) => acc + (Number(t.amount) || 0), 0)
 
   const handleDataJudSync = async () => {
     if (!c?.number || !isValidCNJNumber(c.number)) {
@@ -593,7 +615,7 @@ export default function CaseDetail() {
           <TabsTrigger value="subprocessos">Subprocessos</TabsTrigger>
           <TabsTrigger value="tasks">Tarefas</TabsTrigger>
           <TabsTrigger value="agenda">Agenda</TabsTrigger>
-          <TabsTrigger value="despesas">Despesas</TabsTrigger>
+          <TabsTrigger value="despesas">Financeiro</TabsTrigger>
           <TabsTrigger value="docs">Documentos (em construção)</TabsTrigger>
           <TabsTrigger value="assinaturas">Assinaturas (em construção)</TabsTrigger>
         </TabsList>
@@ -1157,74 +1179,99 @@ export default function CaseDetail() {
           <Card className="shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-lg flex items-center gap-2">
-                <DollarSign className="h-5 w-5" /> Movimentações Financeiras
+                <DollarSign className="h-5 w-5" /> Transações Financeiras (
+                {processTransactions.length})
               </CardTitle>
               <Button size="sm" onClick={() => setCreatingTransaction(true)}>
                 <Plus className="h-4 w-4 mr-2" /> Novo Lançamento
               </Button>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2 mt-2">
-                {processTransactions.map((t) => (
-                  <div
-                    key={t.id}
-                    className="flex justify-between items-center border p-3 rounded hover:bg-slate-50 cursor-pointer transition-colors group"
-                    onClick={() => setEditingTransaction(t)}
-                  >
-                    <div>
-                      <p className="font-semibold text-sm group-hover:text-primary flex items-center gap-2">
-                        {t.description}
-                        <Edit className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground" />
-                      </p>
-                      <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
-                        <span>{formatSafeLocalDate(t.date)}</span>
-                        <span>•</span>
-                        <span>{t.category}</span>
-                      </div>
-                    </div>
-                    <div className="text-right flex items-center gap-3">
-                      <div className="text-right">
-                        <p
-                          className={`font-bold ${t.type === 'income' ? 'text-green-600' : 'text-red-600'}`}
-                        >
-                          {t.type === 'income' ? '+' : '-'} R${' '}
-                          {t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                        </p>
-                        <Badge
-                          variant="outline"
-                          className={`mt-1 text-[10px] ${
-                            t.status === 'Pago' || t.status === 'Realizado'
-                              ? 'border-green-200 text-green-700 bg-green-50'
-                              : t.status === 'Atrasado'
-                                ? 'border-red-200 text-red-700 bg-red-50'
-                                : 'border-orange-200 text-orange-700 bg-orange-50'
-                          }`}
-                        >
-                          {t.status}
-                        </Badge>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          if (confirm('Deseja excluir este lançamento?')) {
-                            deleteItem('transactions', t.id)
-                          }
-                        }}
-                      >
-                        <Trash className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-                {processTransactions.length === 0 && (
-                  <p className="text-sm text-muted-foreground text-center py-6 bg-muted/20 border border-dashed rounded">
-                    Nenhuma movimentação financeira vinculada a este processo.
-                  </p>
-                )}
-              </div>
+              {processTransactions.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6 bg-muted/20 border border-dashed rounded">
+                  Nenhuma transação financeira vinculada a este processo.
+                </p>
+              ) : (
+                <div className="rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Data</TableHead>
+                        <TableHead>Descrição</TableHead>
+                        <TableHead>Categoria</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Valor</TableHead>
+                        <TableHead>Processo Vinculado</TableHead>
+                        <TableHead className="w-[100px] text-right">Ações</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {processTransactions.map((t) => (
+                        <TableRow key={t.id} className="group">
+                          <TableCell className="text-sm">{formatSafeLocalDate(t.date)}</TableCell>
+                          <TableCell className="font-medium text-sm">{t.description}</TableCell>
+                          <TableCell className="text-sm">{t.category}</TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className={
+                                t.status === 'Pago' || t.status === 'Realizado'
+                                  ? 'border-green-200 text-green-700 bg-green-50'
+                                  : t.status === 'Atrasado'
+                                    ? 'border-red-200 text-red-700 bg-red-50'
+                                    : t.status === 'Êxito'
+                                      ? 'border-purple-200 text-purple-700 bg-purple-50'
+                                      : 'border-orange-200 text-orange-700 bg-orange-50'
+                              }
+                            >
+                              {t.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell
+                            className={`text-right font-bold text-sm ${
+                              t.type === 'income' ? 'text-green-600' : 'text-red-600'
+                            }`}
+                          >
+                            {t.type === 'income' ? '+' : '-'} R${' '}
+                            {t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="secondary" className="text-[10px]">
+                              {c.number}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-slate-500 hover:text-slate-700"
+                                onClick={() => setEditingTransaction(t)}
+                                title="Editar"
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => {
+                                  if (confirm('Deseja excluir esta transação?')) {
+                                    deleteItem('transactions', t.id)
+                                  }
+                                }}
+                                title="Excluir"
+                              >
+                                <Trash className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
