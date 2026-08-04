@@ -1,82 +1,60 @@
 import { supabase } from '@/lib/supabase/client'
+import { fixMojibake } from '@/lib/internal-documents'
 
-export async function generateInternalDocument(caseId: string, clientId: string, docType: string) {
+export { fixMojibake }
+
+export async function generateInternalDocument(params: {
+  clientId?: string
+  caseId?: string
+  docType: string
+  customTitle?: string
+}) {
   try {
     const { data, error } = await supabase.functions.invoke('electronic-signature', {
-      body: { action: 'generateDoc', caseId, clientId, docType },
+      body: {
+        action: 'generate',
+        clientId: params.clientId,
+        caseId: params.caseId,
+        docType: params.docType,
+        customTitle: params.customTitle,
+      },
     })
-    if (!error && data?.error) return { data: null, error: { message: data.error } }
-    if (data?.token) {
-      data.signUrl = `${window.location.origin}/assinar/${data.token}`
-    }
     return { data, error }
   } catch (err: any) {
-    return { data: null, error: { message: err?.message || 'Erro ao gerar documento.' } }
+    return { data: null, error: err }
   }
 }
 
 export async function fetchSignaturesByCase(caseId: string) {
-  if (!caseId) return { data: [], error: null }
-  try {
-    const { data, error } = await supabase
-      .from('document_signatures')
-      .select('*')
-      .eq('case_id', caseId)
-      .order('created_at', { ascending: false })
-    return { data: data || [], error }
-  } catch (err: any) {
-    console.error('Error fetching signatures:', err)
-    return { data: [], error: err }
+  const { data, error } = await supabase
+    .from('document_signatures')
+    .select('*, clients(*), cases(*)')
+    .eq('case_id', caseId)
+    .order('created_at', { ascending: false })
+
+  if (data) {
+    data.forEach((sig) => {
+      if (sig.doc_type) sig.doc_type = fixMojibake(sig.doc_type)
+    })
   }
+
+  return { data, error }
 }
 
 export async function getSignatureByToken(token: string) {
-  if (!token) {
-    return { data: null, error: new Error('Token de assinatura não fornecido.') }
+  const { data, error } = await supabase
+    .from('document_signatures')
+    .select('*, clients(*), cases(*)')
+    .eq('token', token)
+    .single()
+
+  if (data) {
+    if (data.doc_type) data.doc_type = fixMojibake(data.doc_type)
+    if (data.clients?.name) data.clients.name = fixMojibake(data.clients.name)
+    if (data.cases?.process_name) data.cases.process_name = fixMojibake(data.cases.process_name)
   }
 
-  try {
-    const { data, error } = await supabase.functions.invoke('electronic-signature', {
-      body: { action: 'getByToken', token },
-    })
-    if (!error && data && !data.error) {
-      return { data, error: null }
-    }
-  } catch (e) {
-    console.warn('Edge function error, falling back to direct DB lookup', e)
-  }
-
-  try {
-    const { data, error } = await supabase
-      .from('document_signatures')
-      .select(`
-        *,
-        clients:client_id (id, name, document, email, phone, street, number, complement, neighborhood, city, state, marital_status),
-        cases:case_id (id, number, type, court, comarca)
-      `)
-      .eq('token', token)
-      .maybeSingle()
-
-    if (error || !data) {
-      return { data: null, error: error || new Error('Documento não encontrado ou link expirado.') }
-    }
-
-    return { data, error: null }
-  } catch (err: any) {
-    return { data: null, error: err || new Error('Erro ao buscar documento para assinatura.') }
-  }
-}
-
-function dataURLtoBlob(dataurl: string) {
-  const arr = dataurl.split(',')
-  const mime = arr[0].match(/:(.*?);/)?.[1] || 'image/png'
-  const bstr = atob(arr[1])
-  let n = bstr.length
-  const u8arr = new Uint8Array(n)
-  while (n--) {
-    u8arr[n] = bstr.charCodeAt(n)
-  }
-  return new Blob([u8arr], { type: mime })
+  return { data, error }
 }
 
 export async function confirmSignature(
@@ -88,135 +66,113 @@ export async function confirmSignature(
   },
 ) {
   try {
-    const { data, error } = await supabase.functions.invoke('electronic-signature', {
-      body: { action: 'confirmSignature', token, ...payload },
-    })
-    if (!error && data && !data.error) {
-      return { data, error: null }
-    }
-  } catch (e) {
-    console.warn('Edge function error on confirmSignature, using fallback update', e)
-  }
-
-  try {
-    let selfiePath: string | null = null
-    let signaturePath: string | null = null
-
-    if (payload.selfie && payload.selfie.startsWith('data:image')) {
-      const selfieBlob = dataURLtoBlob(payload.selfie)
-      const fileName = `selfie_${token}_${Date.now()}.png`
-      const { data: uploadData } = await supabase.storage
-        .from('selfie_images')
-        .upload(fileName, selfieBlob, { contentType: 'image/png', upsert: true })
-      if (uploadData) selfiePath = uploadData.path
-    }
-
-    if (payload.signature && payload.signature.startsWith('data:image')) {
-      const sigBlob = dataURLtoBlob(payload.signature)
-      const fileName = `sig_${token}_${Date.now()}.png`
-      const { data: uploadData } = await supabase.storage
-        .from('signature_drawings')
-        .upload(fileName, sigBlob, { contentType: 'image/png', upsert: true })
-      if (uploadData) signaturePath = uploadData.path
-    }
-
-    const { data, error } = await supabase
+    const now = new Date().toISOString()
+    const { data: updated, error } = await supabase
       .from('document_signatures')
       .update({
         status: 'signed',
-        signed_at: new Date().toISOString(),
-        selfie_path: selfiePath,
-        signature_path: signaturePath,
+        signed_at: now,
         geolocation: payload.geolocation || null,
-        user_agent: navigator.userAgent,
+        selfie_path: payload.selfie,
+        signature_path: payload.signature,
       })
       .eq('token', token)
-      .select()
-      .maybeSingle()
+      .select('*, clients(*), cases(*)')
+      .single()
 
     if (error) return { data: null, error }
-    return { data, error: null }
+
+    if (updated) {
+      if (updated.doc_type) updated.doc_type = fixMojibake(updated.doc_type)
+      if (updated.clients?.name) updated.clients.name = fixMojibake(updated.clients.name)
+    }
+
+    return { data: updated, error: null }
   } catch (err: any) {
-    return { data: null, error: { message: err?.message || 'Falha ao processar assinatura.' } }
+    return { data: null, error: err }
   }
 }
 
-export function getStoragePublicUrl(bucket: string, path: string): string {
-  if (!path) return ''
-  if (path.startsWith('http://') || path.startsWith('https://')) return path
-  const targetBucket = bucket || 'signature_documents'
-  let cleanPath = path
-  if (cleanPath.startsWith(`${targetBucket}/`)) {
-    cleanPath = cleanPath.substring(targetBucket.length + 1)
-  }
-  return supabase.storage.from(targetBucket).getPublicUrl(cleanPath).data.publicUrl
-}
-
-export async function getDocumentFileUrl(
+export async function getRawDocumentHtml(
   path: string,
-  preferredBucket: string = 'signature_documents',
-): Promise<{ url: string | null; error: string | null }> {
-  if (!path) return { url: null, error: 'Caminho do documento não informado.' }
+  bucket = 'signature_documents',
+): Promise<{ success: boolean; html?: string; message?: string }> {
+  try {
+    if (!path) return { success: false, message: 'Caminho do documento não fornecido.' }
 
-  if (path.startsWith('http://') || path.startsWith('https://')) {
-    return { url: path, error: null }
-  }
-
-  const bucketsToTry = Array.from(
-    new Set([preferredBucket, 'signature_documents', 'signed_documents', 'documents']),
-  )
-
-  for (const bucket of bucketsToTry) {
-    let cleanPath = path
-    if (cleanPath.startsWith(`${bucket}/`)) {
-      cleanPath = cleanPath.substring(bucket.length + 1)
+    const { data, error } = await supabase.storage.from(bucket).download(path)
+    if (error || !data) {
+      return { success: false, message: error?.message || 'Arquivo não encontrado na storage.' }
     }
 
-    try {
-      const { data: signedData, error: signedErr } = await supabase.storage
-        .from(bucket)
-        .createSignedUrl(cleanPath, 3600)
+    const text = await data.text()
+    const cleanHtml = fixMojibake(text)
 
-      if (!signedErr && signedData?.signedUrl) {
-        return { url: signedData.signedUrl, error: null }
+    let finalHtml = cleanHtml
+    if (!finalHtml.includes('charset=')) {
+      if (finalHtml.includes('<head>')) {
+        finalHtml = finalHtml.replace('<head>', '<head><meta charset="UTF-8">')
+      } else {
+        finalHtml = `<meta charset="UTF-8">\n${finalHtml}`
       }
-
-      const { data: pubData } = supabase.storage.from(bucket).getPublicUrl(cleanPath)
-      if (pubData?.publicUrl) {
-        return { url: pubData.publicUrl, error: null }
-      }
-    } catch (e) {
-      console.warn(`Error resolving storage URL for bucket ${bucket}:`, e)
     }
-  }
 
-  return { url: null, error: 'Documento não encontrado ou ainda não processado.' }
+    return { success: true, html: finalHtml }
+  } catch (err: any) {
+    return { success: false, message: err.message || 'Erro ao carregar o conteúdo do documento.' }
+  }
 }
 
 export async function viewOrDownloadDocument(
-  path: string | null | undefined,
-  preferredBucket: string = 'signature_documents',
-): Promise<{ success: boolean; message?: string; url?: string }> {
-  if (!path) {
-    return { success: false, message: 'Documento não encontrado ou ainda não processado.' }
-  }
-
+  path: string,
+  bucket = 'signature_documents',
+): Promise<{ success: boolean; message?: string }> {
   try {
-    const { url, error } = await getDocumentFileUrl(path, preferredBucket)
-    if (error || !url) {
-      return {
-        success: false,
-        message: error || 'Documento não encontrado ou ainda não processado.',
+    if (!path) return { success: false, message: 'Caminho do documento não fornecido.' }
+
+    const { data, error } = await supabase.storage.from(bucket).download(path)
+
+    if (error || !data) {
+      const { data: urlData } = await supabase.storage.from(bucket).createSignedUrl(path, 3600)
+      if (urlData?.signedUrl) {
+        window.open(urlData.signedUrl, '_blank')
+        return { success: true }
       }
+      return { success: false, message: error?.message || 'Documento não encontrado na storage.' }
     }
 
-    const win = window.open(url, '_blank', 'noopener,noreferrer')
-    if (!win) {
-      window.location.href = url
+    const text = await data.text()
+    const trimmed = text.trim().toLowerCase()
+    const isHtml =
+      trimmed.startsWith('<!doctype html') || trimmed.startsWith('<html') || path.endsWith('.html')
+
+    if (isHtml) {
+      const cleanHtml = fixMojibake(text)
+
+      let finalHtml = cleanHtml
+      if (!finalHtml.includes('charset=')) {
+        if (finalHtml.includes('<head>')) {
+          finalHtml = finalHtml.replace('<head>', '<head><meta charset="UTF-8">')
+        } else {
+          finalHtml = `<meta charset="UTF-8">\n${finalHtml}`
+        }
+      }
+
+      const blob = new Blob([finalHtml], { type: 'text/html; charset=utf-8' })
+      const blobUrl = URL.createObjectURL(blob)
+
+      const win = window.open(blobUrl, '_blank')
+      if (!win) {
+        window.location.href = blobUrl
+      }
+      return { success: true }
+    } else {
+      const blobUrl = URL.createObjectURL(data)
+      window.open(blobUrl, '_blank')
+      return { success: true }
     }
-    return { success: true, url }
   } catch (err: any) {
-    console.error('Error viewing document:', err)
-    return { success: false, message: err?.message || 'Erro ao abrir documento.' }
+    console.error('Error viewing/downloading document:', err)
+    return { success: false, message: err.message || 'Falha ao visualizar o documento.' }
   }
 }

@@ -1,36 +1,131 @@
-export function buildDocumentHtml(docType: string, client: any, caseData: any): string {
-  const today = new Date().toLocaleDateString('pt-BR')
-  const name = client.name || 'N/A'
-  const doc = client.document || 'N/A'
-  const addr =
-    [client.street, client.number, client.neighborhood, client.city, client.state]
-      .filter(Boolean)
-      .join(', ') ||
-    client.address ||
-    'N/A'
-  const caseNum = caseData?.number || 'N/A'
-  const court = caseData?.court || 'N/A'
-  const comarca = caseData?.comarca?.toUpperCase() || 'N/A'
-  const state = caseData?.state?.toUpperCase() || ''
-  const processName = caseData?.process_name || ''
-  const reu = caseData?.adverseParty || 'N/A'
-  const marital = client.marital_status || ''
-  const loc = `${comarca}${state ? ` - ${state}` : ''}`
-  const style = `<style>body{font-family:'Times New Roman',serif;line-height:1.8;max-width:800px;margin:0 auto;padding:40px;color:#1a1a1a}h1{text-align:center;text-transform:uppercase;font-size:16px;letter-spacing:1px;margin-bottom:40px}.c{margin-bottom:20px;text-align:justify}.sig{margin-top:80px;text-align:center}.ln{border-top:1px solid #000;width:300px;margin:0 auto 5px}.fi{text-align:center;font-size:14px}</style>`
-  const footer = `<div class="sig"><div class="ln"></div><div class="fi">${name}</div><div class="fi">CPF/CNPJ: ${doc}</div></div>`
-  const dateLine = `<p style="text-align:center;margin-top:40px;">${loc}, ${today}</p>`
+export function fixMojibake(str: string | null | undefined): string {
+  if (!str) return ''
+  return str
+    .replace(/PRESTAA‡ÃfO/g, 'PRESTAÇÃO')
+    .replace(/PRESTAA‡ÃƒO/g, 'PRESTAÇÃO')
+    .replace(/PRESTAÃ‡Ã̃O/g, 'PRESTAÇÃO')
+    .replace(/PRESTAÃ‡ÃfO/g, 'PRESTAÇÃO')
+    .replace(/PRESTAÃ‡Ã£O/g, 'PRESTAÇÃO')
+    .replace(/SERVIÃ‡OS/g, 'SERVIÇOS')
+    .replace(/ADVOCATÃI\?CIOS/g, 'ADVOCATÍCIOS')
+    .replace(/ADVOCATÃI?CIOS/g, 'ADVOCATÍCIOS')
+    .replace(/ADVOCATÃCIOS/g, 'ADVOCATÍCIOS')
+    .replace(/ADVOCATÃi\?cios/g, 'advocatícios')
+    .replace(/InterdiÃ§ÃfO/g, 'Interdição')
+    .replace(/InterdiÃ§Ã̃o/g, 'Interdição')
+    .replace(/JoÃfO/g, 'João')
+    .replace(/JoÃ̃o/g, 'João')
+    .replace(/condiÃ§ÃfUes/g, 'condições')
+    .replace(/condiÃ§Ã̃es/g, 'condições')
+    .replace(/prestaÃ§ÃfO/g, 'prestação')
+    .replace(/prestaÃ§Ã̃o/g, 'prestação')
+    .replace(/serviÃ§os/g, 'serviços')
+    .replace(/Ã§ÃfO/g, 'ção')
+    .replace(/Ã§Ã̃o/g, 'ção')
+    .replace(/Ã§Ã£o/g, 'ção')
+    .replace(/Ã‡ÃƒO/g, 'ÇÃO')
+    .replace(/Ã‡Ã̃O/g, 'ÇÃO')
+    .replace(/Ã§Ãµes/g, 'ções')
+    .replace(/Ã§/g, 'ç')
+    .replace(/Ã‡/g, 'Ç')
+    .replace(/Ã£/g, 'ã')
+    .replace(/Ã³/g, 'ó')
+    .replace(/Ã´/g, 'ô')
+    .replace(/Ãµ/g, 'õ')
+    .replace(/Ã¡/g, 'á')
+    .replace(/Ã©/g, 'é')
+    .replace(/Ãª/g, 'ê')
+    .replace(/Ã­/g, 'í')
+    .replace(/Ãº/g, 'ú')
+    .replace(/Ã¢/g, 'â')
+}
 
-  if (docType === 'procuracao') {
-    return `<html><head><meta charset="utf-8">${style}</head><body><h1>Procuração Ad Judicia et Extra</h1><div class="c"><strong>OUTORGANTE:</strong> ${name}${marital ? `, ${marital}` : ''}, portador(a) do CPF/CNPJ nº ${doc}, residente e domiciliado(a) em ${addr}.</div><div class="c"><strong>OUTORGADO:</strong> DPSJUR Advocacia e Consultoria Jurídica.</div><div class="c">Pelos termos da presente procuração, o(a) OUTORGANTE confere ao(à) OUTORGADO(A) seus mais amplos poderes para o fim especial de representá-lo(a) em juízo ou fora dele, em qualquer instância ou tribunal, podendo propor ações, contestá-las, apresentar defesa, recorrer, desistir, transigir, receber valores, dar quitação, substabelecer com ou sem reservas, e praticar todos os atos necessários à defesa de seus interesses.</div><div class="c">Especialmente para o processo nº ${caseNum}${processName ? ` (${processName})` : ''} em trâmite perante a ${court} da Comarca de ${loc}, em face de ${reu}.</div>${dateLine}${footer}</body></html>`
-  }
+export function generateContractHtml(params: {
+  clientName: string
+  clientDoc: string
+  caseNumber?: string
+  caseTitle?: string
+  date?: string
+}): string {
+  const clientName = fixMojibake(params.clientName || 'Cliente Signatário')
+  const clientDoc = fixMojibake(params.clientDoc || 'Não informado')
+  const caseNumber = fixMojibake(params.caseNumber || 'Não informado')
+  const caseTitle = fixMojibake(params.caseTitle || '')
+  const dateStr = params.date || new Date().toLocaleDateString('pt-BR')
 
-  if (docType === 'hipossuficiencia') {
-    return `<html><head><meta charset="utf-8">${style}</head><body><h1>Declaração de Hipossuficiência</h1><div class="c">Eu, ${name}${marital ? `, ${marital}` : ''}, portador(a) do CPF/CNPJ nº ${doc}, residente e domiciliado(a) no endereço ${addr}, declaro, sob as penas da lei, para os devidos fins de direito e especialmente para fins de concessão dos benefícios da Justiça Gratuita, nos termos do art. 98 do Código de Processo Civil, que não tenho condições de pagar as custas, despesas processuais e os honorários advocatícios sem prejuízo do meu próprio sustento e do sustento de minha família.</div><div class="c">Declaro ainda serem verdadeiras todas as informações aqui prestadas, ciente das responsabilidades civil e criminal por eventuais divergências.</div>${dateLine}${footer}</body></html>`
-  }
-
-  if (docType === 'contrato') {
-    return `<html><head><meta charset="utf-8">${style}</head><body><h1>Contrato de Prestação de Serviços</h1><div class="c"><strong>CONTRATANTE:</strong> ${name}, portador(a) do CPF/CNPJ nº ${doc}, residente e domiciliado(a) em ${addr}.</div><div class="c"><strong>CONTRATADO:</strong> DPSJUR Advocacia e Consultoria Jurídica.</div><div class="c"><strong>CLÁUSULA 1ª - DO OBJETO:</strong> O presente contrato tem por objeto a prestação de serviços advocatícios referentes ao processo nº ${caseNum}${processName ? ` (${processName})` : ''}, em trâmite perante a ${court} da Comarca de ${loc}, em face de ${reu}.</div><div class="c"><strong>CLÁUSULA 2ª - DAS OBRIGAÇÕES:</strong> O CONTRATADO compromete-se a desempenhar com zelo e dedicação os serviços objeto deste contrato. O CONTRATANTE compromete-se a fornecer todas as informações e documentos necessários.</div><div class="c"><strong>CLÁUSULA 3ª - DOS HONORÁRIOS:</strong> Os honorários advocatícios serão pactuados separadamente, conforme acordo entre as partes.</div>${dateLine}<div class="sig"><div class="ln"></div><div class="fi">DPSJUR Advocacia</div></div><div class="sig" style="margin-top:40px"><div class="ln"></div><div class="fi">${name}</div><div class="fi">CPF/CNPJ: ${doc}</div></div></body></html>`
-  }
-
-  return ''
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CONTRATO DE PRESTAÇÃO DE SERVIÇOS ADVOCATÍCIOS</title>
+  <style>
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      padding: 40px;
+      color: #111827;
+      line-height: 1.6;
+      max-width: 800px;
+      margin: 0 auto;
+      background-color: #ffffff;
+    }
+    h1 {
+      text-align: center;
+      font-size: 20px;
+      font-weight: bold;
+      margin-bottom: 28px;
+      text-transform: uppercase;
+      color: #0f172a;
+      border-bottom: 2px solid #e2e8f0;
+      padding-bottom: 12px;
+    }
+    p {
+      margin-bottom: 14px;
+      text-align: justify;
+      font-size: 14px;
+      color: #334155;
+    }
+    .field-line {
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+    .label {
+      font-weight: bold;
+      color: #0f172a;
+    }
+    .date-line {
+      margin-top: 50px;
+      text-align: left;
+      font-size: 14px;
+      color: #334155;
+    }
+    .signature-section {
+      margin-top: 60px;
+      text-align: center;
+    }
+    .signature-line {
+      border-top: 1px solid #000000;
+      width: 320px;
+      margin: 0 auto 8px auto;
+    }
+    .signatory-name {
+      font-weight: bold;
+      font-size: 14px;
+      color: #0f172a;
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+<body>
+  <h1>CONTRATO DE PRESTAÇÃO DE SERVIÇOS ADVOCATÍCIOS</h1>
+  <p class="field-line"><span class="label">CONTRATANTE:</span> ${clientName}, CPF: ${clientDoc}</p>
+  ${caseNumber !== 'Não informado' ? `<p class="field-line"><span class="label">Processo:</span> ${caseNumber}${caseTitle ? ` - ${caseTitle}` : ''}</p>` : ''}
+  <p>Pelo presente instrumento particular, as partes acordam a prestação de serviços advocatícios conforme condições estabelecidas neste contrato.</p>
+  <p class="date-line">Data: ${dateStr}</p>
+  <div class="signature-section">
+    <div class="signature-line"></div>
+    <div class="signatory-name">${clientName}</div>
+  </div>
+</body>
+</html>`
 }

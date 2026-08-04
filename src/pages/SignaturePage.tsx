@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams } from 'react'
 import {
   Card,
   CardContent,
@@ -11,6 +11,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
   CheckCircle2,
   AlertTriangle,
@@ -27,6 +28,8 @@ import {
   getSignatureByToken,
   confirmSignature,
   viewOrDownloadDocument,
+  getRawDocumentHtml,
+  fixMojibake,
 } from '@/services/document-signatures'
 import { toast } from '@/hooks/use-toast'
 
@@ -53,6 +56,11 @@ export default function SignaturePage() {
   const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [viewingDoc, setViewingDoc] = useState(false)
+
+  // Document Modal Preview
+  const [previewModalOpen, setPreviewModalOpen] = useState(false)
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null)
+  const [loadingPreview, setLoadingPreview] = useState(false)
 
   useEffect(() => {
     if (!token) {
@@ -281,19 +289,46 @@ export default function SignaturePage() {
     setViewingDoc(false)
     if (!result.success) {
       toast({
+        title: 'Erro ao Abrir Documento',
+        description: result.message || 'Não foi possível carregar o arquivo do documento.',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleOpenInlineModal = async () => {
+    if (!docData?.document_path) {
+      toast({
         title: 'Atenção',
-        description: result.message || 'Documento não encontrado ou ainda não processado.',
+        description: 'Caminho do documento não fornecido.',
+        variant: 'destructive',
+      })
+      return
+    }
+    setLoadingPreview(true)
+    const res = await getRawDocumentHtml(docData.document_path, 'signature_documents')
+    setLoadingPreview(false)
+    if (res.success && res.html) {
+      setPreviewHtml(res.html)
+      setPreviewModalOpen(true)
+    } else {
+      toast({
+        title: 'Erro ao carregar pré-visualização',
+        description: res.message || 'Não foi possível obter o conteúdo do documento.',
         variant: 'destructive',
       })
     }
   }
 
   const getDocTitle = () => {
-    const type = docData?.doc_type?.toLowerCase() || ''
-    if (type.includes('procuracao')) return 'Procuração Ad Judicia'
-    if (type.includes('hipossuficiencia')) return 'Declaração de Hipossuficiência'
-    if (type.includes('contrato')) return 'Contrato de Prestação de Serviços'
-    return docData?.doc_type || 'Documento Eletrônico'
+    const rawType = docData?.doc_type || 'Documento Eletrônico'
+    const type = fixMojibake(rawType)
+    const lower = type.toLowerCase()
+    if (lower.includes('procuracao') || lower.includes('procuração')) return 'Procuração Ad Judicia'
+    if (lower.includes('hipossuficiencia') || lower.includes('hipossuficiência'))
+      return 'Declaração de Hipossuficiência'
+    if (lower.includes('contrato')) return 'Contrato de Prestação de Serviços Advocatícios'
+    return type
   }
 
   if (loading) {
@@ -337,9 +372,9 @@ export default function SignaturePage() {
     )
   }
 
-  const clientName = docData.clients?.name || 'Signatário'
+  const clientName = fixMojibake(docData.clients?.name || 'Signatário')
   const clientDoc = docData.clients?.document || '—'
-  const caseNumber = docData.cases?.number || '—'
+  const caseNumber = fixMojibake(docData.cases?.number || docData.cases?.process_name || '—')
   const isSigned = docData.status === 'signed' || step === 4
 
   return (
@@ -399,14 +434,33 @@ export default function SignaturePage() {
               </div>
 
               {docData.document_path && (
-                <Button className="w-full" onClick={handlePreviewDoc} disabled={viewingDoc}>
-                  {viewingDoc ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Download className="h-4 w-4 mr-2" />
-                  )}
-                  Visualizar / Baixar Documento Assinado
-                </Button>
+                <div className="flex flex-col gap-2">
+                  <Button
+                    className="w-full"
+                    onClick={handleOpenInlineModal}
+                    disabled={loadingPreview}
+                  >
+                    {loadingPreview ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Eye className="h-4 w-4 mr-2" />
+                    )}
+                    Visualizar Documento Formatado
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={handlePreviewDoc}
+                    disabled={viewingDoc}
+                  >
+                    {viewingDoc ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4 mr-2" />
+                    )}
+                    Abrir em Nova Aba / Baixar
+                  </Button>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -475,20 +529,37 @@ export default function SignaturePage() {
                   </Alert>
 
                   {docData.document_path && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full text-xs"
-                      onClick={handlePreviewDoc}
-                      disabled={viewingDoc}
-                    >
-                      {viewingDoc ? (
-                        <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />
-                      ) : (
-                        <Eye className="h-3.5 w-3.5 mr-2" />
-                      )}
-                      Visualizar Rascunho do Documento
-                    </Button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-xs"
+                        onClick={handleOpenInlineModal}
+                        disabled={loadingPreview}
+                      >
+                        {loadingPreview ? (
+                          <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                        ) : (
+                          <Eye className="h-3.5 w-3.5 mr-1.5" />
+                        )}
+                        Visualizar
+                      </Button>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-xs"
+                        onClick={handlePreviewDoc}
+                        disabled={viewingDoc}
+                      >
+                        {viewingDoc ? (
+                          <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                        ) : (
+                          <Download className="h-3.5 w-3.5 mr-1.5" />
+                        )}
+                        Nova Aba
+                      </Button>
+                    </div>
                   )}
 
                   <Button className="w-full" onClick={() => setStep(2)}>
@@ -617,6 +688,29 @@ export default function SignaturePage() {
           </Card>
         )}
       </div>
+
+      {/* Rendered Document Modal */}
+      <Dialog open={previewModalOpen} onOpenChange={setPreviewModalOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col p-6">
+          <DialogHeader className="border-b pb-3">
+            <DialogTitle className="text-lg font-bold text-slate-900">{getDocTitle()}</DialogTitle>
+          </DialogHeader>
+
+          <div className="flex-1 min-h-[420px] my-2 border rounded-md overflow-hidden bg-white shadow-inner">
+            {previewHtml ? (
+              <iframe
+                title="Visualização do Documento"
+                className="w-full h-full min-h-[420px] border-0"
+                srcDoc={previewHtml}
+              />
+            ) : (
+              <div className="flex items-center justify-center h-full text-slate-400 text-sm">
+                Carregando documento...
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
