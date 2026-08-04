@@ -330,6 +330,7 @@ export type Database = {
           id: string
           ip_address: string | null
           selfie_path: string | null
+          signature_path: string | null
           signed_at: string | null
           status: string
           token: string
@@ -345,6 +346,7 @@ export type Database = {
           id?: string
           ip_address?: string | null
           selfie_path?: string | null
+          signature_path?: string | null
           signed_at?: string | null
           status?: string
           token: string
@@ -360,6 +362,7 @@ export type Database = {
           id?: string
           ip_address?: string | null
           selfie_path?: string | null
+          signature_path?: string | null
           signed_at?: string | null
           status?: string
           token?: string

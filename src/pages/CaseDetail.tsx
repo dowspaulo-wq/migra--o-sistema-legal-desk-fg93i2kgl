@@ -1455,7 +1455,7 @@ export default function CaseDetail() {
                             {sig.selfie_path && (
                               <Button size="sm" variant="outline" asChild>
                                 <a
-                                  href={getStoragePublicUrl('selfie_images', sig.selfie_path)}
+                                  href={getStoragePublicUrl('signature_photos', sig.selfie_path)}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                 >

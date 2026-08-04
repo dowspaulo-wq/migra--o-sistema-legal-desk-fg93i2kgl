@@ -74,7 +74,7 @@ Deno.serve(async (req) => {
     const selfiePath = `selfie_${sig.id}_${Date.now()}.png`
     const sigPath = `signature_${sig.id}_${Date.now()}.png`
     await sb.storage
-      .from('selfie_images')
+      .from('signature_photos')
       .upload(selfiePath, b64ToBlob(selfie, 'image/png'), { contentType: 'image/png' })
     await sb.storage
       .from('signature_drawings')
