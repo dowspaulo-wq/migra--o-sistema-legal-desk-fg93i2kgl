@@ -119,6 +119,17 @@ export default function CaseDetail() {
   const [generatingFromTemplate, setGeneratingFromTemplate] = useState<string | null>(null)
   const [datajudSyncing, setDatajudSyncing] = useState(false)
   const [internalSigLoading, setInternalSigLoading] = useState<string | null>(null)
+  const [copiedToken, setCopiedToken] = useState<string | null>(null)
+
+  const handleCopySignatureLink = (token: string) => {
+    const url = `${window.location.origin}/assinar/${token}`
+    navigator.clipboard.writeText(url)
+    setCopiedToken(token)
+    toast.success('Link de assinatura copiado para a área de transferência!')
+    setTimeout(() => {
+      setCopiedToken((prev) => (prev === token ? null : prev))
+    }, 2000)
+  }
   const [internalSigResult, setInternalSigResult] = useState<{
     url: string
     docType: string
@@ -1381,7 +1392,8 @@ export default function CaseDetail() {
                 <FileSignature className="h-5 w-5" /> Documentos para Assinatura
               </CardTitle>
               <CardDescription>
-                Documentos gerados para assinatura eletrônica, status e auditoria.
+                Documentos gerados para assinatura eletrônica, status, visualização e trilha de
+                auditoria.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -1392,10 +1404,14 @@ export default function CaseDetail() {
               ) : (
                 <div className="space-y-3">
                   {caseSignatures.map((sig) => (
-                    <div key={sig.id} className="border rounded-lg p-4 space-y-2">
-                      <div className="flex items-center justify-between">
+                    <div
+                      key={sig.id}
+                      className="border rounded-lg p-4 space-y-3 bg-card hover:border-primary/30 transition-colors"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                         <div>
-                          <p className="font-medium text-sm">
+                          <p className="font-semibold text-sm flex items-center gap-2">
+                            <FileSignature className="h-4 w-4 text-primary shrink-0" />
                             {sig.doc_type === 'procuracao'
                               ? 'Procuração'
                               : sig.doc_type === 'hipossuficiencia'
@@ -1404,17 +1420,104 @@ export default function CaseDetail() {
                                   ? 'Contrato de Prestação de Serviços'
                                   : sig.doc_type}
                           </p>
-                          <p className="text-xs text-muted-foreground">
+                          <p className="text-xs text-muted-foreground mt-0.5">
                             Gerado em: {new Date(sig.created_at).toLocaleString('pt-BR')}
                           </p>
                         </div>
-                        <Badge variant={sig.status === 'signed' ? 'default' : 'secondary'}>
-                          {sig.status === 'signed' ? 'Assinado' : 'Pendente'}
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            variant={sig.status === 'signed' ? 'default' : 'outline'}
+                            className={
+                              sig.status === 'signed'
+                                ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 font-medium'
+                            }
+                          >
+                            {sig.status === 'signed' ? 'Assinado' : 'Pendente'}
+                          </Badge>
+                        </div>
                       </div>
+
+                      {/* Action Buttons Toolbar */}
+                      <div className="flex flex-wrap items-center gap-2 pt-2 border-t">
+                        <Button
+                          size="sm"
+                          variant={sig.status === 'signed' ? 'ghost' : 'outline'}
+                          className="h-8 text-xs font-medium"
+                          onClick={() => handleCopySignatureLink(sig.token)}
+                        >
+                          {copiedToken === sig.token ? (
+                            <>
+                              <Check className="h-3.5 w-3.5 mr-1.5 text-emerald-600" /> Copiado!
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" /> Copiar
+                              Link
+                            </>
+                          )}
+                        </Button>
+
+                        {sig.document_path ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-xs font-medium"
+                            asChild
+                          >
+                            <a
+                              href={getStoragePublicUrl('signature_documents', sig.document_path)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <Eye className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />{' '}
+                              Visualizar
+                            </a>
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-xs font-medium"
+                            asChild
+                          >
+                            <a
+                              href={`/assinar/${sig.token}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <Eye className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />{' '}
+                              Visualizar
+                            </a>
+                          </Button>
+                        )}
+
+                        {sig.status !== 'signed' && (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="h-8 text-xs font-medium"
+                            asChild
+                          >
+                            <a
+                              href={`/assinar/${sig.token}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5 mr-1.5" /> Abrir Link
+                            </a>
+                          </Button>
+                        )}
+                      </div>
+
+                      {/* Audit Trail for Signed Documents */}
                       {sig.status === 'signed' && (
-                        <div className="space-y-2 border-t pt-3">
-                          <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div className="space-y-2 border-t pt-3 bg-muted/30 -mx-4 -mb-4 p-4 rounded-b-lg text-xs">
+                          <p className="font-semibold text-xs text-muted-foreground flex items-center gap-1.5">
+                            <Check className="h-3.5 w-3.5 text-emerald-600" /> Auditoria da
+                            Assinatura
+                          </p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                             <div>
                               <span className="text-muted-foreground">Assinado em:</span>{' '}
                               <span className="font-medium">
@@ -1437,9 +1540,9 @@ export default function CaseDetail() {
                               </div>
                             )}
                           </div>
-                          <div className="flex flex-wrap gap-2 pt-1">
+                          <div className="flex flex-wrap gap-2 pt-2">
                             {sig.document_path && (
-                              <Button size="sm" variant="outline" asChild>
+                              <Button size="sm" variant="outline" className="h-7 text-xs" asChild>
                                 <a
                                   href={getStoragePublicUrl(
                                     'signature_documents',
@@ -1448,12 +1551,12 @@ export default function CaseDetail() {
                                   target="_blank"
                                   rel="noopener noreferrer"
                                 >
-                                  <Download className="h-3 w-3 mr-1" /> Documento
+                                  <Download className="h-3 w-3 mr-1" /> Doc Assinado
                                 </a>
                               </Button>
                             )}
                             {sig.selfie_path && (
-                              <Button size="sm" variant="outline" asChild>
+                              <Button size="sm" variant="outline" className="h-7 text-xs" asChild>
                                 <a
                                   href={getStoragePublicUrl('signature_photos', sig.selfie_path)}
                                   target="_blank"
@@ -1464,7 +1567,7 @@ export default function CaseDetail() {
                               </Button>
                             )}
                             {sig.signature_path && (
-                              <Button size="sm" variant="outline" asChild>
+                              <Button size="sm" variant="outline" className="h-7 text-xs" asChild>
                                 <a
                                   href={getStoragePublicUrl(
                                     'signature_drawings',
@@ -1473,7 +1576,7 @@ export default function CaseDetail() {
                                   target="_blank"
                                   rel="noopener noreferrer"
                                 >
-                                  <Download className="h-3 w-3 mr-1" /> Assinatura
+                                  <Download className="h-3 w-3 mr-1" /> Rubrica
                                 </a>
                               </Button>
                             )}
