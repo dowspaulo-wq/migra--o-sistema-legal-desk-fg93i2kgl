@@ -1,113 +1,128 @@
-import React, { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, forwardRef, useImperativeHandle, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
-import { RotateCcw } from 'lucide-react'
+import { Eraser } from 'lucide-react'
 
-interface SignaturePadProps {
-  onSave: (dataUrl: string | null) => void
-  disabled?: boolean
+export interface SignaturePadHandle {
+  toDataURL: () => string | null
+  clear: () => void
+  isEmpty: () => boolean
 }
 
-export function SignaturePad({ onSave, disabled }: SignaturePadProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [isDrawing, setIsDrawing] = useState(false)
-  const [isEmpty, setIsEmpty] = useState(true)
+export interface SignaturePadProps {
+  className?: string
+  onChange?: (hasContent: boolean) => void
+  onSave?: (dataUrl: string | null) => void
+}
 
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    ctx.lineWidth = 2.5
-    ctx.lineCap = 'round'
-    ctx.strokeStyle = '#0f172a'
-  }, [])
+export const SignaturePad = forwardRef<SignaturePadHandle, SignaturePadProps>(
+  ({ className, onChange, onSave }, ref) => {
+    const canvasRef = useRef<HTMLCanvasElement>(null)
+    const drawingRef = useRef(false)
+    const [hasContent, setHasContent] = useState(false)
 
-  const getPos = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current
-    if (!canvas) return { x: 0, y: 0 }
-    const rect = canvas.getBoundingClientRect()
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
-    return {
-      x: (clientX - rect.left) * (canvas.width / rect.width),
-      y: (clientY - rect.top) * (canvas.height / rect.height),
+    const updateContent = useCallback(
+      (value: boolean) => {
+        setHasContent(value)
+        onChange?.(value)
+      },
+      [onChange],
+    )
+
+    useEffect(() => {
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const ctx = canvas.getContext('2d')!
+
+      const setup = () => {
+        const rect = canvas.getBoundingClientRect()
+        const dpr = window.devicePixelRatio || 1
+        canvas.width = rect.width * dpr
+        canvas.height = rect.height * dpr
+        ctx.scale(dpr, dpr)
+        ctx.lineWidth = 2.5
+        ctx.lineCap = 'round'
+        ctx.lineJoin = 'round'
+        ctx.strokeStyle = '#0f172a'
+      }
+
+      setup()
+      window.addEventListener('resize', setup)
+      return () => window.removeEventListener('resize', setup)
+    }, [])
+
+    const getPos = (e: React.PointerEvent) => {
+      const rect = canvasRef.current!.getBoundingClientRect()
+      return { x: e.clientX - rect.left, y: e.clientY - rect.top }
     }
-  }
 
-  const startDrawing = (
-    e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>,
-  ) => {
-    if (disabled) return
-    setIsDrawing(true)
-    setIsEmpty(false)
-    const ctx = canvasRef.current?.getContext('2d')
-    const pos = getPos(e)
-    ctx?.beginPath()
-    ctx?.moveTo(pos.x, pos.y)
-  }
-
-  const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    if (!isDrawing || disabled) return
-    e.preventDefault()
-    const ctx = canvasRef.current?.getContext('2d')
-    const pos = getPos(e)
-    ctx?.lineTo(pos.x, pos.y)
-    ctx?.stroke()
-  }
-
-  const stopDrawing = () => {
-    if (!isDrawing) return
-    setIsDrawing(false)
-    const canvas = canvasRef.current
-    if (canvas && !isEmpty) {
-      onSave(canvas.toDataURL('image/png'))
+    const start = (e: React.PointerEvent) => {
+      e.preventDefault()
+      const ctx = canvasRef.current!.getContext('2d')!
+      const { x, y } = getPos(e)
+      ctx.beginPath()
+      ctx.moveTo(x, y)
+      drawingRef.current = true
     }
-  }
 
-  const clear = () => {
-    const canvas = canvasRef.current
-    const ctx = canvas?.getContext('2d')
-    if (canvas && ctx) {
+    const draw = (e: React.PointerEvent) => {
+      if (!drawingRef.current) return
+      e.preventDefault()
+      const ctx = canvasRef.current!.getContext('2d')!
+      const { x, y } = getPos(e)
+      ctx.lineTo(x, y)
+      ctx.stroke()
+      if (!hasContent) {
+        updateContent(true)
+      }
+    }
+
+    const end = () => {
+      if (drawingRef.current) {
+        drawingRef.current = false
+        if (canvasRef.current) {
+          const dataUrl = canvasRef.current.toDataURL('image/png')
+          onSave?.(dataUrl)
+        }
+      }
+    }
+
+    const clear = () => {
+      const canvas = canvasRef.current!
+      const ctx = canvas.getContext('2d')!
       ctx.clearRect(0, 0, canvas.width, canvas.height)
-      setIsEmpty(true)
-      onSave(null)
+      updateContent(false)
+      onSave?.(null)
     }
-  }
 
-  return (
-    <div className="mt-2 space-y-2">
-      <div className="relative rounded-lg border-2 border-dashed border-slate-300 bg-white overflow-hidden shadow-inner">
-        <canvas
-          ref={canvasRef}
-          width={500}
-          height={180}
-          className="w-full h-44 touch-none cursor-crosshair"
-          onMouseDown={startDrawing}
-          onMouseMove={draw}
-          onMouseUp={stopDrawing}
-          onMouseLeave={stopDrawing}
-          onTouchStart={startDrawing}
-          onTouchMove={draw}
-          onTouchEnd={stopDrawing}
-        />
-        {isEmpty && (
-          <div className="absolute inset-0 pointer-events-none flex items-center justify-center text-slate-400 text-xs">
-            Desenhe sua assinatura aqui com o dedo ou mouse
-          </div>
-        )}
+    const toDataURL = () => (hasContent ? canvasRef.current?.toDataURL('image/png') || null : null)
+
+    useImperativeHandle(ref, () => ({ toDataURL, clear, isEmpty: () => !hasContent }))
+
+    return (
+      <div className={className}>
+        <div className="relative">
+          <canvas
+            ref={canvasRef}
+            className="w-full h-48 border-2 border-dashed border-slate-300 rounded-lg bg-white touch-none cursor-crosshair shadow-inner"
+            onPointerDown={start}
+            onPointerMove={draw}
+            onPointerUp={end}
+            onPointerLeave={end}
+          />
+          <p className="absolute bottom-2 right-3 text-[10px] text-slate-400 pointer-events-none select-none">
+            Desenhe sua assinatura no quadro acima
+          </p>
+        </div>
+        <div className="flex justify-between items-center mt-2">
+          <span className="text-xs text-slate-500">
+            {hasContent ? 'Assinatura capturada' : 'Aguardando desenho da assinatura...'}
+          </span>
+          <Button type="button" variant="outline" size="sm" onClick={clear} className="text-xs h-8">
+            <Eraser className="h-3.5 w-3.5 mr-1.5" /> Limpar
+          </Button>
+        </div>
       </div>
-      <div className="flex justify-end">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={clear}
-          disabled={isEmpty || disabled}
-          className="text-xs bg-white"
-        >
-          <RotateCcw className="h-3.5 w-3.5 mr-1" /> Limpar
-        </Button>
-      </div>
-    </div>
-  )
-}
+    )
+  },
+)
+SignaturePad.displayName = 'SignaturePad'
