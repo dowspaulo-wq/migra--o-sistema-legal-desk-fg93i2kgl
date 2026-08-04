@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -58,7 +58,11 @@ import { AppointmentDialog } from '@/components/AppointmentDialog'
 import { TransactionDialog } from '@/components/TransactionDialog'
 import { formatSafeLocalDate, getDetailedDuration, normalizeStr, stripHtml } from '@/lib/utils'
 import { createZapSignDoc, createDocFromTemplate } from '@/services/zapsign'
-import { generateInternalDocument } from '@/services/document-signatures'
+import {
+  generateInternalDocument,
+  fetchSignaturesByCase,
+  getStoragePublicUrl,
+} from '@/services/document-signatures'
 import { fetchDocumentTemplates } from '@/services/document-templates'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { syncCaseWithDataJud, isValidCNJNumber } from '@/services/datajud'
@@ -119,6 +123,7 @@ export default function CaseDetail() {
     url: string
     docType: string
   } | null>(null)
+  const [caseSignatures, setCaseSignatures] = useState<any[]>([])
 
   const c = state.cases.find((x) => x.id === id)
   const client = state.clients.find((cl) => cl.id === c?.clientId)
@@ -169,6 +174,13 @@ export default function CaseDetail() {
   const expense = processTransactions
     .filter((t) => t.type === 'expense')
     .reduce((acc, t) => acc + (Number(t.amount) || 0), 0)
+
+  useEffect(() => {
+    if (!id) return
+    fetchSignaturesByCase(id).then(({ data }) => {
+      if (data) setCaseSignatures(data)
+    })
+  }, [id])
 
   const handleDataJudSync = async () => {
     if (!c?.number || !isValidCNJNumber(c.number)) {
@@ -232,6 +244,9 @@ export default function CaseDetail() {
       })
     } else if (data) {
       setInternalSigResult({ url: data.signUrl, docType })
+      fetchSignaturesByCase(c.id).then(({ data: sigs }) => {
+        if (sigs) setCaseSignatures(sigs)
+      })
       toast({
         title: 'Sucesso',
         description: 'Documento gerado para assinatura eletrônica.',
@@ -1360,6 +1375,118 @@ export default function CaseDetail() {
         </TabsContent>
 
         <TabsContent value="assinaturas" className="mt-4">
+          <Card className="shadow-sm mb-4">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <FileSignature className="h-5 w-5" /> Documentos para Assinatura
+              </CardTitle>
+              <CardDescription>
+                Documentos gerados para assinatura eletrônica, status e auditoria.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {caseSignatures.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6 bg-muted/20 border border-dashed rounded">
+                  Nenhum documento gerado para assinatura.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {caseSignatures.map((sig) => (
+                    <div key={sig.id} className="border rounded-lg p-4 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium text-sm">
+                            {sig.doc_type === 'procuracao'
+                              ? 'Procuração'
+                              : sig.doc_type === 'hipossuficiencia'
+                                ? 'Declaração de Hipossuficiência'
+                                : sig.doc_type === 'contrato'
+                                  ? 'Contrato de Prestação de Serviços'
+                                  : sig.doc_type}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Gerado em: {new Date(sig.created_at).toLocaleString('pt-BR')}
+                          </p>
+                        </div>
+                        <Badge variant={sig.status === 'signed' ? 'default' : 'secondary'}>
+                          {sig.status === 'signed' ? 'Assinado' : 'Pendente'}
+                        </Badge>
+                      </div>
+                      {sig.status === 'signed' && (
+                        <div className="space-y-2 border-t pt-3">
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div>
+                              <span className="text-muted-foreground">Assinado em:</span>{' '}
+                              <span className="font-medium">
+                                {sig.signed_at
+                                  ? new Date(sig.signed_at).toLocaleString('pt-BR')
+                                  : '—'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">IP:</span>{' '}
+                              <span className="font-medium">{sig.ip_address || '—'}</span>
+                            </div>
+                            {sig.geolocation && typeof sig.geolocation === 'object' && (
+                              <div>
+                                <span className="text-muted-foreground">Geolocalização:</span>{' '}
+                                <span className="font-medium">
+                                  {(sig.geolocation as any).latitude?.toFixed(6)},{' '}
+                                  {(sig.geolocation as any).longitude?.toFixed(6)}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-2 pt-1">
+                            {sig.document_path && (
+                              <Button size="sm" variant="outline" asChild>
+                                <a
+                                  href={getStoragePublicUrl(
+                                    'signature_documents',
+                                    sig.document_path,
+                                  )}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  <Download className="h-3 w-3 mr-1" /> Documento
+                                </a>
+                              </Button>
+                            )}
+                            {sig.selfie_path && (
+                              <Button size="sm" variant="outline" asChild>
+                                <a
+                                  href={getStoragePublicUrl('selfie_images', sig.selfie_path)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  <Download className="h-3 w-3 mr-1" /> Selfie
+                                </a>
+                              </Button>
+                            )}
+                            {sig.signature_path && (
+                              <Button size="sm" variant="outline" asChild>
+                                <a
+                                  href={getStoragePublicUrl(
+                                    'signature_drawings',
+                                    sig.signature_path,
+                                  )}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  <Download className="h-3 w-3 mr-1" /> Assinatura
+                                </a>
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <Card className="shadow-sm border-primary/20 bg-primary/5">
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2 text-primary">

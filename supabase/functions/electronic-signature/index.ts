@@ -1,140 +1,103 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import { corsHeaders } from '../_shared/cors.ts'
+import { getDocHtml } from '../_shared/doc-templates.ts'
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers':
-    'authorization, x-client-info, x-supabase-client-platform, apikey, content-type',
+const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
+
+function b64ToBlob(dataUrl: string, contentType: string): Blob {
+  const base64 = dataUrl.split(',')[1]
+  const raw = atob(base64)
+  const bytes = new Uint8Array(raw.length)
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i)
+  return new Blob([bytes], { type: contentType })
 }
 
-Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
+  const body = await req.json()
+  const headers = { 'Content-Type': 'application/json', ...corsHeaders }
+
+  if (body.action === 'generateDoc') {
+    const { caseId, clientId, docType } = body
+    const { data: client } = await sb.from('clients').select('*').eq('id', clientId).single()
+    const { data: caseData } = await sb.from('cases').select('*').eq('id', caseId).single()
+    const html = getDocHtml(docType, client, caseData)
+    const fileName = `${docType}_${caseId}_${Date.now()}.html`
+    const { error: uploadErr } = await sb.storage
+      .from('signature_documents')
+      .upload(fileName, new Blob([html], { type: 'text/html' }), { contentType: 'text/html' })
+    if (uploadErr)
+      return new Response(JSON.stringify({ error: uploadErr.message }), { status: 500, headers })
+    const token = crypto.randomUUID()
+    const { error: insertErr } = await sb.from('document_signatures').insert({
+      token,
+      doc_type: docType,
+      client_id: clientId,
+      case_id: caseId,
+      document_path: fileName,
+      status: 'pending',
+    })
+    if (insertErr)
+      return new Response(JSON.stringify({ error: insertErr.message }), { status: 500, headers })
+    return new Response(JSON.stringify({ token }), { headers })
   }
 
-  try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    const supabase = createClient(supabaseUrl, supabaseKey)
-
-    const { action, token, selfieBase64, geolocation } = await req.json()
-
-    if (action === 'getDoc') {
-      const { data, error } = await supabase
-        .from('document_signatures')
-        .select('*')
-        .eq('token', token)
-        .single()
-
-      if (error || !data) {
-        return new Response(JSON.stringify({ error: 'Documento não encontrado.' }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
-      }
-
-      let documentContent = null
-      if (data.document_path) {
-        const { data: fileData } = await supabase.storage
-          .from('signed_documents')
-          .download(data.document_path)
-        if (fileData) {
-          documentContent = await fileData.text()
-        }
-      }
-
-      let client = null
-      let caseData = null
-      if (data.client_id) {
-        const { data: c } = await supabase
-          .from('clients')
-          .select('*')
-          .eq('id', data.client_id)
-          .single()
-        client = c
-      }
-      if (data.case_id) {
-        const { data: cd } = await supabase
-          .from('cases')
-          .select('*')
-          .eq('id', data.case_id)
-          .single()
-        caseData = cd
-      }
-
-      return new Response(
-        JSON.stringify({ ...data, document_content: documentContent, client, case: caseData }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      )
+  if (body.action === 'getByToken') {
+    const { data: sig } = await sb
+      .from('document_signatures')
+      .select('*')
+      .eq('token', body.token)
+      .single()
+    if (!sig)
+      return new Response(JSON.stringify({ error: 'Document not found' }), { status: 404, headers })
+    let documentContent = ''
+    if (sig.document_path) {
+      const { data: file } = await sb.storage
+        .from('signature_documents')
+        .download(sig.document_path)
+      if (file) documentContent = await file.text()
     }
-
-    if (action === 'sign') {
-      const { data: record, error: recordError } = await supabase
-        .from('document_signatures')
-        .select('*')
-        .eq('token', token)
-        .single()
-
-      if (recordError || !record) {
-        return new Response(JSON.stringify({ error: 'Documento não encontrado.' }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
-      }
-
-      if (record.status === 'signed') {
-        return new Response(JSON.stringify({ error: 'Documento já assinado.' }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
-      }
-
-      let selfiePath = null
-      if (selfieBase64) {
-        const base64Data = selfieBase64.includes(',') ? selfieBase64.split(',')[1] : selfieBase64
-        const binary = atob(base64Data)
-        const bytes = new Uint8Array(binary.length)
-        for (let i = 0; i < binary.length; i++) {
-          bytes[i] = binary.charCodeAt(i)
-        }
-        selfiePath = `${token}/selfie.jpg`
-        await supabase.storage
-          .from('signature_photos')
-          .upload(selfiePath, bytes, { contentType: 'image/jpeg', upsert: true })
-      }
-
-      const ip = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || ''
-      const userAgent = req.headers.get('user-agent') || ''
-
-      const { error: updateError } = await supabase
-        .from('document_signatures')
-        .update({
-          status: 'signed',
-          selfie_path: selfiePath,
-          geolocation: geolocation,
-          ip_address: ip,
-          user_agent: userAgent,
-          signed_at: new Date().toISOString(),
-        })
-        .eq('token', token)
-
-      if (updateError) {
-        return new Response(JSON.stringify({ error: 'Erro ao registrar assinatura.' }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
-      }
-
-      return new Response(
-        JSON.stringify({ success: true, message: 'Documento assinado com sucesso.' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      )
-    }
-
-    return new Response(JSON.stringify({ error: 'Ação inválida.' }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
-  } catch (error: any) {
-    return new Response(JSON.stringify({ error: error.message || 'Erro interno' }), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return new Response(JSON.stringify({ ...sig, documentContent }), { headers })
   }
+
+  if (body.action === 'confirmSignature') {
+    const { token, selfie, signature, geolocation } = body
+    const { data: sig } = await sb
+      .from('document_signatures')
+      .select('*')
+      .eq('token', token)
+      .single()
+    if (!sig) return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers })
+    if (sig.status === 'signed')
+      return new Response(JSON.stringify({ error: 'Already signed' }), { status: 400, headers })
+    const selfiePath = `selfie_${sig.id}_${Date.now()}.png`
+    const sigPath = `signature_${sig.id}_${Date.now()}.png`
+    await sb.storage
+      .from('selfie_images')
+      .upload(selfiePath, b64ToBlob(selfie, 'image/png'), { contentType: 'image/png' })
+    await sb.storage
+      .from('signature_drawings')
+      .upload(sigPath, b64ToBlob(signature, 'image/png'), { contentType: 'image/png' })
+    const ip =
+      req.headers.get('x-forwarded-for')?.split(',')[0] || req.headers.get('x-real-ip') || 'unknown'
+    const userAgent = req.headers.get('user-agent') || 'unknown'
+    const { error } = await sb
+      .from('document_signatures')
+      .update({
+        selfie_path: selfiePath,
+        signature_path: sigPath,
+        geolocation,
+        ip_address: ip,
+        user_agent: userAgent,
+        signed_at: new Date().toISOString(),
+        status: 'signed',
+      })
+      .eq('id', sig.id)
+    if (error)
+      return new Response(JSON.stringify({ error: error.message }), { status: 500, headers })
+    return new Response(JSON.stringify({ success: true }), { headers })
+  }
+
+  return new Response(JSON.stringify({ error: 'Invalid action' }), { status: 400, headers })
 })
