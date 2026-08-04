@@ -1,39 +1,58 @@
-import { useState, useEffect, useMemo } from 'react'
-import { useParams } from 'react'
-import { getSignatureByToken, confirmSignature } from '@/services/document-signatures'
-import { SelfieCaptureStep } from '@/components/signature/SelfieCaptureStep'
-import { SignaturePad } from '@/components/signature/SignaturePad'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import React, { useState, useEffect, useRef } from 'react'
+import { useParams } from 'react-router-dom'
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardFooter,
+} from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import {
-  Check,
-  Camera,
-  MapPin,
-  Edit3,
   CheckCircle2,
-  ShieldCheck,
-  AlertCircle,
-  FileText,
+  AlertTriangle,
+  Camera,
   Loader2,
+  FileText,
+  Download,
+  Eye,
+  ArrowRight,
+  RotateCcw,
+  ShieldCheck,
 } from 'lucide-react'
+import {
+  getSignatureByToken,
+  confirmSignature,
+  viewOrDownloadDocument,
+} from '@/services/document-signatures'
 import { toast } from '@/hooks/use-toast'
 
 export default function SignaturePage() {
   const { token } = useParams<{ token: string }>()
   const [loading, setLoading] = useState(true)
-  const [docData, setDocData] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
+  const [docData, setDocData] = useState<any>(null)
+  const [step, setStep] = useState<number>(1) // 1: Info/Review, 2: Selfie, 3: Signature, 4: Success
 
-  const [confirmedSelfie, setConfirmedSelfie] = useState<string | null>(null)
-  const [geolocation, setGeolocation] = useState<{ latitude: number; longitude: number } | null>(
-    null,
-  )
-  const [geoLoading, setGeoLoading] = useState(false)
-  const [signatureData, setSignatureData] = useState<string | null>(null)
+  // Selfie state
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const [selfieStream, setSelfieStream] = useState<MediaStream | null>(null)
+  const [selfieImg, setSelfieImg] = useState<string | null>(null)
+  const [cameraError, setCameraError] = useState<boolean>(false)
 
+  // Signature Pad state
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const [isDrawing, setIsDrawing] = useState(false)
+  const [hasSignature, setHasSignature] = useState(false)
+  const [signatureImg, setSignatureImg] = useState<string | null>(null)
+
+  // Geolocation & Submitting
+  const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [signedSuccess, setSignedSuccess] = useState(false)
+  const [viewingDoc, setViewingDoc] = useState(false)
 
   useEffect(() => {
     if (!token) {
@@ -41,123 +60,251 @@ export default function SignaturePage() {
       setLoading(false)
       return
     }
-    setLoading(true)
-    getSignatureByToken(token).then(({ data, error }) => {
-      setLoading(false)
-      if (error || !data) {
-        setError(error?.message || 'Documento não encontrado ou link expirado.')
-      } else {
-        setDocData(data)
-        if (data.status === 'signed') {
-          setSignedSuccess(true)
+
+    let isMounted = true
+    getSignatureByToken(token)
+      .then(({ data, error: fetchErr }) => {
+        if (!isMounted) return
+        if (fetchErr || !data) {
+          setError(fetchErr?.message || 'Documento não encontrado ou link expirado.')
+        } else {
+          setDocData(data)
+          if (data.status === 'signed') {
+            setStep(4)
+          }
         }
-      }
-    })
+      })
+      .catch((err) => {
+        if (isMounted) {
+          console.error('Unhandled error in SignaturePage load:', err)
+          setError('Erro ao carregar os dados do documento. Tente novamente.')
+        }
+      })
+      .finally(() => {
+        if (isMounted) setLoading(false)
+      })
+
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (isMounted) {
+            setLocation({
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+            })
+          }
+        },
+        (geoErr) => {
+          console.warn('Geolocation error or denied:', geoErr)
+        },
+        { timeout: 10000, enableHighAccuracy: true },
+      )
+    }
+
+    return () => {
+      isMounted = false
+    }
   }, [token])
 
-  const requestGeolocation = () => {
-    if (!navigator.geolocation) {
+  useEffect(() => {
+    if (step === 2 && !selfieImg) {
+      setCameraError(false)
+      navigator.mediaDevices
+        ?.getUserMedia({ video: { facingMode: 'user' } })
+        .then((stream) => {
+          setSelfieStream(stream)
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream
+          }
+        })
+        .catch((err) => {
+          console.warn('Camera access error:', err)
+          setCameraError(true)
+        })
+    } else {
+      stopCamera()
+    }
+
+    return () => {
+      stopCamera()
+    }
+  }, [step, selfieImg])
+
+  const stopCamera = () => {
+    if (selfieStream) {
+      selfieStream.getTracks().forEach((track) => track.stop())
+      setSelfieStream(null)
+    }
+  }
+
+  const takeSelfie = () => {
+    if (!videoRef.current) return
+    const video = videoRef.current
+    const canvas = document.createElement('canvas')
+    canvas.width = video.videoWidth || 640
+    canvas.height = video.videoHeight || 480
+    const ctx = canvas.getContext('2d')
+    if (ctx) {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+      const dataUrl = canvas.toDataURL('image/png')
+      setSelfieImg(dataUrl)
+      stopCamera()
+    }
+  }
+
+  const handleFileUploadSelfie = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      const reader = new FileReader()
+      reader.onload = (evt) => {
+        if (evt.target?.result) {
+          setSelfieImg(evt.target.result as string)
+        }
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  useEffect(() => {
+    if (step === 3 && canvasRef.current) {
+      const canvas = canvasRef.current
+      const ctx = canvas.getContext('2d')
+      if (ctx) {
+        ctx.strokeStyle = '#0f172a'
+        ctx.lineWidth = 3
+        ctx.lineCap = 'round'
+        ctx.lineJoin = 'round'
+      }
+    }
+  }, [step])
+
+  const startDrawing = (
+    e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>,
+  ) => {
+    setIsDrawing(true)
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    const rect = canvas.getBoundingClientRect()
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
+    ctx?.beginPath()
+    ctx?.moveTo(clientX - rect.left, clientY - rect.top)
+  }
+
+  const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    if (!isDrawing) return
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    const rect = canvas.getBoundingClientRect()
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
+    ctx?.lineTo(clientX - rect.left, clientY - rect.top)
+    ctx?.stroke()
+    setHasSignature(true)
+  }
+
+  const stopDrawing = () => {
+    if (isDrawing) {
+      setIsDrawing(false)
+      if (canvasRef.current) {
+        setSignatureImg(canvasRef.current.toDataURL('image/png'))
+      }
+    }
+  }
+
+  const clearSignature = () => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    ctx?.clearRect(0, 0, canvas.width, canvas.height)
+    setHasSignature(false)
+    setSignatureImg(null)
+  }
+
+  const handleConfirmSignature = async () => {
+    if (!token || !selfieImg || !signatureImg) {
       toast({
-        title: 'Geolocalização não suportada',
-        description: 'Seu navegador não suporta geolocalização.',
+        title: 'Atenção',
+        description: 'Por favor, conclua a captura da selfie e da rubrica antes de confirmar.',
         variant: 'destructive',
       })
       return
     }
-    setGeoLoading(true)
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setGeolocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude })
-        setGeoLoading(false)
-        toast({ title: 'Localização obtida!', description: 'Coordenadas capturadas com sucesso.' })
-      },
-      () => {
-        setGeoLoading(false)
+
+    setSubmitting(true)
+    try {
+      const { data, error: confirmErr } = await confirmSignature(token, {
+        selfie: selfieImg,
+        signature: signatureImg,
+        geolocation: location,
+      })
+
+      if (confirmErr) {
         toast({
-          title: 'Erro de localização',
-          description:
-            'Não foi possível obter sua localização. Por favor, autorize a permissão no navegador.',
+          title: 'Erro ao assinar',
+          description: confirmErr.message || 'Falha ao salvar a assinatura. Tente novamente.',
           variant: 'destructive',
         })
-      },
-    )
-  }
-
-  const handleSubmitSignature = async () => {
-    if (!token || !confirmedSelfie || !signatureData) return
-    setSubmitting(true)
-    const { error } = await confirmSignature(token, {
-      selfie: confirmedSelfie,
-      signature: signatureData,
-      geolocation,
-    })
-    setSubmitting(false)
-    if (error) {
+      } else {
+        toast({
+          title: 'Sucesso!',
+          description: 'Documento assinado eletronicamente com sucesso!',
+        })
+        setDocData(data)
+        setStep(4)
+      }
+    } catch (err: any) {
+      console.error('Error confirming signature:', err)
       toast({
-        title: 'Erro ao assinar',
-        description: error.message || 'Falha ao processar assinatura.',
+        title: 'Erro inesperado',
+        description: 'Ocorreu um erro ao processar sua assinatura. Tente novamente.',
         variant: 'destructive',
       })
-    } else {
-      setSignedSuccess(true)
-      toast({ title: 'Sucesso!', description: 'Documento assinado com sucesso.' })
+    } finally {
+      setSubmitting(false)
     }
   }
 
-  const generatedDocHtml = useMemo(() => {
-    if (!docData) return ''
-    if (docData.documentContent) return docData.documentContent
-    if (docData.document_content) return docData.document_content
-
-    const client = docData.clients || {}
-    const process = docData.cases || {}
-    const clientName = client.name || 'OUTORGANTE / CLIENTE'
-    const clientDoc = client.document || 'CPF/CNPJ'
-    const clientAddr =
-      [client.street, client.number, client.neighborhood, client.city, client.state]
-        .filter(Boolean)
-        .join(', ') || 'Endereço não cadastrado'
-
-    if (docData.doc_type === 'procuracao') {
-      return `
-        <div class="space-y-4">
-          <h2 class="text-center font-bold text-base text-slate-900 uppercase">PROCURAÇÃO AD JUDICIA ET EXTRA</h2>
-          <p><strong>OUTORGANTE:</strong> ${clientName}, inscrito(a) no CPF/CNPJ sob o nº ${clientDoc}, residente e domiciliado(a) em ${clientAddr}.</p>
-          <p><strong>OUTORGADOS:</strong> DPSjur Advocacia e Consultoria Jurídica e seus advogados integrantes.</p>
-          <p><strong>PODERES:</strong> Por este instrumento particular de procuração, o(a) Outorganate concede aos Outorgados amplos e gerais poderes para o foro em geral, conferidos pelo artigo 105 do Código de Processo Civil, para representá-lo(a) em juízo ou fora dele, propor ações, defender, transigir, assinar compromissos, confessar, desistir, receber e dar quitação.</p>
-          <p class="text-right mt-6">Data: ${new Date().toLocaleDateString('pt-BR')}</p>
-        </div>
-      `
+  const handlePreviewDoc = async () => {
+    if (!docData?.document_path) {
+      toast({
+        title: 'Atenção',
+        description: 'Documento não encontrado ou ainda não processado.',
+        variant: 'destructive',
+      })
+      return
     }
-
-    if (docData.doc_type === 'hipossuficiencia') {
-      return `
-        <div class="space-y-4">
-          <h2 class="text-center font-bold text-base text-slate-900 uppercase">DECLARAÇÃO DE HIPOSSUFICIÊNCIA ECONÔMICA</h2>
-          <p>Eu, <strong>${clientName}</strong>, portador(a) do CPF nº <strong>${clientDoc}</strong>, declaro para os devidos fins de direito e sob as penas da lei, nos termos do art. 98 do Código de Processo Civil, que não possuo recursos financeiros suficientes para arcar com as custas processuais e honorários advocatícios sem prejuízo do sustento próprio e de minha família.</p>
-          <p class="text-right mt-6">Data: ${new Date().toLocaleDateString('pt-BR')}</p>
-        </div>
-      `
+    setViewingDoc(true)
+    const result = await viewOrDownloadDocument(docData.document_path, 'signature_documents')
+    setViewingDoc(false)
+    if (!result.success) {
+      toast({
+        title: 'Atenção',
+        description: result.message || 'Documento não encontrado ou ainda não processado.',
+        variant: 'destructive',
+      })
     }
+  }
 
-    return `
-      <div class="space-y-4">
-        <h2 class="text-center font-bold text-base text-slate-900 uppercase">CONTRATO DE PRESTAÇÃO DE SERVIÇOS ADVOCATÍCIOS</h2>
-        <p><strong>CONTRATANTE:</strong> ${clientName}, CPF/CNPJ nº ${clientDoc}, residente em ${clientAddr}.</p>
-        <p><strong>CONTRATADO:</strong> DPSjur Advocacia.</p>
-        <p><strong>OBJETO:</strong> Prestação de serviços de assessoria e representação jurídica no processo nº ${process.number || 'A ser autuado'}.</p>
-        <p class="text-right mt-6">Data: ${new Date().toLocaleDateString('pt-BR')}</p>
-      </div>
-    `
-  }, [docData])
+  const getDocTitle = () => {
+    const type = docData?.doc_type?.toLowerCase() || ''
+    if (type.includes('procuracao')) return 'Procuração Ad Judicia'
+    if (type.includes('hipossuficiencia')) return 'Declaração de Hipossuficiência'
+    if (type.includes('contrato')) return 'Contrato de Prestação de Serviços'
+    return docData?.doc_type || 'Documento Eletrônico'
+  }
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
-        <Loader2 className="h-8 w-8 text-blue-600 animate-spin mb-3" />
-        <p className="text-sm font-medium text-slate-600">
-          Carregando documento para assinatura...
-        </p>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <Card className="max-w-md w-full p-8 text-center space-y-4 shadow-md">
+          <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto" />
+          <p className="text-sm font-medium text-slate-700">
+            Carregando documento para assinatura...
+          </p>
+        </Card>
       </div>
     )
   }
@@ -165,200 +312,310 @@ export default function SignaturePage() {
   if (error || !docData) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <Card className="max-w-md w-full text-center p-6 space-y-4 shadow-sm border-red-100">
-          <AlertCircle className="h-12 w-12 text-red-500 mx-auto" />
-          <h2 className="text-xl font-bold text-slate-900">Link Inválido ou Expirado</h2>
-          <p className="text-sm text-slate-600">
-            {error || 'Não foi possível carregar o documento solicitado.'}
-          </p>
+        <Card className="max-w-md w-full shadow-lg border-red-100">
+          <CardHeader className="text-center pb-2">
+            <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-2" />
+            <CardTitle className="text-xl text-red-600">Documento Não Encontrado</CardTitle>
+            <CardDescription className="text-sm text-slate-600 mt-2">
+              {error ||
+                'Não foi possível encontrar os dados deste documento. O link pode ter expirado ou estar incorreto.'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-center pt-4">
+            <p className="text-xs text-muted-foreground">
+              Entre em contato com o escritório de advocacia responsável para solicitar um novo link
+              de assinatura.
+            </p>
+          </CardContent>
+          <CardFooter className="flex justify-center">
+            <Button variant="outline" onClick={() => window.location.reload()}>
+              <RotateCcw className="h-4 w-4 mr-2" /> Tentar Novamente
+            </Button>
+          </CardFooter>
         </Card>
       </div>
     )
   }
 
-  if (signedSuccess) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <Card className="max-w-lg w-full text-center p-8 space-y-4 shadow-lg border-emerald-200">
-          <CheckCircle2 className="h-16 w-16 text-emerald-600 mx-auto animate-bounce" />
-          <h2 className="text-2xl font-bold text-slate-900">Documento Assinado!</h2>
-          <p className="text-sm text-slate-600 leading-relaxed">
-            Sua assinatura eletrônica foi concluída com sucesso e registrada com selfie e validações
-            de segurança jurídica.
-          </p>
-          <div className="pt-2">
-            <Badge
-              variant="outline"
-              className="bg-emerald-50 text-emerald-700 border-emerald-300 py-1.5 px-4 text-xs font-semibold"
-            >
-              <ShieldCheck className="h-4 w-4 mr-1.5" /> Assinatura Eletrônica Válida e Autenticada
-            </Badge>
-          </div>
-        </Card>
-      </div>
-    )
-  }
-
-  const isSelfieDone = Boolean(confirmedSelfie)
-  const isGeoDone = Boolean(geolocation)
-  const isSigDone = Boolean(signatureData)
-  const canFinalize = isSelfieDone && isSigDone
+  const clientName = docData.clients?.name || 'Signatário'
+  const clientDoc = docData.clients?.document || '—'
+  const caseNumber = docData.cases?.number || '—'
+  const isSigned = docData.status === 'signed' || step === 4
 
   return (
-    <div className="min-h-screen bg-slate-50 py-8 px-4 sm:px-6">
-      <div className="max-w-3xl mx-auto space-y-6">
-        <div className="bg-white p-6 rounded-xl border shadow-sm flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-xl font-bold text-slate-900">Assinatura Eletrônica de Documento</h1>
-            <p className="text-xs text-slate-500 mt-1">
-              Siga as 4 etapas abaixo para concluir a assinatura com validade jurídica
-            </p>
+    <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-4 py-8">
+      <div className="max-w-xl w-full space-y-4">
+        <div className="text-center space-y-1">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-primary/10 text-primary mb-2">
+            <ShieldCheck className="h-6 w-6" />
           </div>
-          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-            {docData.doc_type === 'procuracao'
-              ? 'Procuração Ad Judicia'
-              : docData.doc_type === 'hipossuficiencia'
-                ? 'Declaração de Hipossuficiência'
-                : 'Contrato de Serviços'}
-          </Badge>
+          <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+            Assinatura Eletrônica Segura
+          </h1>
+          <p className="text-xs text-slate-500">
+            DPSjur Legal System • Verificação de Identidade & Validade Jurídica
+          </p>
         </div>
 
-        <Card className="shadow-sm">
-          <CardHeader className="pb-3 border-b">
-            <CardTitle className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <FileText className="h-5 w-5 text-blue-600" /> Processo de Assinatura
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6 pt-6">
-            {/* Step 1 */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-3">
-                <div className="w-7 h-7 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
-                  <Check className="h-4 w-4 stroke-[3]" />
-                </div>
-                <span className="font-semibold text-emerald-700 text-sm">
-                  1. Visualização do Documento
-                </span>
-              </div>
-              <div className="ml-10 bg-slate-50 border rounded-lg p-4 max-h-60 overflow-y-auto text-xs text-slate-800 leading-relaxed shadow-inner">
-                <div dangerouslySetInnerHTML={{ __html: generatedDocHtml }} />
-              </div>
-            </div>
+        {isSigned ? (
+          <Card className="shadow-lg border-emerald-200 bg-white">
+            <CardHeader className="text-center pb-2">
+              <CheckCircle2 className="h-14 w-14 text-emerald-600 mx-auto mb-2 animate-bounce" />
+              <CardTitle className="text-2xl font-bold text-emerald-800">
+                Documento Assinado com Sucesso!
+              </CardTitle>
+              <CardDescription className="text-sm text-slate-600">
+                Sua assinatura eletrônica foi registrada com validade jurídica e trilha de
+                auditoria.
+              </CardDescription>
+            </CardHeader>
 
-            {/* Step 2 */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-3">
-                <div
-                  className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${
-                    isSelfieDone ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600'
-                  }`}
-                >
-                  {isSelfieDone ? (
-                    <Check className="h-4 w-4 stroke-[3]" />
-                  ) : (
-                    <Camera className="h-4 w-4" />
-                  )}
+            <CardContent className="space-y-4 pt-4 text-sm">
+              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-2 text-xs text-slate-700">
+                <div className="flex justify-between border-b pb-1">
+                  <span className="text-slate-500">Documento:</span>
+                  <span className="font-semibold">{getDocTitle()}</span>
                 </div>
-                <span
-                  className={`font-semibold text-sm ${isSelfieDone ? 'text-emerald-700' : 'text-slate-800'}`}
-                >
-                  2. Captura de Selfie
-                </span>
+                <div className="flex justify-between border-b pb-1">
+                  <span className="text-slate-500">Signatário:</span>
+                  <span className="font-semibold">{clientName}</span>
+                </div>
+                <div className="flex justify-between border-b pb-1">
+                  <span className="text-slate-500">CPF/CNPJ:</span>
+                  <span className="font-semibold">{clientDoc}</span>
+                </div>
+                <div className="flex justify-between border-b pb-1">
+                  <span className="text-slate-500">Processo:</span>
+                  <span className="font-semibold">{caseNumber}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Data/Hora:</span>
+                  <span className="font-semibold">
+                    {docData.signed_at
+                      ? new Date(docData.signed_at).toLocaleString('pt-BR')
+                      : new Date().toLocaleString('pt-BR')}
+                  </span>
+                </div>
               </div>
-              <div className="ml-10">
-                <SelfieCaptureStep
-                  confirmedSelfie={confirmedSelfie}
-                  onConfirm={(selfieData) => setConfirmedSelfie(selfieData)}
-                  onRetake={() => setConfirmedSelfie(null)}
-                />
-              </div>
-            </div>
 
-            {/* Step 3 */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-3">
-                <div
-                  className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${
-                    isGeoDone ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600'
-                  }`}
-                >
-                  {isGeoDone ? (
-                    <Check className="h-4 w-4 stroke-[3]" />
+              {docData.document_path && (
+                <Button className="w-full" onClick={handlePreviewDoc} disabled={viewingDoc}>
+                  {viewingDoc ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   ) : (
-                    <MapPin className="h-4 w-4" />
+                    <Download className="h-4 w-4 mr-2" />
                   )}
+                  Visualizar / Baixar Documento Assinado
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="shadow-lg border-slate-200 bg-white">
+            <CardHeader className="pb-3 border-b">
+              <div className="flex items-center justify-between">
+                <Badge variant="outline" className="bg-slate-50 text-slate-700">
+                  Etapa {step} de 3
+                </Badge>
+                <div className="flex gap-1">
+                  {[1, 2, 3].map((i) => (
+                    <div
+                      key={i}
+                      className={`h-2 w-8 rounded-full transition-colors ${
+                        i <= step ? 'bg-primary' : 'bg-slate-200'
+                      }`}
+                    />
+                  ))}
                 </div>
-                <span
-                  className={`font-semibold text-sm ${isGeoDone ? 'text-emerald-700' : 'text-slate-800'}`}
-                >
-                  3. Geolocalização
-                </span>
               </div>
-              <div className="ml-10">
-                {isGeoDone ? (
-                  <Badge
-                    variant="outline"
-                    className="bg-emerald-50 text-emerald-700 border-emerald-200 px-3 py-1 text-xs"
-                  >
-                    <Check className="h-3.5 w-3.5 mr-1" /> Coordenadas Registradas
-                  </Badge>
-                ) : (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={requestGeolocation}
-                    disabled={geoLoading}
-                    className="text-xs bg-white text-slate-700"
-                  >
-                    <MapPin className="h-3.5 w-3.5 mr-1.5" />
-                    {geoLoading ? 'Obtendo localização...' : 'Permitir Geolocalização'}
+              <CardTitle className="text-lg font-bold text-slate-900 mt-2">
+                {step === 1 && '1. Confirmação dos Dados e Termos'}
+                {step === 2 && '2. Validação Biométrica (Selfie)'}
+                {step === 3 && '3. Assinatura e Rubrica Digital'}
+              </CardTitle>
+            </CardHeader>
+
+            <CardContent className="pt-4 space-y-4">
+              {step === 1 && (
+                <div className="space-y-4">
+                  <div className="bg-slate-50 p-4 rounded-lg border space-y-2 text-xs">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-slate-800 border-b pb-2">
+                      <FileText className="h-4 w-4 text-primary" />
+                      {getDocTitle()}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 pt-1 text-slate-600">
+                      <div>
+                        <span className="block text-slate-400">Cliente / Outorgante:</span>
+                        <span className="font-semibold text-slate-800">{clientName}</span>
+                      </div>
+                      <div>
+                        <span className="block text-slate-400">CPF:</span>
+                        <span className="font-semibold text-slate-800">{clientDoc}</span>
+                      </div>
+                      <div>
+                        <span className="block text-slate-400">Processo Vinculado:</span>
+                        <span className="font-semibold text-slate-800">{caseNumber}</span>
+                      </div>
+                      <div>
+                        <span className="block text-slate-400">Validade:</span>
+                        <span className="font-semibold text-emerald-600">Ad Judicia / Legal</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <Alert className="bg-blue-50/60 border-blue-200">
+                    <ShieldCheck className="h-4 w-4 text-blue-600" />
+                    <AlertTitle className="text-xs font-semibold text-blue-900">
+                      Assinatura com Validade Jurídica (MP 2.200-2/2001)
+                    </AlertTitle>
+                    <AlertDescription className="text-xs text-blue-800">
+                      Para sua segurança, nas próximas etapas registraremos sua foto (selfie),
+                      rubrica e geolocalização como comprovação de autoria.
+                    </AlertDescription>
+                  </Alert>
+
+                  {docData.document_path && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full text-xs"
+                      onClick={handlePreviewDoc}
+                      disabled={viewingDoc}
+                    >
+                      {viewingDoc ? (
+                        <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />
+                      ) : (
+                        <Eye className="h-3.5 w-3.5 mr-2" />
+                      )}
+                      Visualizar Rascunho do Documento
+                    </Button>
+                  )}
+
+                  <Button className="w-full" onClick={() => setStep(2)}>
+                    Continuar para Foto (Selfie) <ArrowRight className="h-4 w-4 ml-2" />
                   </Button>
-                )}
-              </div>
-            </div>
+                </div>
+              )}
 
-            {/* Step 4 */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-3">
-                <div
-                  className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${
-                    isSigDone ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600'
-                  }`}
-                >
-                  {isSigDone ? (
-                    <Check className="h-4 w-4 stroke-[3]" />
+              {step === 2 && (
+                <div className="space-y-4 text-center">
+                  <p className="text-xs text-slate-600">
+                    Posicione seu rosto de forma clara no centro da tela para confirmação de
+                    identidade.
+                  </p>
+
+                  <div className="relative mx-auto w-full max-w-sm aspect-video bg-slate-900 rounded-lg overflow-hidden flex items-center justify-center border-2 border-slate-300 shadow-inner">
+                    {selfieImg ? (
+                      <img src={selfieImg} alt="Selfie" className="w-full h-full object-cover" />
+                    ) : cameraError ? (
+                      <div className="p-4 text-center space-y-3">
+                        <AlertTriangle className="h-8 w-8 text-amber-400 mx-auto" />
+                        <p className="text-xs text-slate-200">
+                          Não foi possível acessar a câmera do dispositivo.
+                        </p>
+                        <label className="inline-flex items-center justify-center px-3 py-1.5 bg-primary text-white text-xs rounded cursor-pointer hover:bg-primary/90">
+                          <Camera className="h-3.5 w-3.5 mr-1.5" /> Enviar Foto da Galeria
+                          <input
+                            type="file"
+                            accept="image/*"
+                            capture="user"
+                            className="hidden"
+                            onChange={handleFileUploadSelfie}
+                          />
+                        </label>
+                      </div>
+                    ) : (
+                      <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className="w-full h-full object-cover"
+                      />
+                    )}
+                  </div>
+
+                  {selfieImg ? (
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        className="flex-1 text-xs"
+                        onClick={() => {
+                          setSelfieImg(null)
+                          setCameraError(false)
+                        }}
+                      >
+                        <RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Tirar Outra Foto
+                      </Button>
+                      <Button className="flex-1 text-xs" onClick={() => setStep(3)}>
+                        Avançar <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
+                      </Button>
+                    </div>
                   ) : (
-                    <Edit3 className="h-4 w-4" />
+                    !cameraError && (
+                      <Button className="w-full" onClick={takeSelfie}>
+                        <Camera className="h-4 w-4 mr-2" /> Capturar Foto (Selfie)
+                      </Button>
+                    )
                   )}
                 </div>
-                <span
-                  className={`font-semibold text-sm ${isSigDone ? 'text-emerald-700' : 'text-slate-800'}`}
-                >
-                  4. Desenhar Assinatura Digital
-                </span>
-              </div>
-              <div className="ml-10">
-                <SignaturePad onSave={(sig) => setSignatureData(sig)} />
-              </div>
-            </div>
+              )}
 
-            <div className="pt-4 border-t flex justify-end">
-              <Button
-                onClick={handleSubmitSignature}
-                disabled={!canFinalize || submitting}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 h-11 text-base font-semibold shadow-md"
-              >
-                {submitting ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Enviando...
-                  </>
-                ) : (
-                  'Finalizar Assinatura'
-                )}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+              {step === 3 && (
+                <div className="space-y-4 text-center">
+                  <p className="text-xs text-slate-600">
+                    Faça sua rubrica/assinatura no quadro abaixo usando o dedo ou mouse:
+                  </p>
+
+                  <div className="border-2 border-dashed border-slate-300 rounded-lg bg-slate-50 p-2 touch-none relative">
+                    <canvas
+                      ref={canvasRef}
+                      width={400}
+                      height={180}
+                      className="w-full h-44 bg-white rounded border border-slate-200 cursor-crosshair"
+                      onMouseDown={startDrawing}
+                      onMouseMove={draw}
+                      onMouseUp={stopDrawing}
+                      onMouseLeave={stopDrawing}
+                      onTouchStart={startDrawing}
+                      onTouchMove={draw}
+                      onTouchEnd={stopDrawing}
+                    />
+                    {!hasSignature && (
+                      <div className="absolute inset-0 pointer-events-none flex items-center justify-center text-xs text-slate-400">
+                        Assine aqui
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-xs"
+                      onClick={clearSignature}
+                      disabled={!hasSignature}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5 mr-1" /> Limpar
+                    </Button>
+                    <Button
+                      className="flex-1 text-xs"
+                      disabled={!hasSignature || submitting}
+                      onClick={handleConfirmSignature}
+                    >
+                      {submitting ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="h-4 w-4 mr-2" />
+                      )}
+                      Finalizar e Assinar Documento
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   )

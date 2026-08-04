@@ -66,6 +66,7 @@ import {
   generateInternalDocument,
   fetchSignaturesByCase,
   getStoragePublicUrl,
+  viewOrDownloadDocument,
 } from '@/services/document-signatures'
 import { fetchDocumentTemplates } from '@/services/document-templates'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -143,6 +144,71 @@ export default function CaseDetail() {
     docType: string
   } | null>(null)
   const [caseSignatures, setCaseSignatures] = useState<any[]>([])
+  const [viewingDocId, setViewingDocId] = useState<string | null>(null)
+
+  const handleViewDocument = async (sig: any) => {
+    if (!sig) return
+    const docId = sig.id || sig.token
+    setViewingDocId(docId)
+
+    try {
+      if (sig.document_path) {
+        const result = await viewOrDownloadDocument(sig.document_path, 'signature_documents')
+        if (!result.success) {
+          toast({
+            title: 'Atenção',
+            description: result.message || 'Documento não encontrado ou ainda não processado.',
+            variant: 'destructive',
+          })
+        }
+      } else if (sig.token) {
+        const url = `${window.location.origin}/assinar/${sig.token}`
+        window.open(url, '_blank', 'noopener,noreferrer')
+      } else {
+        toast({
+          title: 'Atenção',
+          description: 'Documento não encontrado ou ainda não processado.',
+          variant: 'destructive',
+        })
+      }
+    } catch (err: any) {
+      console.error('Error viewing document:', err)
+      toast({
+        title: 'Atenção',
+        description: 'Documento não encontrado ou ainda não processado.',
+        variant: 'destructive',
+      })
+    } finally {
+      setViewingDocId(null)
+    }
+  }
+
+  const handleViewAttachment = async (bucket: string, path: string | null) => {
+    if (!path) {
+      toast({
+        title: 'Atenção',
+        description: 'Arquivo não encontrado ou ainda não processado.',
+        variant: 'destructive',
+      })
+      return
+    }
+    try {
+      const result = await viewOrDownloadDocument(path, bucket)
+      if (!result.success) {
+        toast({
+          title: 'Atenção',
+          description: result.message || 'Documento não encontrado ou ainda não processado.',
+          variant: 'destructive',
+        })
+      }
+    } catch (e) {
+      toast({
+        title: 'Atenção',
+        description: 'Documento não encontrado ou ainda não processado.',
+        variant: 'destructive',
+      })
+    }
+  }
 
   const c = state.cases.find((x) => x.id === id)
   const client = state.clients.find((cl) => cl.id === c?.clientId)
@@ -1503,42 +1569,20 @@ export default function CaseDetail() {
                               </Button>
                             )}
 
-                            {sig.document_path ? (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-8 text-xs font-medium"
-                                asChild
-                              >
-                                <a
-                                  href={getStoragePublicUrl(
-                                    'signature_documents',
-                                    sig.document_path,
-                                  )}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  <Eye className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />{' '}
-                                  Visualizar
-                                </a>
-                              </Button>
-                            ) : sig.token ? (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-8 text-xs font-medium"
-                                asChild
-                              >
-                                <a
-                                  href={`/assinar/${sig.token}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  <Eye className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />{' '}
-                                  Visualizar
-                                </a>
-                              </Button>
-                            ) : null}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 text-xs font-medium"
+                              disabled={viewingDocId === (sig.id || sig.token)}
+                              onClick={() => handleViewDocument(sig)}
+                            >
+                              {viewingDocId === (sig.id || sig.token) ? (
+                                <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin text-primary" />
+                              ) : (
+                                <Eye className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+                              )}
+                              Visualizar
+                            </Button>
 
                             {!isSigned && sig.token && (
                               <Button
@@ -1609,18 +1653,11 @@ export default function CaseDetail() {
                                     size="sm"
                                     variant="outline"
                                     className="h-7 text-xs"
-                                    asChild
+                                    onClick={() =>
+                                      handleViewAttachment('signature_documents', sig.document_path)
+                                    }
                                   >
-                                    <a
-                                      href={getStoragePublicUrl(
-                                        'signature_documents',
-                                        sig.document_path,
-                                      )}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                    >
-                                      <Download className="h-3 w-3 mr-1" /> Doc Assinado
-                                    </a>
+                                    <Download className="h-3 w-3 mr-1" /> Doc Assinado
                                   </Button>
                                 )}
                                 {sig.selfie_path && (
@@ -1628,18 +1665,11 @@ export default function CaseDetail() {
                                     size="sm"
                                     variant="outline"
                                     className="h-7 text-xs"
-                                    asChild
+                                    onClick={() =>
+                                      handleViewAttachment('signature_photos', sig.selfie_path)
+                                    }
                                   >
-                                    <a
-                                      href={getStoragePublicUrl(
-                                        'signature_photos',
-                                        sig.selfie_path,
-                                      )}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                    >
-                                      <Download className="h-3 w-3 mr-1" /> Selfie
-                                    </a>
+                                    <Download className="h-3 w-3 mr-1" /> Selfie
                                   </Button>
                                 )}
                                 {sig.signature_path && (
@@ -1647,18 +1677,11 @@ export default function CaseDetail() {
                                     size="sm"
                                     variant="outline"
                                     className="h-7 text-xs"
-                                    asChild
+                                    onClick={() =>
+                                      handleViewAttachment('signature_drawings', sig.signature_path)
+                                    }
                                   >
-                                    <a
-                                      href={getStoragePublicUrl(
-                                        'signature_drawings',
-                                        sig.signature_path,
-                                      )}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                    >
-                                      <Download className="h-3 w-3 mr-1" /> Rubrica
-                                    </a>
+                                    <Download className="h-3 w-3 mr-1" /> Rubrica
                                   </Button>
                                 )}
                               </div>
