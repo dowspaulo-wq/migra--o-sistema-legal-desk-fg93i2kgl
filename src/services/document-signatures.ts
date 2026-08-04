@@ -12,12 +12,18 @@ export async function generateInternalDocument(caseId: string, clientId: string,
 }
 
 export async function fetchSignaturesByCase(caseId: string) {
-  const { data, error } = await supabase
-    .from('document_signatures')
-    .select('*')
-    .eq('case_id', caseId)
-    .order('created_at', { ascending: false })
-  return { data: data || [], error }
+  if (!caseId) return { data: [], error: null }
+  try {
+    const { data, error } = await supabase
+      .from('document_signatures')
+      .select('*')
+      .eq('case_id', caseId)
+      .order('created_at', { ascending: false })
+    return { data: data || [], error }
+  } catch (err: any) {
+    console.error('Error fetching signatures:', err)
+    return { data: [], error: err }
+  }
 }
 
 export async function getSignatureByToken(token: string) {
@@ -124,5 +130,6 @@ export async function confirmSignature(
 }
 
 export function getStoragePublicUrl(bucket: string, path: string): string {
+  if (!bucket || !path) return ''
   return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl
 }
