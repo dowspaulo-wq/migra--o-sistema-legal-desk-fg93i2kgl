@@ -484,113 +484,108 @@ export function CaseDialog({
                     ))}
                   </div>
                 </div>
+              </>
+            )}
 
-                {(!data || data.isNew) && (
-                  <div className="col-span-full border border-blue-200 rounded-lg p-5 bg-blue-50/50 space-y-4 mt-2">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-base font-bold text-blue-800 flex items-center gap-2">
-                        Configuração de Honorários
-                      </Label>
-                      <div className="flex items-center space-x-2">
-                        <Checkbox
-                          id="hasFees"
-                          checked={feeConfig.hasFees}
-                          onCheckedChange={(v) => setFeeConfig({ ...feeConfig, hasFees: !!v })}
-                        />
-                        <Label
-                          htmlFor="hasFees"
-                          className="cursor-pointer font-medium text-blue-900"
-                        >
-                          Gerar Lançamentos Financeiros Agora
-                        </Label>
-                      </div>
+            {(!data || data.isNew) && (
+              <div className="col-span-full border border-blue-200 rounded-lg p-5 bg-blue-50/50 space-y-4 mt-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-base font-bold text-blue-800 flex items-center gap-2">
+                    Configuração de Honorários
+                  </Label>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="hasFees"
+                      checked={feeConfig.hasFees}
+                      onCheckedChange={(v) => setFeeConfig({ ...feeConfig, hasFees: !!v })}
+                    />
+                    <Label htmlFor="hasFees" className="cursor-pointer font-medium text-blue-900">
+                      Gerar Lançamentos Financeiros Agora
+                    </Label>
+                  </div>
+                </div>
+
+                {feeConfig.hasFees && (
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-4 pt-3 border-t border-blue-100">
+                    <div className="space-y-1.5">
+                      <Label className="text-blue-900">Tipo</Label>
+                      <Select
+                        value={feeConfig.feeType}
+                        onValueChange={(v) => setFeeConfig({ ...feeConfig, feeType: v })}
+                      >
+                        <SelectTrigger className="bg-white">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {getFeeTypeOptions(settings.transactionCategories as string[]).map(
+                            (t) => (
+                              <SelectItem key={t} value={t}>
+                                {t}
+                              </SelectItem>
+                            ),
+                          )}
+                        </SelectContent>
+                      </Select>
                     </div>
-
-                    {feeConfig.hasFees && (
-                      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 pt-3 border-t border-blue-100">
-                        <div className="space-y-1.5">
-                          <Label className="text-blue-900">Tipo</Label>
-                          <Select
-                            value={feeConfig.feeType}
-                            onValueChange={(v) => setFeeConfig({ ...feeConfig, feeType: v })}
-                          >
-                            <SelectTrigger className="bg-white">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {getFeeTypeOptions(settings.transactionCategories as string[]).map(
-                                (t) => (
-                                  <SelectItem key={t} value={t}>
-                                    {t}
-                                  </SelectItem>
-                                ),
-                              )}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label className="text-blue-900">Valor Total (R$)</Label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            className="bg-white"
-                            value={feeConfig.feeValue}
-                            onChange={(e) =>
-                              setFeeConfig({ ...feeConfig, feeValue: e.target.value })
-                            }
-                          />
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label className="text-blue-900">Parcelas</Label>
-                          <Input
-                            type="number"
-                            min="1"
-                            className="bg-white"
-                            value={feeConfig.feeInstallments}
-                            onChange={(e) =>
-                              setFeeConfig({ ...feeConfig, feeInstallments: e.target.value })
-                            }
-                          />
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label className="text-blue-900">
-                            1º Vencimento {isSuccessFeeType(feeConfig.feeType) ? '(Opcional)' : ''}
-                          </Label>
-                          <Input
-                            type="date"
-                            className="bg-white"
-                            required={!isSuccessFeeType(feeConfig.feeType)}
-                            value={feeConfig.feeFirstDueDate}
-                            onChange={(e) =>
-                              setFeeConfig({ ...feeConfig, feeFirstDueDate: e.target.value })
-                            }
-                          />
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label className="text-blue-900">Conta / Banco</Label>
-                          <Select
-                            value={feeConfig.bankAccount}
-                            onValueChange={(v) => setFeeConfig({ ...feeConfig, bankAccount: v })}
-                          >
-                            <SelectTrigger className="bg-white">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {(
-                                settings.bankAccounts || ['ASAAS', 'SICOOB', 'CAIXA', 'PESSOAL']
-                              ).map((b: string) => (
-                                <SelectItem key={b} value={b}>
-                                  {b}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                    )}
+                    <div className="space-y-1.5">
+                      <Label className="text-blue-900">Valor Total (R$)</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        className="bg-white"
+                        value={feeConfig.feeValue}
+                        onChange={(e) => setFeeConfig({ ...feeConfig, feeValue: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-blue-900">Parcelas</Label>
+                      <Input
+                        type="number"
+                        min="1"
+                        className="bg-white"
+                        value={feeConfig.feeInstallments}
+                        onChange={(e) =>
+                          setFeeConfig({ ...feeConfig, feeInstallments: e.target.value })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-blue-900">
+                        1º Vencimento {isSuccessFeeType(feeConfig.feeType) ? '(Opcional)' : ''}
+                      </Label>
+                      <Input
+                        type="date"
+                        className="bg-white"
+                        required={!isSuccessFeeType(feeConfig.feeType)}
+                        value={feeConfig.feeFirstDueDate}
+                        onChange={(e) =>
+                          setFeeConfig({ ...feeConfig, feeFirstDueDate: e.target.value })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-blue-900">Conta / Banco</Label>
+                      <Select
+                        value={feeConfig.bankAccount}
+                        onValueChange={(v) => setFeeConfig({ ...feeConfig, bankAccount: v })}
+                      >
+                        <SelectTrigger className="bg-white">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(settings.bankAccounts || ['ASAAS', 'SICOOB', 'CAIXA', 'PESSOAL']).map(
+                            (b: string) => (
+                              <SelectItem key={b} value={b}>
+                                {b}
+                              </SelectItem>
+                            ),
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                 )}
-              </>
+              </div>
             )}
 
             <div className="col-span-full md:col-span-2 space-y-2">

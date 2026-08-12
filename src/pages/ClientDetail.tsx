@@ -992,6 +992,18 @@ export default function ClientDetail() {
                               >
                                 <Edit className="h-3.5 w-3.5" />
                               </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => {
+                                  setFeeToDelete(t)
+                                  setFeeDeleteError(null)
+                                }}
+                                title="Excluir"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
                             </div>
                           </TableCell>
                         </TableRow>

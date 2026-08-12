@@ -1,4 +1,4 @@
-export const NON_FINANCIAL_FEE_TYPES = ['apenas quota littis', 'pro bono']
+export const NON_FINANCIAL_FEE_TYPES = ['Não gera honorários', 'apenas quota littis', 'pro bono']
 
 export const isSuccessFeeType = (feeType: string): boolean => {
   const lower = feeType.toLowerCase()
