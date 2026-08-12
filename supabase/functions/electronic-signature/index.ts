@@ -82,15 +82,9 @@ Deno.serve(async (req: Request) => {
       const sanitizedDocType = sanitizeText(rawDocType)
 
       let title = 'CONTRATO DE PRESTAÇÃO DE SERVIÇOS ADVOCATÍCIOS'
-      if (
-        sanitizedDocType.toLowerCase().includes('procuracao') ||
-        sanitizedDocType.toLowerCase().includes('procuração')
-      ) {
+      if (sanitizedDocType.toLowerCase().includes('procuracao') || sanitizedDocType.toLowerCase().includes('procuração')) {
         title = 'PROCURAÇÃO AD JUDICIA'
-      } else if (
-        sanitizedDocType.toLowerCase().includes('hipossuficiencia') ||
-        sanitizedDocType.toLowerCase().includes('hipossuficiência')
-      ) {
+      } else if (sanitizedDocType.toLowerCase().includes('hipossuficiencia') || sanitizedDocType.toLowerCase().includes('hipossuficiência')) {
         title = 'DECLARAÇÃO DE HIPOSSUFICIÊNCIA'
       } else if (customTitle) {
         title = sanitizeText(customTitle).toUpperCase()
@@ -224,10 +218,10 @@ Deno.serve(async (req: Request) => {
     if (action === 'get_document_html') {
       const { path } = body
       if (!path) {
-        return new Response(JSON.stringify({ error: 'Caminho não fornecido' }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json; charset=utf-8', ...corsHeaders },
-        })
+        return new Response(
+          JSON.stringify({ error: 'Caminho não fornecido' }),
+          { status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8', ...corsHeaders } }
+        )
       }
 
       const { data, error: downloadErr } = await supabase.storage
@@ -237,10 +231,7 @@ Deno.serve(async (req: Request) => {
       if (downloadErr || !data) {
         return new Response(
           JSON.stringify({ error: downloadErr?.message || 'Documento não encontrado' }),
-          {
-            status: 404,
-            headers: { 'Content-Type': 'application/json; charset=utf-8', ...corsHeaders },
-          },
+          { status: 404, headers: { 'Content-Type': 'application/json; charset=utf-8', ...corsHeaders } }
         )
       }
 
@@ -252,15 +243,15 @@ Deno.serve(async (req: Request) => {
       })
     }
 
-    return new Response(JSON.stringify({ error: 'Ação não reconhecida' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json; charset=utf-8', ...corsHeaders },
-    })
+    return new Response(
+      JSON.stringify({ error: 'Ação não reconhecida' }),
+      { status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8', ...corsHeaders } }
+    )
   } catch (err: any) {
     console.error('Error in electronic-signature edge function:', err)
-    return new Response(JSON.stringify({ error: err.message || 'Erro interno no servidor' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json; charset=utf-8', ...corsHeaders },
-    })
+    return new Response(
+      JSON.stringify({ error: err.message || 'Erro interno no servidor' }),
+      { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', ...corsHeaders } }
+    )
   }
 })
