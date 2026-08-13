@@ -20,6 +20,7 @@ import { toast } from '@/hooks/use-toast'
 import { Checkbox } from '@/components/ui/checkbox'
 import useLegalStore from '@/stores/useLegalStore'
 import { isSuccessFeeType } from '@/lib/fee-types'
+import { syncChargeWithAsaas } from '@/services/asaas'
 
 const DEFAULT_CATEGORIES = [
   'Custas Iniciais',
@@ -359,7 +360,42 @@ export function TransactionDialog({
               </div>
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex justify-between items-center w-full">
+            {data?.id && (
+              <Button
+                type="button"
+                variant="outline"
+                className="border-blue-300 text-blue-700 hover:bg-blue-50"
+                onClick={async () => {
+                  try {
+                    toast({ title: 'Sincronizando com Asaas...' })
+                    const { data: syncRes, error } = await syncChargeWithAsaas(data.id)
+                    if (error) {
+                      toast({
+                        title: 'Erro',
+                        description: error.message || 'Falha ao sincronizar com Asaas',
+                        variant: 'destructive',
+                      })
+                    } else {
+                      toast({
+                        title: 'Sucesso',
+                        description:
+                          syncRes?.message || 'Cobrança sincronizada com Asaas com sucesso.',
+                      })
+                      onOpenChange(false)
+                    }
+                  } catch (err: any) {
+                    toast({
+                      title: 'Erro',
+                      description: err.message || 'Falha ao sincronizar com Asaas',
+                      variant: 'destructive',
+                    })
+                  }
+                }}
+              >
+                Sincronizar com Asaas
+              </Button>
+            )}
             <Button type="submit">Salvar</Button>
           </DialogFooter>
         </form>

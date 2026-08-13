@@ -55,7 +55,7 @@ import { TaskDialog } from '@/components/TaskDialog'
 import { AppointmentDialog } from '@/components/AppointmentDialog'
 import { TransactionDialog } from '@/components/TransactionDialog'
 import { formatSafeLocalDate, getDetailedDuration, normalizeStr, stripHtml } from '@/lib/utils'
-import { createZapSignDoc, createDocFromTemplate } from '@/services/zapsign'
+
 import { fetchDocumentTemplates } from '@/services/document-templates'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { syncCaseWithDataJud, isValidCNJNumber } from '@/services/datajud'
@@ -105,7 +105,6 @@ export default function CaseDetail() {
 
   const [editingTransaction, setEditingTransaction] = useState<any>(null)
   const [creatingTransaction, setCreatingTransaction] = useState(false)
-  const [zapsignLoading, setZapsignLoading] = useState<string | null>(null)
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false)
   const [templates, setTemplates] = useState<any[]>([])
   const [templateLoading, setTemplateLoading] = useState(false)
@@ -253,35 +252,6 @@ export default function CaseDetail() {
     toast({ title: 'Sucesso', description: 'Documento gerado e baixado.' })
   }
 
-  const handleZapSign = async (docType: string) => {
-    if (!c?.clientId) {
-      toast({
-        title: 'Atenção',
-        description: 'Este processo não tem cliente vinculado.',
-        variant: 'destructive',
-      })
-      return
-    }
-    setZapsignLoading(docType)
-    const { data, error } = await createZapSignDoc(c.id, c.clientId, docType)
-    setZapsignLoading(null)
-    if (error) {
-      toast({
-        title: 'Erro',
-        description: error.message || 'Falha ao criar documento.',
-        variant: 'destructive',
-      })
-    } else {
-      toast({
-        title: 'Sucesso',
-        description: 'Documento enviado para assinatura via ZapSign.',
-      })
-      if (data?.url) {
-        window.open(data.url, '_blank')
-      }
-    }
-  }
-
   const openTemplateDialog = async () => {
     setTemplateDialogOpen(true)
     setTemplateLoading(true)
@@ -292,22 +262,12 @@ export default function CaseDetail() {
 
   const handleGenerateFromTemplate = async (templateId: string) => {
     setGeneratingFromTemplate(templateId)
-    const { data, error } = await createDocFromTemplate(c.id, templateId)
     setGeneratingFromTemplate(null)
-    if (error) {
-      toast({
-        title: 'Erro',
-        description: error.message || 'Falha ao gerar documento.',
-        variant: 'destructive',
-      })
-    } else {
-      toast({
-        title: 'Sucesso',
-        description: 'Documento gerado e enviado para assinatura.',
-      })
-      setTemplateDialogOpen(false)
-      if (data?.url) window.open(data.url, '_blank')
-    }
+    toast({
+      title: 'Informação',
+      description: 'Geração a partir de template via serviço externo desativada.',
+    })
+    setTemplateDialogOpen(false)
   }
 
   return (
@@ -1328,7 +1288,7 @@ export default function CaseDetail() {
                 <FileUp className="h-5 w-5" /> Gerar Documento de Template
               </CardTitle>
               <CardDescription>
-                Selecione um template .docx para preenchimento automático e envio para assinatura.
+                Selecione um template .docx para preenchimento automático.
               </CardDescription>
             </CardHeader>
             <CardContent className="max-w-md">

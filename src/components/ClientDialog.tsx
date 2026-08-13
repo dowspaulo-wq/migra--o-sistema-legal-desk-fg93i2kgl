@@ -214,11 +214,16 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
       .filter(Boolean)
       .join(', ')
 
+    let formattedPhone = fd.phone?.replace(/\D/g, '') || ''
+    if (formattedPhone && !formattedPhone.startsWith('55') && !/^0+$/.test(formattedPhone)) {
+      formattedPhone = `55${formattedPhone}`
+    }
+
     const payload = {
       ...fd,
       marital_status: fd.marital_status || null,
       address: fullAddress,
-      phone: fd.phone?.replace(/\D/g, ''),
+      phone: formattedPhone,
     }
     const { isNew, ...finalPayload } = payload
 
@@ -382,7 +387,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
 
             <div className="space-y-2">
               <Label>
-                Celular <span className="text-red-500">*</span>
+                Celular (com DDI 55) <span className="text-red-500">*</span>
               </Label>
               <Input
                 value={fd.phone || ''}
@@ -391,7 +396,16 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
                   setFd({ ...fd, phone: numericValue })
                   setFormErrors((prev) => ({ ...prev, phone: '' }))
                 }}
+                onBlur={() => {
+                  if (fd.phone) {
+                    let digits = fd.phone.replace(/\D/g, '')
+                    if (digits && !digits.startsWith('55') && !/^0+$/.test(digits)) {
+                      setFd((prev: any) => ({ ...prev, phone: `55${digits}` }))
+                    }
+                  }
+                }}
                 inputMode="numeric"
+                placeholder="5531999999999"
               />
               {formErrors.phone && <p className="text-xs text-red-500">{formErrors.phone}</p>}
             </div>

@@ -828,27 +828,29 @@ export default function ClientDetail() {
                         >
                           {t.status}
                         </Badge>
-                        {t.asaas_id ? (
-                          <Badge
-                            variant="outline"
-                            className="text-[10px] bg-blue-50 text-blue-700 border-blue-200"
-                          >
-                            ASAAS
-                          </Badge>
-                        ) : (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-blue-500 hover:text-blue-700 hover:bg-blue-50"
-                            onClick={() => handleFeeAsaasSync(t.id)}
-                            disabled={syncingFeeId === t.id}
-                            title="Enviar para o ASSAS"
-                          >
-                            <Send
-                              className={`h-4 w-4 ${syncingFeeId === t.id ? 'animate-pulse' : ''}`}
-                            />
-                          </Button>
-                        )}
+                        <Button
+                          variant={t.asaas_id ? 'outline' : 'ghost'}
+                          size={t.asaas_id ? 'sm' : 'icon'}
+                          className={
+                            t.asaas_id
+                              ? 'text-xs h-7 bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                              : 'h-8 w-8 text-blue-500 hover:text-blue-700 hover:bg-blue-50'
+                          }
+                          onClick={() => handleFeeAsaasSync(t.id)}
+                          disabled={syncingFeeId === t.id}
+                          title={
+                            t.asaas_id ? 'Sincronizar/Atualizar no Asaas' : 'Enviar para o Asaas'
+                          }
+                        >
+                          <Send
+                            className={`h-3.5 w-3.5 ${t.asaas_id ? 'mr-1' : ''} ${syncingFeeId === t.id ? 'animate-pulse' : ''}`}
+                          />
+                          {t.asaas_id
+                            ? syncingFeeId === t.id
+                              ? 'Sincronizando...'
+                              : 'ASAAS'
+                            : null}
+                        </Button>{' '}
                         {!isTransactionLinked(t.id, t.processId) && (
                           <Button
                             variant="ghost"

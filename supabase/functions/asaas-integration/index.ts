@@ -27,10 +27,16 @@ const ASAAS_PAYMENT_METHOD_MAP: Record<string, string> = {
 
 function formatPhone(phone: string): string | undefined {
   if (!phone) return undefined
-  const digits = phone.replace(/\D/g, '')
+  let digits = phone.replace(/\D/g, '')
   if (digits.length === 0) return undefined
-  if (digits.startsWith('55')) return digits
-  if (digits.length === 10 || digits.length === 11) return `55${digits}`
+  // Se for apenas zeros ou numero invalido menor que 8 digitos
+  if (/^0+$/.test(digits) || digits.length < 8) return undefined
+  // Se ja comeca com 55 e tem pelo menos 12 digitos (55 + DDD + numero)
+  if (digits.startsWith('55') && digits.length >= 12) return digits
+  // Se for DDD + numero (10 ou 11 digitos) ou qualquer numero sem 55, adiciona 55
+  if (!digits.startsWith('55')) {
+    return `55${digits}`
+  }
   return digits
 }
 
@@ -173,12 +179,6 @@ Deno.serve(async (req: Request) => {
       }
 
       const txAsaasId = (transaction as any).asaas_id
-      if (txAsaasId) {
-        return new Response(
-          JSON.stringify({ success: true, message: 'Cobrança já sincronizada com ASAAS.' }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-        )
-      }
 
       if (!transaction.clientId) {
         throw new Error('Transação não possui cliente vinculado.')
@@ -227,7 +227,7 @@ Deno.serve(async (req: Request) => {
         customer: clientAsaasId,
         billingType,
         value: Number(transaction.amount),
-        dueDate: transaction.date,
+        dueDate: transaction.date || new Date().toISOString().split('T')[0],
         description: transaction.description || 'Honorários advocatícios',
         nfSettings: {
           generationType: 'AUTO',
@@ -236,6 +236,62 @@ Deno.serve(async (req: Request) => {
         },
       }
 
+      if (txAsaasId) {
+        // Cobrança já existe no Asaas -> Atualizar / Reativar
+        // Se no Asaas ela estivesse deletada/cancelada, tentar reativar ou atualizar
+        const updateRes = await fetch(`${ASAAS_BASE_URL}/payments/${txAsaasId}`, {
+          method: 'PUT',
+          headers: { access_token: apiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            billingType: paymentData.billingType,
+            value: paymentData.value,
+            dueDate: paymentData.dueDate,
+            description: paymentData.description,
+          }),
+        })
+
+        if (updateRes.ok) {
+          const updated = await updateRes.json()
+          return new Response(
+            JSON.stringify({
+              success: true,
+              message: 'Cobrança atualizada no ASAAS com sucesso.',
+              asaas_id: updated.id,
+            }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+          )
+        }
+
+        // Se o PUT falhou (ex: cobrança foi excluída no Asaas), recria no Asaas e atualiza o asaas_id
+        const recreateRes = await fetch(`${ASAAS_BASE_URL}/payments`, {
+          method: 'POST',
+          headers: { access_token: apiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify(paymentData),
+        })
+
+        if (!recreateRes.ok) {
+          const err = await recreateRes.json().catch(() => ({}))
+          const msg = (err as any)?.errors?.[0]?.description || recreateRes.statusText
+          throw new Error(`Erro ao reativar/sincronizar cobrança no ASAAS: ${msg}`)
+        }
+
+        const recreated = await recreateRes.json()
+        await supabase
+          .from('transactions')
+          .update({ asaas_id: recreated.id })
+          .eq('id', transactionId)
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            message: 'Cobrança reativada e sincronizada no ASAAS com sucesso.',
+            asaas_id: recreated.id,
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        )
+      }
+
+      // Cobrança ainda não tem asaas_id -> criar nova no Asaas
       const res = await fetch(`${ASAAS_BASE_URL}/payments`, {
         method: 'POST',
         headers: { access_token: apiKey, 'Content-Type': 'application/json' },

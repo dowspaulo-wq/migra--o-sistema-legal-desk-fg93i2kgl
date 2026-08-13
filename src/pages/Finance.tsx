@@ -769,13 +769,15 @@ export default function Finance() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-8 w-8 text-blue-500 hover:text-blue-700 hover:bg-blue-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                              className={`h-8 w-8 ${t.asaas_id ? 'text-blue-600 font-medium' : 'text-blue-500'} hover:text-blue-700 hover:bg-blue-50 opacity-0 group-hover:opacity-100 transition-opacity`}
                               onClick={(e) => {
                                 e.stopPropagation()
                                 handleAsaasChargeSync(t.id)
                               }}
                               disabled={syncingAsaasId === t.id}
-                              title="Enviar para ASAAS"
+                              title={
+                                t.asaas_id ? 'Sincronizar/Atualizar com ASAAS' : 'Enviar para ASAAS'
+                              }
                             >
                               <Send
                                 className={`h-4 w-4 ${syncingAsaasId === t.id ? 'animate-pulse' : ''}`}

@@ -67,18 +67,18 @@ async function closeSession(sessionId: string) {
 async function closeAllOpenSessions(profileId: string): Promise<void> {
   const { data } = await supabase
     .from('user_sessions')
-    .select('id')
+    .select('id, last_activity_at, login_at')
     .eq('profile_id', profileId)
     .is('logout_at', null)
   if (data && data.length > 0) {
-    await supabase
-      .from('user_sessions')
-      .update({ logout_at: nowISO(), last_activity_at: nowISO() })
-      .in(
-        'id',
-        data.map((s) => s.id),
-      )
-      .is('logout_at', null)
+    for (const session of data) {
+      const computedLogout = session.last_activity_at || session.login_at || nowISO()
+      await supabase
+        .from('user_sessions')
+        .update({ logout_at: computedLogout })
+        .eq('id', session.id)
+        .is('logout_at', null)
+    }
   }
 }
 
@@ -117,12 +117,38 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }
 
   const ensureActiveSession = async (profileId: string): Promise<string | null> => {
+    // Check if there are any old stale open sessions (older than 15 min without activity or from another day)
+    const { data: staleSessions } = await supabase
+      .from('user_sessions')
+      .select('id, last_activity_at, login_at, date')
+      .eq('profile_id', profileId)
+      .is('logout_at', null)
+
+    const todayStr = getLocalDateString()
+    const nowMs = Date.now()
+
+    if (staleSessions && staleSessions.length > 0) {
+      for (const s of staleSessions) {
+        const lastActiveMs = s.last_activity_at ? new Date(s.last_activity_at).getTime() : 0
+        const isStale =
+          s.date !== todayStr || (lastActiveMs > 0 && nowMs - lastActiveMs > 15 * 60 * 1000)
+
+        if (isStale) {
+          const computedLogout = s.last_activity_at || s.login_at || nowISO()
+          await supabase
+            .from('user_sessions')
+            .update({ logout_at: computedLogout })
+            .eq('id', s.id)
+            .is('logout_at', null)
+
+          if (currentSessionIdRef.current === s.id) {
+            currentSessionIdRef.current = null
+          }
+        }
+      }
+    }
+
     if (currentSessionIdRef.current) {
-      // Heartbeat: refresh last_activity_at on the current session, but only
-      // while it is still open. If it was closed in the meantime (e.g. by a
-      // stale-session cleanup migration, a sign-out on another tab, or the
-      // close-on-reload path), the update matches zero rows and we fall
-      // through to startNewSession so the access is recorded as a new row.
       const { count } = await supabase
         .from('user_sessions')
         .update({ last_activity_at: nowISO() }, { count: 'exact' })
@@ -131,13 +157,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (count && count > 0) {
         return currentSessionIdRef.current
       }
-      // Session was closed out from under us — start a fresh one.
       currentSessionIdRef.current = null
       return startNewSession(profileId)
     }
 
-    // App reloaded with a valid auth session: resume the most recent open
-    // session for this profile if one still exists, otherwise create a new one.
     const existing = await findOpenSession(profileId)
     if (existing) {
       currentSessionIdRef.current = existing
@@ -149,10 +172,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return existing
     }
 
-    // The previous session was closed (logout_at set). The heartbeat must NOT
-    // silently revive it by updating a closed row — that hides the access from
-    // the Acessos page. Start a fresh session row instead so each visit is
-    // recorded as its own login.
     return startNewSession(profileId)
   }
 
@@ -194,8 +213,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
 
     ping()
-    const interval = setInterval(ping, 3 * 60 * 1000)
-    return () => clearInterval(interval)
+    const interval = setInterval(ping, 2 * 60 * 1000)
+
+    const handleBeforeUnload = () => {
+      if (currentSessionIdRef.current) {
+        const sid = currentSessionIdRef.current
+        const timeStr = nowISO()
+        // Try close via Beacon or sync request if possible
+        const body = JSON.stringify({ logout_at: timeStr })
+        const blob = new Blob([body], { type: 'application/json' })
+        navigator.sendBeacon?.(`/rest/v1/user_sessions?id=eq.${sid}`, blob)
+      }
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+    }
   }, [user])
 
   const signIn = async (email: string, password: string) => {
