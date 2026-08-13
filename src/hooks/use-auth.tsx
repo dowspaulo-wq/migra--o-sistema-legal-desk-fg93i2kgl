@@ -118,13 +118,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const ensureActiveSession = async (profileId: string): Promise<string | null> => {
     if (currentSessionIdRef.current) {
-      // Heartbeat: just refresh last_activity_at on the current session.
-      await supabase
+      // Heartbeat: refresh last_activity_at on the current session, but only
+      // while it is still open. If it was closed in the meantime (e.g. by a
+      // stale-session cleanup migration, a sign-out on another tab, or the
+      // close-on-reload path), the update matches zero rows and we fall
+      // through to startNewSession so the access is recorded as a new row.
+      const { count } = await supabase
         .from('user_sessions')
-        .update({ last_activity_at: nowISO() })
+        .update({ last_activity_at: nowISO() }, { count: 'exact' })
         .eq('id', currentSessionIdRef.current)
         .is('logout_at', null)
-      return currentSessionIdRef.current
+      if (count && count > 0) {
+        return currentSessionIdRef.current
+      }
+      // Session was closed out from under us — start a fresh one.
+      currentSessionIdRef.current = null
+      return startNewSession(profileId)
     }
 
     // App reloaded with a valid auth session: resume the most recent open
@@ -140,6 +149,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return existing
     }
 
+    // The previous session was closed (logout_at set). The heartbeat must NOT
+    // silently revive it by updating a closed row — that hides the access from
+    // the Acessos page. Start a fresh session row instead so each visit is
+    // recorded as its own login.
     return startNewSession(profileId)
   }
 
