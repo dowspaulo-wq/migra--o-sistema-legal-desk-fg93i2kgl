@@ -56,15 +56,30 @@ async function findOpenSession(profileId: string): Promise<string | null> {
   return data?.[0]?.id ?? null
 }
 
-async function updateSessionActivity(sessionId: string) {
-  await supabase.from('user_sessions').update({ last_activity_at: nowISO() }).eq('id', sessionId)
-}
-
 async function closeSession(sessionId: string) {
   await supabase
     .from('user_sessions')
     .update({ logout_at: nowISO(), last_activity_at: nowISO() })
     .eq('id', sessionId)
+    .is('logout_at', null)
+}
+
+async function closeAllOpenSessions(profileId: string): Promise<void> {
+  const { data } = await supabase
+    .from('user_sessions')
+    .select('id')
+    .eq('profile_id', profileId)
+    .is('logout_at', null)
+  if (data && data.length > 0) {
+    await supabase
+      .from('user_sessions')
+      .update({ logout_at: nowISO(), last_activity_at: nowISO() })
+      .in(
+        'id',
+        data.map((s) => s.id),
+      )
+      .is('logout_at', null)
+  }
 }
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
@@ -74,24 +89,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const currentSessionIdRef = useRef<string | null>(null)
   const sessionPromiseRef = useRef<Promise<string | null> | null>(null)
 
-  const ensureActiveSession = async (profileId: string): Promise<string | null> => {
-    if (currentSessionIdRef.current) {
-      await updateSessionActivity(currentSessionIdRef.current)
-      return currentSessionIdRef.current
-    }
-
+  const startNewSession = async (profileId: string): Promise<string | null> => {
     if (sessionPromiseRef.current) {
       return sessionPromiseRef.current
     }
 
     sessionPromiseRef.current = (async () => {
       try {
-        const existing = await findOpenSession(profileId)
-        if (existing) {
-          currentSessionIdRef.current = existing
-          await updateSessionActivity(existing)
-          return existing
-        }
+        // Always close any previously open session for this profile so each
+        // login produces its own distinct row in user_sessions (Acessos).
+        await closeAllOpenSessions(profileId)
 
         const newId = await createSession(profileId)
         if (newId) {
@@ -99,7 +106,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
         return newId
       } catch (err) {
-        console.error('Error ensuring active session:', err)
+        console.error('Error starting new session:', err)
         return null
       } finally {
         sessionPromiseRef.current = null
@@ -107,6 +114,33 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     })()
 
     return sessionPromiseRef.current
+  }
+
+  const ensureActiveSession = async (profileId: string): Promise<string | null> => {
+    if (currentSessionIdRef.current) {
+      // Heartbeat: just refresh last_activity_at on the current session.
+      await supabase
+        .from('user_sessions')
+        .update({ last_activity_at: nowISO() })
+        .eq('id', currentSessionIdRef.current)
+        .is('logout_at', null)
+      return currentSessionIdRef.current
+    }
+
+    // App reloaded with a valid auth session: resume the most recent open
+    // session for this profile if one still exists, otherwise create a new one.
+    const existing = await findOpenSession(profileId)
+    if (existing) {
+      currentSessionIdRef.current = existing
+      await supabase
+        .from('user_sessions')
+        .update({ last_activity_at: nowISO() })
+        .eq('id', existing)
+        .is('logout_at', null)
+      return existing
+    }
+
+    return startNewSession(profileId)
   }
 
   useEffect(() => {
@@ -154,7 +188,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const signIn = async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (!error && data.user) {
-      await ensureActiveSession(data.user.id)
+      // A fresh login always starts a brand-new session row so it shows up in
+      // Acessos, even if a previous session was left open.
+      currentSessionIdRef.current = null
+      sessionPromiseRef.current = null
+      await startNewSession(data.user.id)
       supabase
         .from('logs')
         .insert({
@@ -182,10 +220,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       if (sid) {
         await closeSession(sid)
-      } else {
-        const active = await findOpenSession(userId)
-        if (active) await closeSession(active)
       }
+      // Always make sure no open session lingers for this user.
+      await closeAllOpenSessions(userId)
 
       await supabase.from('logs').insert({
         action: 'LOGOUT',

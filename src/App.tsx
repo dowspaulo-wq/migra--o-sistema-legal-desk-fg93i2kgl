@@ -21,7 +21,6 @@ import { SystemManagement } from './components/SystemManagement'
 import NotFound from './pages/NotFound'
 import Login from './pages/Login'
 import GoogleCallback from './pages/GoogleCallback'
-import SignaturePage from './pages/SignaturePage'
 import UpdatePassword from './pages/UpdatePassword'
 import { LegalStoreProvider } from './stores/useLegalStore'
 import { AuthProvider } from './hooks/use-auth'
@@ -46,7 +45,6 @@ const App = () => (
           <Toaster />
           <Sonner />
           <Routes>
-            <Route path="/assinar/:token" element={<SignaturePage />} />
             <Route path="/login" element={<Login />} />
             <Route path="/google-callback" element={<GoogleCallback />} />
             <Route path="/update-password" element={<UpdatePassword />} />

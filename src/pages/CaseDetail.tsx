@@ -42,15 +42,9 @@ import {
   Trash,
   Check,
   Briefcase,
-  FileSignature,
   FileUp,
   RefreshCw,
   Lock,
-  Link2,
-  AlertTriangle,
-  Copy,
-  Eye,
-  ExternalLink,
 } from 'lucide-react'
 import { SectionErrorBoundary } from '@/components/SectionErrorBoundary'
 import useLegalStore from '@/stores/useLegalStore'
@@ -62,12 +56,6 @@ import { AppointmentDialog } from '@/components/AppointmentDialog'
 import { TransactionDialog } from '@/components/TransactionDialog'
 import { formatSafeLocalDate, getDetailedDuration, normalizeStr, stripHtml } from '@/lib/utils'
 import { createZapSignDoc, createDocFromTemplate } from '@/services/zapsign'
-import {
-  generateInternalDocument,
-  fetchSignaturesByCase,
-  getStoragePublicUrl,
-  viewOrDownloadDocument,
-} from '@/services/document-signatures'
 import { fetchDocumentTemplates } from '@/services/document-templates'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { syncCaseWithDataJud, isValidCNJNumber } from '@/services/datajud'
@@ -123,92 +111,6 @@ export default function CaseDetail() {
   const [templateLoading, setTemplateLoading] = useState(false)
   const [generatingFromTemplate, setGeneratingFromTemplate] = useState<string | null>(null)
   const [datajudSyncing, setDatajudSyncing] = useState(false)
-  const [internalSigLoading, setInternalSigLoading] = useState<string | null>(null)
-  const [copiedToken, setCopiedToken] = useState<string | null>(null)
-
-  const handleCopySignatureLink = (token: string) => {
-    if (!token) return
-    const url = `${window.location.origin}/assinar/${token}`
-    navigator.clipboard.writeText(url)
-    setCopiedToken(token)
-    toast({
-      title: 'Sucesso',
-      description: 'Link de assinatura copiado para a área de transferência!',
-    })
-    setTimeout(() => {
-      setCopiedToken((prev) => (prev === token ? null : prev))
-    }, 2000)
-  }
-  const [internalSigResult, setInternalSigResult] = useState<{
-    url: string
-    docType: string
-  } | null>(null)
-  const [caseSignatures, setCaseSignatures] = useState<any[]>([])
-  const [viewingDocId, setViewingDocId] = useState<string | null>(null)
-
-  const handleViewDocument = async (sig: any) => {
-    if (!sig) return
-    const docId = sig.id || sig.token
-    setViewingDocId(docId)
-
-    try {
-      if (sig.document_path) {
-        const result = await viewOrDownloadDocument(sig.document_path, 'signature_documents')
-        if (!result.success) {
-          toast({
-            title: 'Atenção',
-            description: result.message || 'Documento não encontrado ou ainda não processado.',
-            variant: 'destructive',
-          })
-        }
-      } else if (sig.token) {
-        const url = `${window.location.origin}/assinar/${sig.token}`
-        window.open(url, '_blank', 'noopener,noreferrer')
-      } else {
-        toast({
-          title: 'Atenção',
-          description: 'Documento não encontrado ou ainda não processado.',
-          variant: 'destructive',
-        })
-      }
-    } catch (err: any) {
-      console.error('Error viewing document:', err)
-      toast({
-        title: 'Atenção',
-        description: 'Documento não encontrado ou ainda não processado.',
-        variant: 'destructive',
-      })
-    } finally {
-      setViewingDocId(null)
-    }
-  }
-
-  const handleViewAttachment = async (bucket: string, path: string | null) => {
-    if (!path) {
-      toast({
-        title: 'Atenção',
-        description: 'Arquivo não encontrado ou ainda não processado.',
-        variant: 'destructive',
-      })
-      return
-    }
-    try {
-      const result = await viewOrDownloadDocument(path, bucket)
-      if (!result.success) {
-        toast({
-          title: 'Atenção',
-          description: result.message || 'Documento não encontrado ou ainda não processado.',
-          variant: 'destructive',
-        })
-      }
-    } catch (e) {
-      toast({
-        title: 'Atenção',
-        description: 'Documento não encontrado ou ainda não processado.',
-        variant: 'destructive',
-      })
-    }
-  }
 
   const c = state.cases.find((x) => x.id === id)
   const client = state.clients.find((cl) => cl.id === c?.clientId)
@@ -260,13 +162,6 @@ export default function CaseDetail() {
     .filter((t) => t.type === 'expense')
     .reduce((acc, t) => acc + (Number(t.amount) || 0), 0)
 
-  useEffect(() => {
-    if (!id) return
-    fetchSignaturesByCase(id).then(({ data }) => {
-      if (data) setCaseSignatures(data)
-    })
-  }, [id])
-
   const handleDataJudSync = async () => {
     if (!c?.number || !isValidCNJNumber(c.number)) {
       toast({
@@ -305,36 +200,6 @@ export default function CaseDetail() {
         title: 'Atenção',
         description: 'Processo não encontrado no DataJud/CNJ.',
         variant: 'destructive',
-      })
-    }
-  }
-
-  const handleInternalSignature = async (docType: string) => {
-    if (!c?.clientId) {
-      toast({
-        title: 'Atenção',
-        description: 'Este processo não tem cliente vinculado.',
-        variant: 'destructive',
-      })
-      return
-    }
-    setInternalSigLoading(docType)
-    const { data, error } = await generateInternalDocument(c.id, c.clientId, docType)
-    setInternalSigLoading(null)
-    if (error) {
-      toast({
-        title: 'Erro',
-        description: error.message,
-        variant: 'destructive',
-      })
-    } else if (data) {
-      setInternalSigResult({ url: data.signUrl, docType })
-      fetchSignaturesByCase(c.id).then(({ data: sigs }) => {
-        if (sigs) setCaseSignatures(sigs)
-      })
-      toast({
-        title: 'Sucesso',
-        description: 'Documento gerado para assinatura eletrônica.',
       })
     }
   }
@@ -743,14 +608,13 @@ export default function CaseDetail() {
       </div>
 
       <Tabs defaultValue="info" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-7 h-auto max-w-4xl gap-1 p-1">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-6 h-auto max-w-4xl gap-1 p-1">
           <TabsTrigger value="info">Informações</TabsTrigger>
           <TabsTrigger value="subprocessos">Subprocessos</TabsTrigger>
           <TabsTrigger value="tasks">Tarefas</TabsTrigger>
           <TabsTrigger value="agenda">Agenda</TabsTrigger>
           <TabsTrigger value="despesas">Financeiro</TabsTrigger>
           <TabsTrigger value="docs">Documentos</TabsTrigger>
-          <TabsTrigger value="assinaturas">Assinaturas</TabsTrigger>
         </TabsList>
 
         <TabsContent value="info" className="mt-4 space-y-4">
@@ -1470,371 +1334,6 @@ export default function CaseDetail() {
             <CardContent className="max-w-md">
               <Button onClick={openTemplateDialog} className="w-full">
                 <FileUp className="mr-2 h-4 w-4" /> Gerar Documento
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="assinaturas" className="mt-4">
-          <SectionErrorBoundary title="Erro ao carregar Lista de Assinaturas">
-            <Card className="shadow-sm mb-4">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <FileSignature className="h-5 w-5" /> Documentos para Assinatura
-                </CardTitle>
-                <CardDescription>
-                  Documentos gerados para assinatura eletrônica, status, visualização e trilha de
-                  auditoria.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {!caseSignatures || caseSignatures.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-6 bg-muted/20 border border-dashed rounded">
-                    Nenhum documento gerado para assinatura.
-                  </p>
-                ) : (
-                  <div className="space-y-3">
-                    {caseSignatures.map((sig, idx) => {
-                      if (!sig || typeof sig !== 'object') return null
-                      const isSigned = sig.status === 'signed'
-                      const createdDateStr =
-                        sig.created_at && !isNaN(new Date(sig.created_at).getTime())
-                          ? new Date(sig.created_at).toLocaleString('pt-BR')
-                          : null
-                      const signedDateStr =
-                        sig.signed_at && !isNaN(new Date(sig.signed_at).getTime())
-                          ? new Date(sig.signed_at).toLocaleString('pt-BR')
-                          : sig.signed_at || null
-
-                      const docTypeName =
-                        sig.doc_type === 'procuracao'
-                          ? 'Procuração'
-                          : sig.doc_type === 'hipossuficiencia'
-                            ? 'Declaração de Hipossuficiência'
-                            : sig.doc_type === 'contrato'
-                              ? 'Contrato de Prestação de Serviços'
-                              : sig.doc_type || 'Documento'
-
-                      return (
-                        <div
-                          key={sig.id || sig.token || idx}
-                          className="border rounded-lg p-4 space-y-3 bg-card hover:border-primary/30 transition-colors"
-                        >
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                            <div>
-                              <p className="font-semibold text-sm flex items-center gap-2">
-                                <FileSignature className="h-4 w-4 text-primary shrink-0" />
-                                {docTypeName}
-                              </p>
-                              {createdDateStr && (
-                                <p className="text-xs text-muted-foreground mt-0.5">
-                                  Gerado em: {createdDateStr}
-                                </p>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Badge
-                                variant={isSigned ? 'default' : 'outline'}
-                                className={
-                                  isSigned
-                                    ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                                    : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 font-medium'
-                                }
-                              >
-                                {isSigned ? 'Assinado' : 'Pendente'}
-                              </Badge>
-                            </div>
-                          </div>
-
-                          {/* Action Buttons Toolbar */}
-                          <div className="flex flex-wrap items-center gap-2 pt-2 border-t">
-                            {sig.token && (
-                              <Button
-                                size="sm"
-                                variant={isSigned ? 'ghost' : 'outline'}
-                                className="h-8 text-xs font-medium"
-                                onClick={() => handleCopySignatureLink(sig.token)}
-                              >
-                                {copiedToken === sig.token ? (
-                                  <>
-                                    <Check className="h-3.5 w-3.5 mr-1.5 text-emerald-600" />{' '}
-                                    Copiado!
-                                  </>
-                                ) : (
-                                  <>
-                                    <Copy className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />{' '}
-                                    Copiar Link
-                                  </>
-                                )}
-                              </Button>
-                            )}
-
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8 text-xs font-medium"
-                              disabled={viewingDocId === (sig.id || sig.token)}
-                              onClick={() => handleViewDocument(sig)}
-                            >
-                              {viewingDocId === (sig.id || sig.token) ? (
-                                <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin text-primary" />
-                              ) : (
-                                <Eye className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
-                              )}
-                              Visualizar
-                            </Button>
-
-                            {!isSigned && sig.token && (
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                className="h-8 text-xs font-medium"
-                                asChild
-                              >
-                                <a
-                                  href={`/assinar/${sig.token}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  <ExternalLink className="h-3.5 w-3.5 mr-1.5" /> Abrir Link
-                                </a>
-                              </Button>
-                            )}
-                          </div>
-
-                          {/* Audit Trail for Signed Documents */}
-                          {isSigned && (
-                            <div className="space-y-2 border-t pt-3 bg-muted/30 -mx-4 -mb-4 p-4 rounded-b-lg text-xs">
-                              <p className="font-semibold text-xs text-muted-foreground flex items-center gap-1.5">
-                                <Check className="h-3.5 w-3.5 text-emerald-600" /> Auditoria da
-                                Assinatura
-                              </p>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                                <div>
-                                  <span className="text-muted-foreground">Assinado em:</span>{' '}
-                                  <span className="font-medium">{signedDateStr || '—'}</span>
-                                </div>
-                                <div>
-                                  <span className="text-muted-foreground">IP:</span>{' '}
-                                  <span className="font-medium">{sig.ip_address || '—'}</span>
-                                </div>
-                                {(() => {
-                                  let latStr: string | null = null
-                                  let lngStr: string | null = null
-                                  if (sig.geolocation && typeof sig.geolocation === 'object') {
-                                    const lat = (sig.geolocation as any).latitude
-                                    const lng = (sig.geolocation as any).longitude
-                                    if (typeof lat === 'number') latStr = lat.toFixed(6)
-                                    else if (typeof lat === 'string' && !isNaN(parseFloat(lat)))
-                                      latStr = parseFloat(lat).toFixed(6)
-
-                                    if (typeof lng === 'number') lngStr = lng.toFixed(6)
-                                    else if (typeof lng === 'string' && !isNaN(parseFloat(lng)))
-                                      lngStr = parseFloat(lng).toFixed(6)
-                                  }
-                                  if (latStr && lngStr) {
-                                    return (
-                                      <div>
-                                        <span className="text-muted-foreground">
-                                          Geolocalização:
-                                        </span>{' '}
-                                        <span className="font-medium">
-                                          {latStr}, {lngStr}
-                                        </span>
-                                      </div>
-                                    )
-                                  }
-                                  return null
-                                })()}
-                              </div>
-                              <div className="flex flex-wrap gap-2 pt-2">
-                                {sig.document_path && (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-7 text-xs"
-                                    onClick={() =>
-                                      handleViewAttachment('signature_documents', sig.document_path)
-                                    }
-                                  >
-                                    <Download className="h-3 w-3 mr-1" /> Doc Assinado
-                                  </Button>
-                                )}
-                                {sig.selfie_path && (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-7 text-xs"
-                                    onClick={() =>
-                                      handleViewAttachment('signature_photos', sig.selfie_path)
-                                    }
-                                  >
-                                    <Download className="h-3 w-3 mr-1" /> Selfie
-                                  </Button>
-                                )}
-                                {sig.signature_path && (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-7 text-xs"
-                                    onClick={() =>
-                                      handleViewAttachment('signature_drawings', sig.signature_path)
-                                    }
-                                  >
-                                    <Download className="h-3 w-3 mr-1" /> Rubrica
-                                  </Button>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </SectionErrorBoundary>
-
-          <Card className="shadow-sm border-primary/20 bg-primary/5">
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2 text-primary">
-                <FileSignature className="h-5 w-5" /> Assinatura Eletrônica Interna
-              </CardTitle>
-              <CardDescription>
-                Gere documentos para assinatura eletrônica interna com captura de selfie,
-                geolocalização e trilha de auditoria.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl">
-              <Button
-                variant="outline"
-                className="h-auto py-6 flex flex-col gap-2"
-                disabled={internalSigLoading !== null}
-                onClick={() => handleInternalSignature('procuracao')}
-              >
-                <FileSignature className="h-6 w-6 text-primary" />
-                <span className="font-medium">Procuração</span>
-                <span className="text-xs text-muted-foreground">Ad Judicia</span>
-                {internalSigLoading === 'procuracao' && (
-                  <span className="text-xs text-primary animate-pulse">Gerando...</span>
-                )}
-              </Button>
-              <Button
-                variant="outline"
-                className="h-auto py-6 flex flex-col gap-2"
-                disabled={internalSigLoading !== null}
-                onClick={() => handleInternalSignature('hipossuficiencia')}
-              >
-                <FileSignature className="h-6 w-6 text-primary" />
-                <span className="font-medium">Hipossuficiência</span>
-                <span className="text-xs text-muted-foreground">Declaração</span>
-                {internalSigLoading === 'hipossuficiencia' && (
-                  <span className="text-xs text-primary animate-pulse">Gerando...</span>
-                )}
-              </Button>
-              <Button
-                variant="outline"
-                className="h-auto py-6 flex flex-col gap-2"
-                disabled={internalSigLoading !== null}
-                onClick={() => handleInternalSignature('contrato')}
-              >
-                <FileSignature className="h-6 w-6 text-primary" />
-                <span className="font-medium">Contrato</span>
-                <span className="text-xs text-muted-foreground">Prestação de Serviços</span>
-                {internalSigLoading === 'contrato' && (
-                  <span className="text-xs text-primary animate-pulse">Gerando...</span>
-                )}
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Dialog
-            open={!!internalSigResult}
-            onOpenChange={(v: boolean) => !v && setInternalSigResult(null)}
-          >
-            <DialogContent className="max-w-md">
-              <DialogHeader>
-                <DialogTitle>Documento Gerado para Assinatura</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  Compartilhe o link abaixo com o signatário para realizar a assinatura eletrônica
-                  com captura de selfie e geolocalização:
-                </p>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 text-xs bg-muted px-3 py-2 rounded truncate">
-                    {internalSigResult?.url}
-                  </code>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      navigator.clipboard.writeText(internalSigResult?.url || '')
-                      toast({ title: 'Link copiado!' })
-                    }}
-                  >
-                    Copiar
-                  </Button>
-                </div>
-                <Button
-                  className="w-full"
-                  onClick={() => window.open(internalSigResult?.url, '_blank')}
-                >
-                  Abrir Link de Assinatura
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
-
-          <Card className="shadow-sm border-primary/20 bg-primary/5 mt-4">
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2 text-primary">
-                <FileSignature className="h-5 w-5" /> Assinaturas Digitais (ZapSign)
-              </CardTitle>
-              <CardDescription>
-                Gere documentos legais e envie para assinatura digital do cliente.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl">
-              <Button
-                variant="outline"
-                className="h-auto py-6 flex flex-col gap-2"
-                disabled={zapsignLoading !== null}
-                onClick={() => handleZapSign('procuracao')}
-              >
-                <FileSignature className="h-6 w-6 text-primary" />
-                <span className="font-medium">Procuração</span>
-                <span className="text-xs text-muted-foreground">Procuração Ad Judicia</span>
-                {zapsignLoading === 'procuracao' && (
-                  <span className="text-xs text-primary animate-pulse">Gerando...</span>
-                )}
-              </Button>
-              <Button
-                variant="outline"
-                className="h-auto py-6 flex flex-col gap-2"
-                disabled={zapsignLoading !== null}
-                onClick={() => handleZapSign('hipossuficiencia')}
-              >
-                <FileSignature className="h-6 w-6 text-primary" />
-                <span className="font-medium">Hipossuficiência</span>
-                <span className="text-xs text-muted-foreground">Declaração</span>
-                {zapsignLoading === 'hipossuficiencia' && (
-                  <span className="text-xs text-primary animate-pulse">Gerando...</span>
-                )}
-              </Button>
-              <Button
-                variant="outline"
-                className="h-auto py-6 flex flex-col gap-2"
-                disabled={zapsignLoading !== null}
-                onClick={() => handleZapSign('contrato')}
-              >
-                <FileSignature className="h-6 w-6 text-primary" />
-                <span className="font-medium">Contrato</span>
-                <span className="text-xs text-muted-foreground">Honorários</span>
-                {zapsignLoading === 'contrato' && (
-                  <span className="text-xs text-primary animate-pulse">Gerando...</span>
-                )}
               </Button>
             </CardContent>
           </Card>
