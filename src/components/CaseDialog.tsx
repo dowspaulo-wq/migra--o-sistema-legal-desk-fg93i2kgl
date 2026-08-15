@@ -410,15 +410,13 @@ export function CaseDialog({
               </div>
             )}
 
-            {!isSubprocess && (
-              <div className="space-y-2">
-                <Label>Parte Adversa</Label>
-                <Input
-                  value={fd.adverseParty}
-                  onChange={(e) => setFd({ ...fd, adverseParty: e.target.value })}
-                />
-              </div>
-            )}
+            <div className="space-y-2">
+              <Label>Parte Adversa</Label>
+              <Input
+                value={fd.adverseParty}
+                onChange={(e) => setFd({ ...fd, adverseParty: e.target.value })}
+              />
+            </div>
 
             <div className="space-y-2">
               <Label>Vara / Juízo</Label>
