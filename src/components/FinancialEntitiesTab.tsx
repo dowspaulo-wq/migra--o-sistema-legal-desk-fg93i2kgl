@@ -10,16 +10,19 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Edit, Plus, Trash2 } from 'lucide-react'
+import { Check, Edit2, Plus, Trash2, X } from 'lucide-react'
 import { SupplierDialog } from '@/components/SupplierDialog'
 import { Input } from '@/components/ui/input'
 import useLegalStore from '@/stores/useLegalStore'
+import { toast } from '@/hooks/use-toast'
 
 export function FinancialEntitiesTab() {
-  const { state, updateItem, addSupplier } = useLegalStore() as any
+  const { state, updateItem, addSupplier, renameType } = useLegalStore() as any
   const [editingSupplier, setEditingSupplier] = useState<any>(null)
   const [creatingSupplier, setCreatingSupplier] = useState(false)
   const [newCategory, setNewCategory] = useState('')
+  const [editingCategory, setEditingCategory] = useState<string | null>(null)
+  const [editValue, setEditValue] = useState('')
 
   const categories: string[] = (state.settings?.transactionCategories as string[]) || []
 
@@ -35,6 +38,47 @@ export function FinancialEntitiesTab() {
     updateItem('settings', state.settings.id, {
       transactionCategories: categories.filter((c) => c !== cat),
     })
+  }
+
+  const startEditCategory = (cat: string) => {
+    setEditingCategory(cat)
+    setEditValue(cat)
+  }
+
+  const cancelEditCategory = () => {
+    setEditingCategory(null)
+    setEditValue('')
+  }
+
+  const saveEditCategory = () => {
+    if (!editingCategory) return
+    const trimmed = editValue.trim()
+    if (!trimmed) {
+      toast({ title: 'Erro', description: 'Nome inválido.', variant: 'destructive' })
+      return
+    }
+    if (trimmed === editingCategory) {
+      cancelEditCategory()
+      return
+    }
+    if (categories.includes(trimmed)) {
+      toast({
+        title: 'Erro',
+        description: 'Já existe uma categoria com esse nome.',
+        variant: 'destructive',
+      })
+      return
+    }
+    // Update settings list (rename in place, keep sorted)
+    updateItem('settings', state.settings.id, {
+      transactionCategories: categories
+        .map((c) => (c === editingCategory ? trimmed : c))
+        .sort((a, b) => a.localeCompare(b)),
+    })
+    // Propagate rename to existing transactions
+    renameType('transactions', 'category', editingCategory, trimmed)
+    toast({ title: 'Sucesso', description: 'Categoria atualizada.' })
+    cancelEditCategory()
   }
 
   const handleDeactivateSupplier = (supplier: any) => {
@@ -128,6 +172,10 @@ export function FinancialEntitiesTab() {
       <Card className="shadow-sm">
         <CardHeader className="py-4">
           <CardTitle className="text-sm">Categorias de Transações</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Adicione, edite ou remova as categorias usadas nos lançamentos financeiros. A edição
+            atualiza também os lançamentos existentes.
+          </p>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex gap-2">
@@ -143,18 +191,50 @@ export function FinancialEntitiesTab() {
             </Button>
           </div>
           <div className="flex flex-wrap gap-2">
-            {categories.map((c: string) => (
-              <div
-                key={c}
-                className="flex items-center gap-1 bg-muted px-2 py-1 rounded text-sm border"
-              >
-                <span>{c}</span>
-                <Trash2
-                  className="h-3 w-3 text-red-500 cursor-pointer"
-                  onClick={() => handleRemoveCategory(c)}
-                />
-              </div>
-            ))}
+            {categories.map((c: string) =>
+              editingCategory === c ? (
+                <div
+                  key={c}
+                  className="flex items-center gap-1 bg-muted px-2 py-1 rounded text-sm border"
+                >
+                  <Input
+                    autoFocus
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') saveEditCategory()
+                      if (e.key === 'Escape') cancelEditCategory()
+                    }}
+                    className="h-6 w-40 text-sm"
+                  />
+                  <Check
+                    className="h-3.5 w-3.5 text-green-600 cursor-pointer hover:scale-110 transition-transform"
+                    onClick={saveEditCategory}
+                  />
+                  <X
+                    className="h-3.5 w-3.5 text-muted-foreground cursor-pointer hover:scale-110 transition-transform"
+                    onClick={cancelEditCategory}
+                  />
+                </div>
+              ) : (
+                <div
+                  key={c}
+                  className="flex items-center gap-1 bg-muted px-2 py-1 rounded text-sm border group"
+                >
+                  <span>{c}</span>
+                  <div className="flex items-center gap-1 opacity-50 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Edit2
+                      className="h-3 w-3 cursor-pointer hover:scale-110 transition-transform"
+                      onClick={() => startEditCategory(c)}
+                    />
+                    <Trash2
+                      className="h-3 w-3 text-red-500 cursor-pointer hover:scale-110 transition-transform"
+                      onClick={() => handleRemoveCategory(c)}
+                    />
+                  </div>
+                </div>
+              ),
+            )}
             {categories.length === 0 && (
               <p className="text-sm text-muted-foreground">Nenhuma categoria cadastrada.</p>
             )}
