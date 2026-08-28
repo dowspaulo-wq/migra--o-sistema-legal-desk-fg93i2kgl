@@ -221,7 +221,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
 
     const payload = {
       ...fd,
-      marital_status: fd.marital_status || null,
+      marital_status: fd.type === 'PJ' ? null : fd.marital_status || null,
       address: fullAddress,
       phone: formattedPhone,
     }
@@ -296,6 +296,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
                     ...fd,
                     type: v,
                     document: isShorter ? '' : reFormatted,
+                    marital_status: v === 'PJ' ? '' : fd.marital_status,
                   })
                   setFormErrors((prev) => ({ ...prev, document: '' }))
                 }}
@@ -352,13 +353,20 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
             </div>
 
             <div className="space-y-2">
-              <Label>Estado Civil</Label>
+              <Label className={fd.type === 'PJ' ? 'text-muted-foreground' : ''}>
+                Estado Civil
+              </Label>
               <Select
-                value={fd.marital_status || ''}
+                disabled={fd.type === 'PJ'}
+                value={fd.type === 'PJ' ? '' : fd.marital_status || ''}
                 onValueChange={(v) => setFd({ ...fd, marital_status: v })}
               >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o Estado Civil" />
+                <SelectTrigger className={fd.type === 'PJ' ? 'bg-muted/50 cursor-not-allowed' : ''}>
+                  <SelectValue
+                    placeholder={
+                      fd.type === 'PJ' ? 'Não aplicável para PJ' : 'Selecione o Estado Civil'
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="Solteiro(a)">Solteiro(a)</SelectItem>
