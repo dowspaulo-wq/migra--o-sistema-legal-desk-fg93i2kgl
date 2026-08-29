@@ -3,6 +3,8 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 import * as XLSX from 'npm:xlsx@0.18.5'
 import { corsHeaders } from '../_shared/cors.ts'
 
+// Version marker: v1.1.0-xlsx-backup
+
 /**
  * DATABASE BACKUP EDGE FUNCTION (DPSjur)
  *
