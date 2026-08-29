@@ -1,5 +1,6 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import * as XLSX from 'npm:xlsx@0.18.5'
 import { corsHeaders } from '../_shared/cors.ts'
 
 /**
@@ -40,6 +41,14 @@ const TABLES_TO_BACKUP = [
   'logs',
   'user_sessions',
   'whatsapp_messages',
+]
+
+// Main tables exported as separate sheets in the XLSX backup workbook
+const EXCEL_SHEETS_CONFIG: { table: string; sheetName: string }[] = [
+  { table: 'cases', sheetName: 'Processos' },
+  { table: 'clients', sheetName: 'Clientes' },
+  { table: 'transactions', sheetName: 'Transações Financeiras' },
+  { table: 'tasks', sheetName: 'Tarefas' },
 ]
 
 /**
@@ -106,6 +115,46 @@ function generateTableSql(tableName: string, rows: Record<string, unknown>[]): s
   }
 
   return sql
+}
+
+/**
+ * Normalizes table row values for clean Excel cells (objects/arrays formatted as JSON strings)
+ */
+function sanitizeRowsForExcel(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  if (!rows || rows.length === 0) return []
+  return rows.map((row) => {
+    const cleanRow: Record<string, unknown> = {}
+    for (const [key, val] of Object.entries(row)) {
+      if (val === null || val === undefined) {
+        cleanRow[key] = ''
+      } else if (typeof val === 'object') {
+        cleanRow[key] = JSON.stringify(val)
+      } else {
+        cleanRow[key] = val
+      }
+    }
+    return cleanRow
+  })
+}
+
+/**
+ * Builds a multi-sheet XLSX buffer containing the principal system tables:
+ * Processos, Clientes, Transações Financeiras e Tarefas.
+ */
+function generateExcelBackupBuffer(
+  backupData: Record<string, Record<string, unknown>[]>,
+): Uint8Array {
+  const workbook = XLSX.utils.book_new()
+
+  for (const { table, sheetName } of EXCEL_SHEETS_CONFIG) {
+    const tableData = backupData[table] || []
+    const sanitizedData = sanitizeRowsForExcel(tableData)
+    const worksheet = XLSX.utils.json_to_sheet(sanitizedData)
+    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName)
+  }
+
+  const rawBuffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
+  return new Uint8Array(rawBuffer)
 }
 
 /**
@@ -196,6 +245,7 @@ Deno.serve(async (req: Request) => {
     // Parse options from query parameters or JSON body
     let generateSql = true
     let generateJson = true
+    let generateXlsx = true
     let triggerType = 'auto'
 
     if (req.method === 'POST') {
@@ -203,6 +253,7 @@ Deno.serve(async (req: Request) => {
         const body = await req.json()
         if (body.generateSql !== undefined) generateSql = Boolean(body.generateSql)
         if (body.generateJson !== undefined) generateJson = Boolean(body.generateJson)
+        if (body.generateXlsx !== undefined) generateXlsx = Boolean(body.generateXlsx)
         if (body.triggerType) triggerType = String(body.triggerType)
       } catch {
         // Body is optional or empty
@@ -211,6 +262,7 @@ Deno.serve(async (req: Request) => {
       const url = new URL(req.url)
       if (url.searchParams.has('sql')) generateSql = url.searchParams.get('sql') === 'true'
       if (url.searchParams.has('json')) generateJson = url.searchParams.get('json') === 'true'
+      if (url.searchParams.has('xlsx')) generateXlsx = url.searchParams.get('xlsx') === 'true'
       if (url.searchParams.has('trigger')) triggerType = url.searchParams.get('trigger') || 'manual'
     }
 
@@ -219,6 +271,7 @@ Deno.serve(async (req: Request) => {
     const timestampStr = now.toISOString().replace(/[:.]/g, '-')
     const jsonFileName = `backup-${dateStr}-${timestampStr}.json`
     const sqlFileName = `backup-${dateStr}-${timestampStr}.sql`
+    const xlsxFileName = `backup-${dateStr}-${timestampStr}.xlsx`
 
     console.log(`[BACKUP] Starting backup generation at ${now.toISOString()}...`)
 
@@ -336,7 +389,46 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // 4. Enforce 7-day retention policy (clean up older files)
+    // 4. Generate and upload Excel (XLSX) multi-sheet backup
+    if (generateXlsx) {
+      try {
+        const xlsxBytes = generateExcelBackupBuffer(backupData)
+        const excelTables = EXCEL_SHEETS_CONFIG.map((c) => c.table)
+        const excelTotalRecords = excelTables.reduce((acc, t) => acc + (recordCounts[t] || 0), 0)
+
+        const { error: xlsxUploadErr } = await supabase.storage
+          .from(BACKUP_BUCKET)
+          .upload(xlsxFileName, xlsxBytes, {
+            contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            upsert: true,
+          })
+
+        if (xlsxUploadErr) {
+          console.warn(`[BACKUP] Warning: Excel (XLSX) upload failed: ${xlsxUploadErr.message}`)
+        } else {
+          uploadedFiles.push({
+            fileName: xlsxFileName,
+            format: 'xlsx',
+            sizeBytes: xlsxBytes.length,
+          })
+
+          // Log Excel backup
+          await supabase.from('backup_logs').insert({
+            file_name: xlsxFileName,
+            format: 'xlsx',
+            file_size_bytes: xlsxBytes.length,
+            tables_included: excelTables,
+            total_records: excelTotalRecords,
+            status: 'completed',
+            trigger_type: triggerType,
+          })
+        }
+      } catch (excelErr: any) {
+        console.error('[BACKUP] Error generating Excel (XLSX) backup:', excelErr)
+      }
+    }
+
+    // 5. Enforce 7-day retention policy (clean up older files)
     const retentionResult = await enforceRetentionPolicy(supabase)
 
     const executionTimeMs = Date.now() - startTime

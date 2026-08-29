@@ -11,6 +11,7 @@ import {
   Save,
   FileCode,
   FileJson,
+  FileSpreadsheet,
   Layers,
   ArrowDownToLine,
   Info,
@@ -58,6 +59,7 @@ interface BackupScheduleConfig {
   dayOfWeek?: string
   generateSql: boolean
   generateJson: boolean
+  generateXlsx: boolean
   enabled: boolean
   lastSavedAt?: string
 }
@@ -87,6 +89,7 @@ export default function Backups() {
       dayOfWeek: '1',
       generateSql: true,
       generateJson: true,
+      generateXlsx: true,
       enabled: true,
     }
   })
@@ -135,8 +138,9 @@ export default function Backups() {
       const { data, error } = await supabase.functions.invoke('database-backup', {
         body: {
           triggerType: 'manual',
-          generateSql: true,
-          generateJson: true,
+          generateSql: schedule.generateSql ?? true,
+          generateJson: schedule.generateJson ?? true,
+          generateXlsx: schedule.generateXlsx ?? true,
         },
       })
 
@@ -429,8 +433,8 @@ export default function Backups() {
                     ? 'Semanal'
                     : 'Mensal'}
               </strong>{' '}
-              às <strong className="text-foreground">{schedule.time}</strong> (Formatos: JSON +
-              SQL).
+              às <strong className="text-foreground">{schedule.time}</strong> (Formatos: JSON, SQL e
+              Excel XLSX).
               {schedule.lastSavedAt && (
                 <span className="ml-2">
                   (Última alteração salva em: {formatDateTime(schedule.lastSavedAt)})
@@ -533,15 +537,21 @@ export default function Backups() {
 
                       <TableCell>
                         <Badge variant="outline" className="text-xs uppercase font-mono">
-                          {log.format === 'json' ? (
+                          {log.format?.toLowerCase() === 'json' ? (
                             <span className="flex items-center gap-1">
                               <FileJson className="h-3 w-3 text-amber-500" />
                               JSON
                             </span>
-                          ) : log.format === 'sql' ? (
+                          ) : log.format?.toLowerCase() === 'sql' ? (
                             <span className="flex items-center gap-1">
                               <FileCode className="h-3 w-3 text-blue-500" />
                               SQL
+                            </span>
+                          ) : log.format?.toLowerCase() === 'xlsx' ||
+                            log.format?.toLowerCase() === 'excel' ? (
+                            <span className="flex items-center gap-1">
+                              <FileSpreadsheet className="h-3 w-3 text-emerald-600" />
+                              XLSX
                             </span>
                           ) : (
                             log.format || 'N/A'
