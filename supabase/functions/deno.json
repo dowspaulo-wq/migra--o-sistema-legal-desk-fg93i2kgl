@@ -5,6 +5,6 @@
     "asaas-integration": 15,
     "asaas-webhook": 7,
     "datajud-sync": 3,
-    "database-backup": 3
+    "database-backup": 5
   }
 }

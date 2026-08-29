@@ -153,7 +153,7 @@ function generateExcelBackupBuffer(
     XLSX.utils.book_append_sheet(workbook, worksheet, sheetName)
   }
 
-  const rawBuffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
+  const rawBuffer = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' })
   return new Uint8Array(rawBuffer)
 }
 
@@ -425,6 +425,16 @@ Deno.serve(async (req: Request) => {
         }
       } catch (excelErr: any) {
         console.error('[BACKUP] Error generating Excel (XLSX) backup:', excelErr)
+        await supabase.from('backup_logs').insert({
+          file_name: xlsxFileName,
+          format: 'xlsx',
+          file_size_bytes: 0,
+          tables_included: EXCEL_SHEETS_CONFIG.map((c) => c.table),
+          total_records: 0,
+          status: 'failed',
+          error_message: excelErr?.message || String(excelErr),
+          trigger_type: triggerType,
+        })
       }
     }
 
