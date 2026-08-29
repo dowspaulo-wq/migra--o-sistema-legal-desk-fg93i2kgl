@@ -16,6 +16,7 @@ import Petitions from './pages/Petitions'
 import DocumentTemplates from './pages/DocumentTemplates'
 import Logs from './pages/Logs'
 import Acessos from './pages/Acessos'
+import Backups from './pages/Backups'
 import SettingsPage from './pages/Settings'
 import { SystemManagement } from './components/SystemManagement'
 import NotFound from './pages/NotFound'
@@ -80,6 +81,14 @@ const App = () => (
                 element={
                   <RequireAdmin>
                     <Acessos />
+                  </RequireAdmin>
+                }
+              />
+              <Route
+                path="/backups"
+                element={
+                  <RequireAdmin>
+                    <Backups />
                   </RequireAdmin>
                 }
               />

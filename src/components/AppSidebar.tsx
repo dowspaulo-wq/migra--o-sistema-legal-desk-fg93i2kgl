@@ -14,6 +14,7 @@ import {
   Wallet,
   Files,
   KeyRound,
+  Database,
 } from 'lucide-react'
 import {
   Sidebar,
@@ -41,6 +42,7 @@ const navigation = [
   { name: 'Modelos (em construção)', href: '/modelos', icon: Files },
   { name: 'Logs', href: '/logs', icon: History },
   { name: 'Acessos', href: '/acessos', icon: KeyRound },
+  { name: 'Backups', href: '/backups', icon: Database },
   { name: 'Configurações', href: '/configuracoes', icon: Settings },
 ]
 
@@ -58,6 +60,8 @@ export default function AppSidebar() {
     )
       return false
     if (item.name === 'Acessos' && !['Admin', 'ADM', 'admin'].includes(legalState.currentUser.role))
+      return false
+    if (item.name === 'Backups' && !['Admin', 'ADM', 'admin'].includes(legalState.currentUser.role))
       return false
     if (item.name === 'Configurações' && legalState.currentUser.role !== 'Admin') return false
     if (item.name === 'Agenda' && legalState.currentUser.role !== 'Admin') return false
