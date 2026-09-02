@@ -58,6 +58,7 @@ export interface Task {
   type: string
   clientId: string | null
   internalNotes: string
+  created_at?: string
 }
 export interface Appointment {
   id: string
