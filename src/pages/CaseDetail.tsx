@@ -54,7 +54,13 @@ import { CaseDialog } from '@/components/CaseDialog'
 import { TaskDialog } from '@/components/TaskDialog'
 import { AppointmentDialog } from '@/components/AppointmentDialog'
 import { TransactionDialog } from '@/components/TransactionDialog'
-import { formatSafeLocalDate, getDetailedDuration, normalizeStr, stripHtml } from '@/lib/utils'
+import {
+  formatSafeLocalDate,
+  formatSafeDateTime,
+  getDetailedDuration,
+  normalizeStr,
+  stripHtml,
+} from '@/lib/utils'
 
 import { fetchDocumentTemplates } from '@/services/document-templates'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -919,8 +925,11 @@ export default function CaseDetail() {
                               </Badge>
                               <Edit className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground" />
                             </p>
-                            <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
+                            <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1 flex-wrap">
                               <span>Vencimento: {formatSafeLocalDate(t.dueDate)}</span>
+                              {t.created_at && (
+                                <span>• Criada em: {formatSafeDateTime(t.created_at)}</span>
+                              )}
                               {resp && (
                                 <span className="bg-slate-100/50 px-1.5 py-0.5 rounded text-[10px]">
                                   Resp:{' '}

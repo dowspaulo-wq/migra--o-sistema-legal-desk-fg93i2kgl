@@ -42,7 +42,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import useLegalStore from '@/stores/useLegalStore'
 import { TaskDialog } from '@/components/TaskDialog'
 import { FullCalendar } from '@/components/FullCalendar'
-import { formatSafeLocalDate, getPriorityColorClass, normalizeStr, stripHtml } from '@/lib/utils'
+import {
+  formatSafeLocalDate,
+  formatSafeDateTime,
+  getPriorityColorClass,
+  normalizeStr,
+  stripHtml,
+} from '@/lib/utils'
 import { downloadCSV } from '@/lib/export'
 import { Download } from 'lucide-react'
 import { DatePicker } from '@/components/ui/date-picker'
@@ -537,6 +543,11 @@ export default function Tasks() {
                         <span className="text-muted-foreground ml-2 font-semibold">
                           Vence: {formatSafeLocalDate(t.dueDate)}
                         </span>
+                        {t.created_at && (
+                          <span className="text-muted-foreground text-[11px]">
+                            • Criada em: {formatSafeDateTime(t.created_at)}
+                          </span>
+                        )}
                         {resp && (
                           <span
                             className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-white"

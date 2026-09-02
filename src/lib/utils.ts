@@ -50,6 +50,24 @@ export function formatSafeLocalDate(dateStr: string | null | undefined): string 
 }
 
 /**
+ * Safely formats an ISO timestamp or date string to local pt-BR date and time (Brasília time)
+ * Format: DD/MM/YYYY HH:mm
+ */
+export function formatSafeDateTime(dateStr: string | null | undefined): string {
+  if (!dateStr) return ''
+  const date = new Date(dateStr)
+  if (isNaN(date.getTime())) return ''
+  return date.toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'America/Sao_Paulo',
+  })
+}
+
+/**
  * Returns Tailwind CSS color classes for a given priority level
  */
 export function getPriorityColorClass(priority: string | null | undefined): string {
