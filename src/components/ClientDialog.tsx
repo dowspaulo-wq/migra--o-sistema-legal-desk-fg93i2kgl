@@ -23,7 +23,7 @@ import { RichTextEditor } from '@/components/RichTextEditor'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import { BRAZILIAN_STATES, fetchCepData } from '@/lib/cep'
-import { sanitizeDocument } from '@/lib/utils'
+import { sanitizeDocument, formatPhone, sanitizeClientPhone, isValidClientPhone } from '@/lib/utils'
 import {
   formatDocument,
   isValidDocumentFormat,
@@ -152,7 +152,11 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
 
     const mandatoryErrors: Record<string, string> = {}
     if (!fd.email?.trim()) mandatoryErrors.email = 'Este campo é obrigatório'
-    if (!fd.phone?.trim()) mandatoryErrors.phone = 'Este campo é obrigatório'
+    if (!fd.phone?.trim()) {
+      mandatoryErrors.phone = 'Este campo é obrigatório'
+    } else if (!isValidClientPhone(fd.phone)) {
+      mandatoryErrors.phone = 'Informe DDD + número (8 ou 9 dígitos). Ex.: (31) 98765-4321'
+    }
     if (!fd.document?.trim()) {
       mandatoryErrors.document = 'Este campo é obrigatório'
     } else if (!isValidDocumentFormat(fd.document, fd.type)) {
@@ -214,16 +218,13 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
       .filter(Boolean)
       .join(', ')
 
-    let formattedPhone = fd.phone?.replace(/\D/g, '') || ''
-    if (formattedPhone && !formattedPhone.startsWith('55') && !/^0+$/.test(formattedPhone)) {
-      formattedPhone = `55${formattedPhone}`
-    }
+    const sanitizedPhone = sanitizeClientPhone(fd.phone)
 
     const payload = {
       ...fd,
       marital_status: fd.type === 'PJ' ? null : fd.marital_status || null,
       address: fullAddress,
-      phone: formattedPhone,
+      phone: sanitizedPhone,
     }
     const { isNew, ...finalPayload } = payload
 
@@ -395,25 +396,18 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
 
             <div className="space-y-2">
               <Label>
-                Celular (com DDI 55) <span className="text-red-500">*</span>
+                Celular (com DDD) <span className="text-red-500">*</span>
               </Label>
               <Input
-                value={fd.phone || ''}
+                value={formatPhone(fd.phone || '')}
                 onChange={(e) => {
-                  const numericValue = e.target.value.replace(/\D/g, '')
-                  setFd({ ...fd, phone: numericValue })
+                  const rawDigits = sanitizeClientPhone(e.target.value)
+                  setFd({ ...fd, phone: rawDigits })
                   setFormErrors((prev) => ({ ...prev, phone: '' }))
                 }}
-                onBlur={() => {
-                  if (fd.phone) {
-                    let digits = fd.phone.replace(/\D/g, '')
-                    if (digits && !digits.startsWith('55') && !/^0+$/.test(digits)) {
-                      setFd((prev: any) => ({ ...prev, phone: `55${digits}` }))
-                    }
-                  }
-                }}
                 inputMode="numeric"
-                placeholder="5531999999999"
+                maxLength={15}
+                placeholder="(31) 98765-4321"
               />
               {formErrors.phone && <p className="text-xs text-red-500">{formErrors.phone}</p>}
             </div>

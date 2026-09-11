@@ -48,7 +48,7 @@ import { toast } from '@/hooks/use-toast'
 import { ClientFeesDialog } from '@/components/ClientFeesDialog'
 import { TransactionDialog } from '@/components/TransactionDialog'
 import { LinkTransactionToCaseDialog } from '@/components/LinkTransactionToCaseDialog'
-import { formatSafeLocalDate } from '@/lib/utils'
+import { formatSafeLocalDate, formatPhone, getWhatsAppPhone } from '@/lib/utils'
 import { supabase } from '@/lib/supabase/client'
 import { getCaseStatusColor, getCaseStatusStyle } from '@/lib/case-status'
 
@@ -477,10 +477,10 @@ export default function ClientDetail() {
                 <MessageCircle className="h-4 w-4" /> Celular
               </p>
               <p className="font-medium flex items-center gap-2 text-sm">
-                {client.phone || 'Não informado'}
-                {client.phone && (
+                {client.phone ? formatPhone(client.phone) : 'Não informado'}
+                {client.phone && getWhatsAppPhone(client.phone) && (
                   <a
-                    href={`https://wa.me/${client.phone.replace(/\D/g, '')}`}
+                    href={`https://wa.me/${getWhatsAppPhone(client.phone)}`}
                     target="_blank"
                     className="text-green-500 hover:scale-110 transition-transform"
                     rel="noreferrer"

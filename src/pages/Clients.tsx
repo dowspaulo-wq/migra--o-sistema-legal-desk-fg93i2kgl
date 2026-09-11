@@ -54,7 +54,7 @@ import {
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import { ClientDialog } from '@/components/ClientDialog'
-import { normalizeStr } from '@/lib/utils'
+import { normalizeStr, formatPhone, getWhatsAppPhone } from '@/lib/utils'
 import { downloadCSV } from '@/lib/export'
 import { Download } from 'lucide-react'
 
@@ -522,10 +522,10 @@ export default function Clients() {
                         </TableCell>
                         <TableCell>{c.document}</TableCell>
                         <TableCell className="text-sm flex items-center gap-2">
-                          {c.phone}{' '}
-                          {c.phone && (
+                          {c.phone ? formatPhone(c.phone) : '—'}{' '}
+                          {c.phone && getWhatsAppPhone(c.phone) && (
                             <a
-                              href={`https://wa.me/${c.phone.replace(/\D/g, '')}`}
+                              href={`https://wa.me/${getWhatsAppPhone(c.phone)}`}
                               target="_blank"
                               rel="noreferrer"
                               className="text-green-500 hover:scale-110 transition-transform"
@@ -665,10 +665,10 @@ export default function Clients() {
                           Captação: <span className="font-medium">{c.captacao || '—'}</span>
                         </p>
                         <p className="flex items-center gap-2">
-                          Tel: {c.phone}{' '}
-                          {c.phone && (
+                          Tel: {c.phone ? formatPhone(c.phone) : '—'}{' '}
+                          {c.phone && getWhatsAppPhone(c.phone) && (
                             <a
-                              href={`https://wa.me/${c.phone.replace(/\D/g, '')}`}
+                              href={`https://wa.me/${getWhatsAppPhone(c.phone)}`}
                               target="_blank"
                               rel="noreferrer"
                               className="text-green-500"

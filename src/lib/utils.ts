@@ -101,6 +101,100 @@ export function sanitizeDocument(doc: string | null | undefined): string {
 /**
  * Strips HTML tags from a string, returning plain text
  */
+/**
+ * Normalizes Brazilian phone numbers:
+ * If it has leading 55 with 12 or 13 digits (55 + DDD + 8 or 9 digits), removes 55.
+ * Returns only DDD + number (10 or 11 digits) if valid, or the sanitized digits.
+ */
+export function normalizePhoneForAsaas(phone: string | null | undefined): string | undefined {
+  if (!phone) return undefined
+  let digits = phone.replace(/\D/g, '')
+  if (!digits || /^0+$/.test(digits) || digits.length < 8) return undefined
+
+  // Se tiver 55 no início e totalizar 12 ou 13 dígitos (55 + 10 ou 11 dígitos)
+  if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
+    digits = digits.slice(2)
+  }
+
+  // DDD (2 dígitos) + 8 ou 9 dígitos = 10 ou 11 dígitos
+  if (digits.length === 10 || digits.length === 11) {
+    return digits
+  }
+
+  // Se tiver outro tamanho mas for pelo menos 8 dígitos válidos, retorna os dígitos
+  return digits
+}
+
+/**
+ * Formats a Brazilian phone number for display or input
+ * Pattern: (XX) XXXXX-XXXX ou (XX) XXXX-XXXX
+ */
+/**
+ * Returns formatted phone for WhatsApp wa.me link:
+ * WhatsApp requires country code (55 for Brazil).
+ * If phone already has 55 (12/13 digits), keeps it.
+ * If phone has 10/11 digits, prepends 55.
+ */
+export function getWhatsAppPhone(phone: string | null | undefined): string {
+  if (!phone) return ''
+  let digits = phone.replace(/\D/g, '')
+  if (!digits || /^0+$/.test(digits)) return ''
+  if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
+    return digits
+  }
+  if (digits.length === 10 || digits.length === 11) {
+    return `55${digits}`
+  }
+  return digits
+}
+
+export function formatPhone(phone: string | null | undefined): string {
+  if (!phone) return ''
+  let digits = phone.replace(/\D/g, '')
+  if (!digits) return ''
+
+  // Se já veio com 55 e tem 12 ou 13 dígitos, remove o 55 para exibição amigável
+  if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
+    digits = digits.slice(2)
+  }
+
+  if (digits.length <= 2) {
+    return `(${digits}`
+  }
+  if (digits.length <= 6) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2)}`
+  }
+  if (digits.length <= 10) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`
+  }
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7, 11)}`
+}
+
+/**
+ * Returns raw DDD + number (10 or 11 digits) for database storage
+ */
+export function sanitizeClientPhone(phone: string | null | undefined): string {
+  if (!phone) return ''
+  let digits = phone.replace(/\D/g, '')
+  if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
+    digits = digits.slice(2)
+  }
+  return digits.slice(0, 11)
+}
+
+/**
+ * Validates if phone is valid Brazilian format: DDD (2 digits) + 8 or 9 digits (total 10 or 11 digits)
+ */
+export function isValidClientPhone(phone: string | null | undefined): boolean {
+  if (!phone) return false
+  let digits = phone.replace(/\D/g, '')
+  if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
+    digits = digits.slice(2)
+  }
+  if (/^0+$/.test(digits)) return false
+  return digits.length === 10 || digits.length === 11
+}
+
 export function stripHtml(html: string | null | undefined): string {
   if (!html) return ''
   const tmp = document.createElement('div')

@@ -31,12 +31,20 @@ function formatPhone(phone: string): string | undefined {
   if (digits.length === 0) return undefined
   // Se for apenas zeros ou numero invalido menor que 8 digitos
   if (/^0+$/.test(digits) || digits.length < 8) return undefined
-  // Se ja comeca com 55 e tem pelo menos 12 digitos (55 + DDD + numero)
-  if (digits.startsWith('55') && digits.length >= 12) return digits
-  // Se for DDD + numero (10 ou 11 digitos) ou qualquer numero sem 55, adiciona 55
-  if (!digits.startsWith('55')) {
-    return `55${digits}`
+
+  // O Asaas espera DDD + número (10 ou 11 dígitos), SEM o código do país (55).
+  // Se o número salvo possuir o '55' inicial (com 12 ou 13 dígitos: 55 + DDD + 8 ou 9 dígitos),
+  // removemos o prefixo '55' para não gerar erro na API do Asaas.
+  if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
+    digits = digits.slice(2)
   }
+
+  // DDD (2 dígitos) + 8 ou 9 dígitos -> 10 ou 11 dígitos
+  if (digits.length === 10 || digits.length === 11) {
+    return digits
+  }
+
+  // Se tiver pelo menos 8 dígitos (ex: 8 ou 9 dígitos locais), retorna sem 55
   return digits
 }
 
