@@ -117,7 +117,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }
 
   const ensureActiveSession = async (profileId: string): Promise<string | null> => {
-    // Check if there are any old stale open sessions (older than 15 min without activity or from another day)
+    // Clean up any stale open sessions (> 2 hours without activity or from another day)
     const { data: staleSessions } = await supabase
       .from('user_sessions')
       .select('id, last_activity_at, login_at, date')
@@ -131,7 +131,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       for (const s of staleSessions) {
         const lastActiveMs = s.last_activity_at ? new Date(s.last_activity_at).getTime() : 0
         const isStale =
-          s.date !== todayStr || (lastActiveMs > 0 && nowMs - lastActiveMs > 15 * 60 * 1000)
+          s.date !== todayStr || (lastActiveMs > 0 && nowMs - lastActiveMs > 2 * 60 * 60 * 1000)
 
         if (isStale) {
           const computedLogout = s.last_activity_at || s.login_at || nowISO()
@@ -148,6 +148,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     }
 
+    // If we have an active in-memory sessionId, just update its heartbeat
     if (currentSessionIdRef.current) {
       const { count } = await supabase
         .from('user_sessions')
@@ -158,9 +159,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         return currentSessionIdRef.current
       }
       currentSessionIdRef.current = null
-      return startNewSession(profileId)
     }
 
+    // Check if there is an existing open session for today to adopt as currentSessionIdRef
     const existing = await findOpenSession(profileId)
     if (existing) {
       currentSessionIdRef.current = existing
@@ -172,7 +173,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return existing
     }
 
-    return startNewSession(profileId)
+    // Do NOT automatically create a new row in user_sessions on heartbeat/restored session!
+    // Rows in user_sessions should ONLY be created upon explicit sign-in (signIn).
+    return null
   }
 
   useEffect(() => {
@@ -235,25 +238,45 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [user])
 
   const signIn = async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-    if (!error && data.user) {
-      // A fresh login always starts a brand-new session row so it shows up in
-      // Acessos, even if a previous session was left open.
-      currentSessionIdRef.current = null
-      sessionPromiseRef.current = null
-      await startNewSession(data.user.id)
-      supabase
-        .from('logs')
-        .insert({
-          action: 'LOGIN',
-          entity: 'auth',
-          user: data.user.id,
-          date: nowISO(),
-          details: 'Login realizado',
-        })
-        .then()
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error) {
+        return { error }
+      }
+
+      if (data?.user) {
+        // A fresh login always closes any previous open session and creates a brand-new one.
+        // Never let an error in session logging abort or break the login flow.
+        currentSessionIdRef.current = null
+        sessionPromiseRef.current = null
+
+        try {
+          await startNewSession(data.user.id)
+        } catch (sessionErr) {
+          console.error('Non-blocking error creating session record:', sessionErr)
+        }
+
+        try {
+          supabase
+            .from('logs')
+            .insert({
+              action: 'LOGIN',
+              entity: 'auth',
+              user: data.user.id,
+              date: nowISO(),
+              details: 'Login realizado',
+            })
+            .then()
+        } catch (logErr) {
+          console.error('Non-blocking error logging signin:', logErr)
+        }
+      }
+
+      return { error: null }
+    } catch (err: any) {
+      console.error('Unexpected signIn error:', err)
+      return { error: err }
     }
-    return { error }
   }
 
   const signOut = async () => {

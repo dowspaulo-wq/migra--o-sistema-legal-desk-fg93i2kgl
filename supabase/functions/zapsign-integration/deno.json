@@ -1,5 +1,7 @@
 {
-  "imports": {
-    "jszip": "npm:jszip@3"
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "esnext",
+    "lib": ["deno.ns", "deno.window", "dom"]
   }
 }

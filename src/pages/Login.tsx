@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useAuth } from '@/hooks/use-auth'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,6 +10,7 @@ import { toast } from '@/hooks/use-toast'
 
 export default function Login() {
   const { signIn, resetPassword, user } = useAuth()
+  const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -20,25 +21,49 @@ export default function Login() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
-    const { error } = await signIn(email, password)
-    setLoading(false)
-    if (error) {
-      if (
-        error.message.toLowerCase().includes('not confirmed') ||
-        error.message.toLowerCase().includes('email não confirmado')
-      ) {
-        toast({
-          title: 'Acesso bloqueado',
-          description: 'Por favor, confirme seu e-mail para acessar o sistema.',
-          variant: 'destructive',
-        })
+    try {
+      const { error } = await signIn(email.trim(), password)
+      if (error) {
+        const errorMsg = (error.message || '').toLowerCase()
+        if (errorMsg.includes('not confirmed') || errorMsg.includes('email não confirmado')) {
+          toast({
+            title: 'Acesso bloqueado',
+            description: 'Por favor, confirme seu e-mail para acessar o sistema.',
+            variant: 'destructive',
+          })
+        } else if (
+          errorMsg.includes('invalid login credentials') ||
+          errorMsg.includes('invalid credentials') ||
+          errorMsg.includes('credenciais inválidas')
+        ) {
+          toast({
+            title: 'Erro de autenticação',
+            description: 'E-mail ou senha incorretos. Verifique suas credenciais.',
+            variant: 'destructive',
+          })
+        } else {
+          toast({
+            title: 'Erro ao entrar',
+            description: error.message || 'Não foi possível realizar o login. Tente novamente.',
+            variant: 'destructive',
+          })
+        }
       } else {
         toast({
-          title: 'Erro de autenticação',
-          description: 'Email ou senha inválidos',
-          variant: 'destructive',
+          title: 'Login realizado com sucesso',
+          description: 'Bem-vindo(a) ao sistema!',
         })
+        navigate('/', { replace: true })
       }
+    } catch (err: any) {
+      console.error('Login submit error:', err)
+      toast({
+        title: 'Erro inesperado',
+        description: err.message || 'Falha na conexão. Tente novamente.',
+        variant: 'destructive',
+      })
+    } finally {
+      setLoading(false)
     }
   }
 
