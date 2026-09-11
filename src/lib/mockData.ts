@@ -59,6 +59,8 @@ export interface Task {
   clientId: string | null
   internalNotes: string
   created_at?: string
+  created_by?: string | null
+  completed_by?: string | null
 }
 export interface Appointment {
   id: string

@@ -301,7 +301,22 @@ export default function CaseDetail() {
         open={!!editingTask}
         onOpenChange={(v: boolean) => !v && setEditingTask(null)}
         data={editingTask}
-        onSave={(d: any) => updateItem('tasks', editingTask?.id || d.id, d)}
+        onSave={(d: any) => {
+          const isFinishing =
+            d.status &&
+            (d.status.toLowerCase() === 'concluída' || d.status.toLowerCase() === 'concluído')
+          const wasDone =
+            editingTask?.status &&
+            (editingTask.status.toLowerCase() === 'concluída' ||
+              editingTask.status.toLowerCase() === 'concluído')
+          const updatePayload: any = { ...d }
+          if (isFinishing && !wasDone) {
+            updatePayload.completed_by = state.currentUser?.id || null
+          } else if (!isFinishing && wasDone) {
+            updatePayload.completed_by = null
+          }
+          updateItem('tasks', editingTask?.id || d.id, updatePayload)
+        }}
         onDelete={(id: string) => deleteItem('tasks', id)}
         users={state.users}
         currentUser={state.currentUser}
@@ -898,6 +913,15 @@ export default function CaseDetail() {
                 <div className="space-y-3 mt-2">
                   {tasks.map((t) => {
                     const resp = state.users.find((u) => u.id === t.responsibleId)
+                    const creator = t.created_by
+                      ? state.users.find((u) => u.id === t.created_by)
+                      : null
+                    const completer = t.completed_by
+                      ? state.users.find((u) => u.id === t.completed_by)
+                      : null
+                    const isDone =
+                      t.status.toLowerCase() === 'concluída' ||
+                      t.status.toLowerCase() === 'concluído'
 
                     const currentUserRole = state.currentUser?.role?.toLowerCase() || ''
                     const responsibleUserRole = resp?.role?.toLowerCase() || ''
@@ -930,6 +954,20 @@ export default function CaseDetail() {
                               {t.created_at && (
                                 <span>• Criada em: {formatSafeDateTime(t.created_at)}</span>
                               )}
+                              <span className="bg-slate-100/50 px-1.5 py-0.5 rounded text-[10px]">
+                                Criada por:{' '}
+                                <span className="font-medium">
+                                  {creator ? creator.name.split(' ')[0] : '—'}
+                                </span>
+                              </span>
+                              {isDone && completer && (
+                                <span className="bg-slate-100/50 px-1.5 py-0.5 rounded text-[10px]">
+                                  Concluída por:{' '}
+                                  <span className="font-medium">
+                                    {completer.name.split(' ')[0]}
+                                  </span>
+                                </span>
+                              )}
                               {resp && (
                                 <span className="bg-slate-100/50 px-1.5 py-0.5 rounded text-[10px]">
                                   Resp:{' '}
@@ -947,7 +985,10 @@ export default function CaseDetail() {
                                   className="h-7 px-2 text-green-600 border-green-200 hover:text-green-700 hover:bg-green-50 hover:border-green-300 transition-colors bg-white"
                                   onClick={(e) => {
                                     e.stopPropagation()
-                                    updateItem('tasks', t.id, { status: 'Concluído' })
+                                    updateItem('tasks', t.id, {
+                                      status: 'Concluído',
+                                      completed_by: state.currentUser?.id || null,
+                                    })
                                     toast({
                                       title: 'Sucesso',
                                       description: 'Tarefa marcada como concluída.',

@@ -325,6 +325,23 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
             }
           }
 
+          if (table === 'tasks' && finalChanges.status !== undefined) {
+            const isFinishing =
+              finalChanges.status &&
+              (String(finalChanges.status).toLowerCase() === 'concluída' ||
+                String(finalChanges.status).toLowerCase() === 'concluído')
+            const wasDone =
+              originalItem?.status &&
+              (String(originalItem.status).toLowerCase() === 'concluída' ||
+                String(originalItem.status).toLowerCase() === 'concluído')
+
+            if (isFinishing && !wasDone && finalChanges.completed_by === undefined) {
+              finalChanges.completed_by = state.currentUser?.id || user?.id || null
+            } else if (!isFinishing && wasDone && finalChanges.completed_by === undefined) {
+              finalChanges.completed_by = null
+            }
+          }
+
           return {
             ...prev,
             [table]: arr?.map((item) => (item.id === id ? { ...item, ...finalChanges } : item)),
@@ -398,18 +415,25 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     toast({ title: 'Cliente adicionado' })
   }, [])
 
-  const addTask = useCallback(async (task: Omit<Task, 'id'>) => {
-    const { data, error } = await supabase
-      .from('tasks')
-      .insert(task as any)
-      .select()
-      .single()
-    if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
-    if (data) {
-      setState((prev) => ({ ...prev, tasks: [data, ...prev.tasks] }))
-      toast({ title: 'Tarefa adicionada com sucesso!' })
-    }
-  }, [])
+  const addTask = useCallback(
+    async (task: Omit<Task, 'id'>) => {
+      const taskPayload = {
+        ...task,
+        created_by: (task as any).created_by || state.currentUser?.id || user?.id || null,
+      }
+      const { data, error } = await supabase
+        .from('tasks')
+        .insert(taskPayload as any)
+        .select()
+        .single()
+      if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
+      if (data) {
+        setState((prev) => ({ ...prev, tasks: [data, ...prev.tasks] }))
+        toast({ title: 'Tarefa adicionada com sucesso!' })
+      }
+    },
+    [state.currentUser?.id, user?.id],
+  )
 
   const addCase = useCallback(async (newCasePayload: any) => {
     const { feeConfig, ...caseData } = newCasePayload

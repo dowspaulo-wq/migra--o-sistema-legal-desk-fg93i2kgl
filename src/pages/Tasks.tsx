@@ -200,8 +200,24 @@ export default function Tasks() {
     setOpen(true)
   }
   const handleSave = (fd: any) => {
-    if (editingItem) updateItem('tasks', editingItem.id, fd)
-    else addTask(fd)
+    if (editingItem) {
+      const isFinishing =
+        fd.status &&
+        (fd.status.toLowerCase() === 'concluída' || fd.status.toLowerCase() === 'concluído')
+      const wasDone =
+        editingItem.status &&
+        (editingItem.status.toLowerCase() === 'concluída' ||
+          editingItem.status.toLowerCase() === 'concluído')
+      const updatePayload: any = { ...fd }
+      if (isFinishing && !wasDone) {
+        updatePayload.completed_by = state.currentUser?.id || null
+      } else if (!isFinishing && wasDone) {
+        updatePayload.completed_by = null
+      }
+      updateItem('tasks', editingItem.id, updatePayload)
+    } else {
+      addTask(fd)
+    }
   }
 
   return (
@@ -447,6 +463,10 @@ export default function Tasks() {
             const client = state.clients.find((c) => c.id === t.clientId)
             const c = state.cases.find((x) => x.id === t.relatedProcessId)
             const resp = state.users.find((u) => u.id === t.responsibleId)
+            const creator = t.created_by ? state.users.find((u) => u.id === t.created_by) : null
+            const completer = t.completed_by
+              ? state.users.find((u) => u.id === t.completed_by)
+              : null
             const isDone =
               t.status.toLowerCase() === 'concluída' || t.status.toLowerCase() === 'concluído'
 
@@ -473,7 +493,10 @@ export default function Tasks() {
                     {canComplete ? (
                       <button
                         onClick={() =>
-                          updateItem('tasks', t.id, { status: isDone ? 'Pendente' : 'Concluído' })
+                          updateItem('tasks', t.id, {
+                            status: isDone ? 'Pendente' : 'Concluído',
+                            completed_by: isDone ? null : state.currentUser?.id || null,
+                          })
                         }
                         className="mt-1 text-muted-foreground hover:text-primary transition-colors"
                       >
@@ -548,17 +571,45 @@ export default function Tasks() {
                             • Criada em: {formatSafeDateTime(t.created_at)}
                           </span>
                         )}
-                        {resp && (
-                          <span
-                            className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-white"
-                            style={{
-                              color: resp.color,
-                              border: `1px solid ${resp.color}40`,
-                            }}
-                          >
-                            Resp: {resp.name.split(' ')[0]}
-                          </span>
-                        )}
+                        <div className="ml-auto flex items-center gap-1.5 flex-wrap">
+                          {creator ? (
+                            <span
+                              className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-white"
+                              style={{
+                                color: creator.color,
+                                border: `1px solid ${creator.color}40`,
+                              }}
+                            >
+                              Criada por: {creator.name.split(' ')[0]}
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-white text-muted-foreground border border-slate-200">
+                              Criada por: —
+                            </span>
+                          )}
+                          {isDone && completer && (
+                            <span
+                              className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-white"
+                              style={{
+                                color: completer.color,
+                                border: `1px solid ${completer.color}40`,
+                              }}
+                            >
+                              Concluída por: {completer.name.split(' ')[0]}
+                            </span>
+                          )}
+                          {resp && (
+                            <span
+                              className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-white"
+                              style={{
+                                color: resp.color,
+                                border: `1px solid ${resp.color}40`,
+                              }}
+                            >
+                              Resp: {resp.name.split(' ')[0]}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
