@@ -42,6 +42,7 @@ export function TransactionDialog({
   onOpenChange,
   data,
   onSave,
+  onCancel,
   lockedProcessId,
   lockedClientId,
 }: any) {
@@ -93,23 +94,32 @@ export function TransactionDialog({
   const [isRecurring, setIsRecurring] = useState(false)
   const [installments, setInstallments] = useState('2')
 
+  const lastInitializedIdRef = useState<{ id: string | null }>({ id: null })[0]
+
   useEffect(() => {
     if (open) {
-      setFd(
-        data
-          ? {
-              ...data,
-              amount: data.amount != null ? data.amount.toString() : '',
-              date: data.date ?? '',
-              sendToFinance: data.sendToFinance !== false,
-              bankAccount: data.bankAccount || 'ASAAS',
-              supplierId: data.supplierId || '',
-              percentage: data.percentage != null ? data.percentage.toString() : '',
-            }
-          : getInitial(),
-      )
-      setIsRecurring(false)
-      setInstallments('2')
+      const dataId = data?.id || '__new__'
+      // Só sobrescreve os dados se o item mudou (ex: abriu outro registro) ou se ainda não foi inicializado
+      if (lastInitializedIdRef.id !== dataId) {
+        lastInitializedIdRef.id = dataId
+        setFd(
+          data
+            ? {
+                ...data,
+                amount: data.amount != null ? data.amount.toString() : '',
+                date: data.date ?? '',
+                sendToFinance: data.sendToFinance !== false,
+                bankAccount: data.bankAccount || 'ASAAS',
+                supplierId: data.supplierId || '',
+                percentage: data.percentage != null ? data.percentage.toString() : '',
+              }
+            : getInitial(),
+        )
+        setIsRecurring(false)
+        setInstallments('2')
+      }
+    } else {
+      // Quando fechar, se for cancelamento explícito, o chamador limpa
     }
   }, [data, open, lockedProcessId, lockedClientId])
 
@@ -361,41 +371,54 @@ export function TransactionDialog({
             )}
           </div>
           <DialogFooter className="flex justify-between items-center w-full">
-            {data?.id && (
+            <div className="flex items-center gap-2">
               <Button
                 type="button"
                 variant="outline"
-                className="border-blue-300 text-blue-700 hover:bg-blue-50"
-                onClick={async () => {
-                  try {
-                    toast({ title: 'Sincronizando com Asaas...' })
-                    const { data: syncRes, error } = await syncChargeWithAsaas(data.id)
-                    if (error) {
-                      toast({
-                        title: 'Erro',
-                        description: error.message || 'Falha ao sincronizar com Asaas',
-                        variant: 'destructive',
-                      })
-                    } else {
-                      toast({
-                        title: 'Sucesso',
-                        description:
-                          syncRes?.message || 'Cobrança sincronizada com Asaas com sucesso.',
-                      })
-                      onOpenChange(false)
-                    }
-                  } catch (err: any) {
-                    toast({
-                      title: 'Erro',
-                      description: err.message || 'Falha ao sincronizar com Asaas',
-                      variant: 'destructive',
-                    })
-                  }
+                onClick={() => {
+                  lastInitializedIdRef.id = null
+                  if (onCancel) onCancel()
+                  onOpenChange(false)
                 }}
               >
-                Sincronizar com Asaas
+                Cancelar
               </Button>
-            )}
+              {data?.id && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-blue-300 text-blue-700 hover:bg-blue-50"
+                  onClick={async () => {
+                    try {
+                      toast({ title: 'Sincronizando com Asaas...' })
+                      const { data: syncRes, error } = await syncChargeWithAsaas(data.id)
+                      if (error) {
+                        toast({
+                          title: 'Erro',
+                          description: error.message || 'Falha ao sincronizar com Asaas',
+                          variant: 'destructive',
+                        })
+                      } else {
+                        toast({
+                          title: 'Sucesso',
+                          description:
+                            syncRes?.message || 'Cobrança sincronizada com Asaas com sucesso.',
+                        })
+                        onOpenChange(false)
+                      }
+                    } catch (err: any) {
+                      toast({
+                        title: 'Erro',
+                        description: err.message || 'Falha ao sincronizar com Asaas',
+                        variant: 'destructive',
+                      })
+                    }
+                  }}
+                >
+                  Sincronizar com Asaas
+                </Button>
+              )}
+            </div>
             <Button type="submit">Salvar</Button>
           </DialogFooter>
         </form>

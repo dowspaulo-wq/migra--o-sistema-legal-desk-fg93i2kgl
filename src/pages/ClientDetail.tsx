@@ -51,24 +51,35 @@ import { LinkTransactionToCaseDialog } from '@/components/LinkTransactionToCaseD
 import { formatSafeLocalDate, formatPhone, getWhatsAppPhone } from '@/lib/utils'
 import { supabase } from '@/lib/supabase/client'
 import { getCaseStatusColor, getCaseStatusStyle } from '@/lib/case-status'
+import { useClientFeesFormStore } from '@/stores/useClientFeesFormStore'
 
 export default function ClientDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { state, updateItem, deleteItem, addCase, addAppointment } = useLegalStore()
+  const {
+    isCreateOpen: isFeeOpen,
+    activeClientId: feeActiveClientId,
+    openCreateFee,
+    closeCreateFee,
+    isEditOpen: isFeeEditOpen,
+    editDraft: feeEditDraft,
+    openEditFee,
+    closeEditFee,
+    clearEditDraft,
+  } = useClientFeesFormStore()
+
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [isCreatingCase, setIsCreatingCase] = useState(false)
   const [isApptOpen, setIsApptOpen] = useState(false)
   const [editingAppt, setEditingAppt] = useState<any>(null)
   const [syncingAsaas, setSyncingAsaas] = useState(false)
-  const [isFeeOpen, setIsFeeOpen] = useState(false)
   const [feeToDelete, setFeeToDelete] = useState<any>(null)
   const [deletingFee, setDeletingFee] = useState(false)
   const [feeDeleteError, setFeeDeleteError] = useState<string | null>(null)
   const [syncingFeeId, setSyncingFeeId] = useState<string | null>(null)
   const [bulkSyncing, setBulkSyncing] = useState(false)
   const [linkingTx, setLinkingTx] = useState<any>(null)
-  const [editingFee, setEditingFee] = useState<any>(null)
 
   const client = state.clients.find((c) => c.id === id)
   const allCases = state.cases.filter((c) => c.clientId === id)
@@ -312,31 +323,42 @@ export default function ClientDetail() {
       />
 
       <ClientFeesDialog
-        open={isFeeOpen}
-        onOpenChange={setIsFeeOpen}
+        open={isFeeOpen && feeActiveClientId === client.id}
+        onOpenChange={(v) => {
+          if (!v) closeCreateFee()
+          else openCreateFee(client.id)
+        }}
         clientId={client.id}
         cases={allCases}
       />
 
       <TransactionDialog
-        open={!!editingFee}
-        onOpenChange={(v: boolean) => !v && setEditingFee(null)}
-        data={editingFee}
+        open={isFeeEditOpen && feeEditDraft?.clientId === client.id && !!feeEditDraft?.data}
+        onOpenChange={(v: boolean) => {
+          if (!v) closeEditFee()
+        }}
+        data={feeEditDraft?.clientId === client.id ? feeEditDraft?.data : null}
+        onCancel={() => {
+          clearEditDraft()
+        }}
         onSave={(d: any) => {
-          updateItem('transactions', editingFee.id, d)
-          if (d.amount !== undefined) {
-            const linkedCaseIds = (state.transactionCases || [])
-              .filter((tc: any) => tc.transaction_id === editingFee.id)
-              .map((tc: any) => tc.case_id)
-            const allCaseIds = [
-              ...new Set([
-                ...linkedCaseIds,
-                ...(editingFee.processId ? [editingFee.processId] : []),
-              ]),
-            ]
-            allCaseIds.forEach((cid: string) => updateItem('cases', cid, { feeValue: d.amount }))
+          if (feeEditDraft?.feeId) {
+            const feeId = feeEditDraft.feeId
+            updateItem('transactions', feeId, d)
+            if (d.amount !== undefined) {
+              const linkedCaseIds = (state.transactionCases || [])
+                .filter((tc: any) => tc.transaction_id === feeId)
+                .map((tc: any) => tc.case_id)
+              const allCaseIds = [
+                ...new Set([
+                  ...linkedCaseIds,
+                  ...(feeEditDraft.data?.processId ? [feeEditDraft.data.processId] : []),
+                ]),
+              ]
+              allCaseIds.forEach((cid: string) => updateItem('cases', cid, { feeValue: d.amount }))
+            }
           }
-          setEditingFee(null)
+          clearEditDraft()
         }}
       />
 
@@ -783,7 +805,7 @@ export default function ClientDetail() {
                 <Send className={`h-4 w-4 mr-2 ${bulkSyncing ? 'animate-pulse' : ''}`} />
                 {bulkSyncing ? 'Enviando...' : 'Enviar todas para o ASSAS'}
               </Button>
-              <Button variant="outline" size="sm" onClick={() => setIsFeeOpen(true)}>
+              <Button variant="outline" size="sm" onClick={() => openCreateFee(client.id)}>
                 <Plus className="h-4 w-4 mr-2" /> Novo Honorário
               </Button>
             </div>
@@ -866,7 +888,7 @@ export default function ClientDetail() {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8 text-slate-500 hover:text-slate-700"
-                          onClick={() => setEditingFee(t)}
+                          onClick={() => openEditFee(client.id, t)}
                           title="Editar"
                         >
                           <Edit className="h-4 w-4" />
@@ -989,7 +1011,7 @@ export default function ClientDetail() {
                                 variant="ghost"
                                 size="icon"
                                 className="h-7 w-7 text-slate-500 hover:text-slate-700"
-                                onClick={() => setEditingFee(t)}
+                                onClick={() => openEditFee(client.id, t)}
                                 title="Editar"
                               >
                                 <Edit className="h-3.5 w-3.5" />

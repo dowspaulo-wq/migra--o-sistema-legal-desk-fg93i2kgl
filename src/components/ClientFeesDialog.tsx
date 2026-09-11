@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useEffect } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -18,6 +18,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import useLegalStore from '@/stores/useLegalStore'
+import { useClientFeesFormStore } from '@/stores/useClientFeesFormStore'
 import { toast } from '@/hooks/use-toast'
 import { getFeeTypeOptions, isSuccessFeeType, isNonFinancialFeeType } from '@/lib/fee-types'
 
@@ -26,73 +27,103 @@ export function ClientFeesDialog({
   onOpenChange,
   clientId,
   cases,
+  onCancel,
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
   clientId: string
   cases: any[]
+  onCancel?: () => void
 }) {
   const { state, addClientFee } = useLegalStore()
+  const { draft, setDraft, clearDraft, activeClientId } = useClientFeesFormStore()
 
   const transactionCategories = (state.settings?.transactionCategories as string[]) || []
   const feeTypeOptions = getFeeTypeOptions(transactionCategories)
 
-  const [description, setDescription] = useState('')
-  const [amount, setAmount] = useState('')
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0])
-  const [installments, setInstallments] = useState('1')
-  const [paymentMethod, setPaymentMethod] = useState('PIX')
-  const [bankAccount, setBankAccount] = useState('ASAAS')
-  const [status, setStatus] = useState('Previsto')
-  const [feeType, setFeeType] = useState('Honorários Contratuais')
-  const [percentage, setPercentage] = useState('')
-  const [selectedCases, setSelectedCases] = useState<string[]>([])
-
-  const isSuccessFee = isSuccessFeeType(feeType)
-  const isNonFinancial = isNonFinancialFeeType(feeType)
-
+  // Inicializa o rascunho apenas se ainda não existir ou for de outro cliente
   useEffect(() => {
-    if (open) {
+    if (open && (!draft || activeClientId !== clientId)) {
       const initialType = transactionCategories[0] || 'Honorários Contratuais'
       const isInitialSuccess = isSuccessFeeType(initialType)
-      setDescription('')
-      setAmount('')
-      setDate(isInitialSuccess ? '' : new Date().toISOString().split('T')[0])
-      setInstallments('1')
-      setPaymentMethod('PIX')
-      setBankAccount(state.settings?.bankAccounts?.[0] || 'ASAAS')
-      setStatus(isInitialSuccess ? 'Êxito' : 'Previsto')
-      setFeeType(initialType)
-      setPercentage('')
-      setSelectedCases([])
+      const defaultBank = state.settings?.bankAccounts?.[0] || 'ASAAS'
+
+      setDraft({
+        description: '',
+        amount: '',
+        date: isInitialSuccess ? '' : new Date().toISOString().split('T')[0],
+        installments: '1',
+        paymentMethod: 'PIX',
+        bankAccount: defaultBank,
+        status: isInitialSuccess ? 'Êxito' : 'Previsto',
+        feeType: initialType,
+        percentage: '',
+        selectedCases: [],
+      })
     }
-  }, [open, state.settings])
+  }, [
+    open,
+    clientId,
+    activeClientId,
+    draft,
+    state.settings?.bankAccounts,
+    transactionCategories,
+    setDraft,
+  ])
+
+  const currentDraft = draft || {
+    description: '',
+    amount: '',
+    date: new Date().toISOString().split('T')[0],
+    installments: '1',
+    paymentMethod: 'PIX',
+    bankAccount: state.settings?.bankAccounts?.[0] || 'ASAAS',
+    status: 'Previsto',
+    feeType: transactionCategories[0] || 'Honorários Contratuais',
+    percentage: '',
+    selectedCases: [],
+  }
+
+  const isSuccessFee = isSuccessFeeType(currentDraft.feeType)
+  const isNonFinancial = isNonFinancialFeeType(currentDraft.feeType)
 
   const bankOptions = Array.from(
     new Set([...(state.settings?.bankAccounts || ['ASAAS', 'SICOOB', 'CAIXA', 'PESSOAL'])]),
   )
 
   const toggleCase = (caseId: string) => {
-    setSelectedCases((prev) =>
-      prev.includes(caseId) ? prev.filter((id) => id !== caseId) : [...prev, caseId],
-    )
+    setDraft((prev) => ({
+      ...prev,
+      selectedCases: prev.selectedCases.includes(caseId)
+        ? prev.selectedCases.filter((id) => id !== caseId)
+        : [...prev.selectedCases, caseId],
+    }))
   }
 
   const handleFeeTypeChange = (newFeeType: string) => {
-    setFeeType(newFeeType)
-    if (isSuccessFeeType(newFeeType)) {
-      setStatus('Êxito')
-      setDate('')
-    } else if (!date) {
-      setDate(new Date().toISOString().split('T')[0])
-      if (status === 'Êxito') setStatus('Previsto')
-    }
+    const isNewSuccess = isSuccessFeeType(newFeeType)
+    setDraft((prev) => ({
+      ...prev,
+      feeType: newFeeType,
+      status: isNewSuccess ? 'Êxito' : prev.status === 'Êxito' ? 'Previsto' : prev.status,
+      date: isNewSuccess ? '' : !prev.date ? new Date().toISOString().split('T')[0] : prev.date,
+    }))
+  }
+
+  const handleCancel = () => {
+    clearDraft()
+    if (onCancel) onCancel()
+    onOpenChange(false)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!description || !amount || (!date && !isSuccessFee)) {
+    if (
+      !currentDraft.description ||
+      !currentDraft.amount ||
+      (!currentDraft.date && !isSuccessFee)
+    ) {
       toast({
         title: 'Campos Obrigatórios',
         description: isSuccessFee
@@ -103,30 +134,46 @@ export function ClientFeesDialog({
       return
     }
 
-    const parsedAmount = parseFloat(amount.replace(',', '.'))
-    const parsedInstallments = parseInt(installments, 10) || 1
+    const parsedAmount = parseFloat(currentDraft.amount.replace(',', '.'))
+    const parsedInstallments = parseInt(currentDraft.installments, 10) || 1
 
     await addClientFee({
       amount: parsedAmount,
-      description,
-      date: date || new Date().toISOString().split('T')[0],
+      description: currentDraft.description,
+      date: currentDraft.date || new Date().toISOString().split('T')[0],
       clientId,
-      caseIds: selectedCases,
-      bankAccount,
-      status,
+      caseIds: currentDraft.selectedCases,
+      bankAccount: currentDraft.bankAccount,
+      status: currentDraft.status,
       installments: parsedInstallments,
-      paymentMethod,
-      feeType,
-      percentage: isSuccessFee ? parseFloat(percentage.replace(',', '.')) || undefined : undefined,
+      paymentMethod: currentDraft.paymentMethod,
+      feeType: currentDraft.feeType,
+      percentage: isSuccessFee
+        ? parseFloat(currentDraft.percentage.replace(',', '.')) || undefined
+        : undefined,
     })
 
+    // Ao salvar com sucesso, limpa o rascunho persistido
+    clearDraft()
     onOpenChange(false)
   }
 
-  const installmentValue = parseFloat(amount.replace(',', '.')) / (parseInt(installments, 10) || 1)
+  const installmentValue =
+    parseFloat(currentDraft.amount.replace(',', '.')) /
+    (parseInt(currentDraft.installments, 10) || 1)
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) {
+          // Quando o usuário fecha pelo 'X' ou backdrop, fechamos a visualização mas NÃO apagamos os dados digitados
+          onOpenChange(false)
+        } else {
+          onOpenChange(true)
+        }
+      }}
+    >
       <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <form onSubmit={handleSubmit} className="grid gap-4">
           <DialogHeader>
@@ -135,7 +182,7 @@ export function ClientFeesDialog({
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Tipo de Honorário *</Label>
-              <Select value={feeType} onValueChange={handleFeeTypeChange}>
+              <Select value={currentDraft.feeType} onValueChange={handleFeeTypeChange}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -153,8 +200,8 @@ export function ClientFeesDialog({
               <Input
                 required
                 placeholder="Ex: Honorários contratuais"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
+                value={currentDraft.description}
+                onChange={(e) => setDraft({ description: e.target.value })}
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -164,8 +211,8 @@ export function ClientFeesDialog({
                   type="number"
                   step="0.01"
                   required
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
+                  value={currentDraft.amount}
+                  onChange={(e) => setDraft({ amount: e.target.value })}
                 />
               </div>
               <div className="space-y-2">
@@ -174,8 +221,8 @@ export function ClientFeesDialog({
                   type="number"
                   min="1"
                   max="120"
-                  value={installments}
-                  onChange={(e) => setInstallments(e.target.value)}
+                  value={currentDraft.installments}
+                  onChange={(e) => setDraft({ installments: e.target.value })}
                 />
               </div>
             </div>
@@ -188,8 +235,8 @@ export function ClientFeesDialog({
                   min="0"
                   max="100"
                   placeholder="Ex: 30"
-                  value={percentage}
-                  onChange={(e) => setPercentage(e.target.value)}
+                  value={currentDraft.percentage}
+                  onChange={(e) => setDraft({ percentage: e.target.value })}
                 />
               </div>
             )}
@@ -199,13 +246,16 @@ export function ClientFeesDialog({
                 <Input
                   type="date"
                   required={!isSuccessFee}
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
+                  value={currentDraft.date}
+                  onChange={(e) => setDraft({ date: e.target.value })}
                 />
               </div>
               <div className="space-y-2">
                 <Label>Forma de Pagamento</Label>
-                <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                <Select
+                  value={currentDraft.paymentMethod}
+                  onValueChange={(val) => setDraft({ paymentMethod: val })}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -219,7 +269,10 @@ export function ClientFeesDialog({
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Status</Label>
-                <Select value={status} onValueChange={setStatus}>
+                <Select
+                  value={currentDraft.status}
+                  onValueChange={(val) => setDraft({ status: val })}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -235,7 +288,10 @@ export function ClientFeesDialog({
               </div>
               <div className="space-y-2">
                 <Label>Banco / Conta</Label>
-                <Select value={bankAccount} onValueChange={setBankAccount}>
+                <Select
+                  value={currentDraft.bankAccount}
+                  onValueChange={(val) => setDraft({ bankAccount: val })}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -257,7 +313,7 @@ export function ClientFeesDialog({
                     <div key={c.id} className="flex items-center space-x-2">
                       <Checkbox
                         id={`fee-case-${c.id}`}
-                        checked={selectedCases.includes(c.id)}
+                        checked={currentDraft.selectedCases.includes(c.id)}
                         onCheckedChange={() => toggleCase(c.id)}
                       />
                       <Label htmlFor={`fee-case-${c.id}`} className="text-sm cursor-pointer">
@@ -278,21 +334,21 @@ export function ClientFeesDialog({
               <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-sm text-blue-700">
                 ℹ️ Honorários de Êxito: o vencimento é opcional pois a data de recebimento é
                 incerta. O status será definido como "Êxito".
-                {percentage && (
+                {currentDraft.percentage && (
                   <>
                     {' '}
-                    Percentual de {parseFloat(percentage.replace(',', '.'))}% aplicado sobre o valor
-                    do processo.
+                    Percentual de {parseFloat(currentDraft.percentage.replace(',', '.'))}% aplicado
+                    sobre o valor do processo.
                   </>
                 )}
               </div>
             )}
             {!isNonFinancial &&
               !isSuccessFee &&
-              parseInt(installments, 10) > 1 &&
+              parseInt(currentDraft.installments, 10) > 1 &&
               !isNaN(installmentValue) && (
                 <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-sm text-blue-700">
-                  Serão criadas {installments} parcelas de R${' '}
+                  Serão criadas {currentDraft.installments} parcelas de R${' '}
                   {installmentValue.toLocaleString('pt-BR', {
                     minimumFractionDigits: 2,
                   })}{' '}
@@ -300,7 +356,10 @@ export function ClientFeesDialog({
                 </div>
               )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex justify-between items-center w-full">
+            <Button type="button" variant="outline" onClick={handleCancel}>
+              Cancelar
+            </Button>
             <Button type="submit">Salvar</Button>
           </DialogFooter>
         </form>
