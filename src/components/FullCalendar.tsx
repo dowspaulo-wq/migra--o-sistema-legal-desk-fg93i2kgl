@@ -63,16 +63,29 @@ export function FullCalendar<T extends { id: string; date: string }>({
             ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
             : ''
 
+          const isToday = Boolean(d && dateStr === todayStr)
+          const isPast = Boolean(d && dateStr < todayStr)
+
+          const dayBgClass = !d
+            ? 'bg-muted/30'
+            : isToday
+              ? 'bg-green-50/70 dark:bg-green-950/20'
+              : isPast
+                ? 'bg-neutral-100 dark:bg-muted/40'
+                : 'bg-card'
+
+          const dayBorderClass = isToday ? 'border-primary ring-1 ring-primary/40' : 'border'
+
           return (
             <div
               key={i}
-              className={`min-h-[140px] h-full border rounded-lg p-1 bg-card ${d ? 'hover:border-primary/50 cursor-pointer' : 'bg-muted/30'} flex flex-col`}
+              className={`min-h-[140px] h-full rounded-lg p-1 ${dayBorderClass} ${dayBgClass} ${d ? 'hover:border-primary/50 cursor-pointer transition-colors' : ''} flex flex-col`}
               onClick={() => d && onDayClick?.(d)}
             >
               {d && (
                 <>
                   <div
-                    className={`text-right text-xs p-1 mb-1 ${dateStr === todayStr ? 'font-bold text-primary bg-primary/10 rounded w-fit ml-auto' : 'text-muted-foreground'}`}
+                    className={`text-right text-xs p-1 mb-1 ${isToday ? 'font-bold text-primary bg-primary/10 rounded w-fit ml-auto' : 'text-muted-foreground'}`}
                   >
                     {d.getDate()}
                   </div>
