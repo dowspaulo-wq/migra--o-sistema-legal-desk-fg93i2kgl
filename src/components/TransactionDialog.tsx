@@ -48,14 +48,30 @@ export function TransactionDialog({
 }: any) {
   const { state } = useLegalStore() as any
 
-  const categories: string[] = (state?.settings?.transactionCategories as string[])?.length
-    ? (state.settings.transactionCategories as string[])
-    : DEFAULT_CATEGORIES
+  const categories: string[] = Array.from(
+    new Set([
+      ...((state?.settings?.transactionCategories as string[])?.length
+        ? (state.settings.transactionCategories as string[])
+        : DEFAULT_CATEGORIES),
+      ...(data?.category ? [data.category] : []),
+    ]),
+  ).sort()
 
   const bankOptions = Array.from(
     new Set([
       ...(state?.settings?.bankAccounts || ['ASAAS', 'SICOOB', 'CAIXA', 'PESSOAL']),
       ...(data?.bankAccount ? [data.bankAccount] : []),
+    ]),
+  )
+
+  const paymentMethodOptions = Array.from(
+    new Set([
+      'PIX',
+      'Boleto',
+      'Cartão',
+      'Transferência',
+      'Dinheiro',
+      ...(data?.payment_method ? [data.payment_method] : []),
     ]),
   )
 
@@ -75,6 +91,7 @@ export function TransactionDialog({
     bankAccount: state?.settings?.bankAccounts?.[0] || 'ASAAS',
     supplierId: '',
     percentage: '',
+    payment_method: 'PIX',
   })
 
   const [fd, setFd] = useState(() =>
@@ -87,6 +104,7 @@ export function TransactionDialog({
           bankAccount: data.bankAccount || state?.settings?.bankAccounts?.[0] || 'ASAAS',
           supplierId: data.supplierId || '',
           percentage: data.percentage != null ? data.percentage.toString() : '',
+          payment_method: data.payment_method || 'PIX',
         }
       : getInitial(),
   )
@@ -112,6 +130,7 @@ export function TransactionDialog({
                 bankAccount: data.bankAccount || 'ASAAS',
                 supplierId: data.supplierId || '',
                 percentage: data.percentage != null ? data.percentage.toString() : '',
+                payment_method: data.payment_method || 'PIX',
               }
             : getInitial(),
         )
@@ -328,6 +347,25 @@ export function TransactionDialog({
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Forma de Pagamento</Label>
+              <Select
+                value={fd.payment_method || 'PIX'}
+                onValueChange={(v) => setFd({ ...fd, payment_method: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Forma de Pagamento" />
+                </SelectTrigger>
+                <SelectContent>
+                  {paymentMethodOptions.map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {m}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             {lockedProcessId && (

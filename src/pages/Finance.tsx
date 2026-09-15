@@ -708,7 +708,7 @@ export default function Finance() {
                       <TableHead>Processos</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Valor</TableHead>
-                      <TableHead className="w-[50px]"></TableHead>
+                      <TableHead className="w-[80px]"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -777,6 +777,18 @@ export default function Finance() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              className="h-8 w-8 text-slate-500 hover:text-slate-700 hover:bg-slate-100 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setEditingTransaction(t)
+                              }}
+                              title="Editar Lançamento"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
                               className="h-8 w-8 text-purple-500 hover:text-purple-700 hover:bg-purple-50 opacity-0 group-hover:opacity-100 transition-opacity"
                               onClick={(e) => {
                                 e.stopPropagation()
@@ -812,6 +824,7 @@ export default function Finance() {
                                 setTxToDelete(t)
                                 setTxDeleteError(null)
                               }}
+                              title="Excluir"
                             >
                               <Trash className="h-4 w-4" />
                             </Button>
