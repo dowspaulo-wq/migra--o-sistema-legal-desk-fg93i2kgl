@@ -177,8 +177,16 @@ export default function Clients() {
                   Nome: c.name,
                   Documento: c.document || '',
                   Tipo: c.type || '',
-                  'E-mail': c.email || '',
-                  Telefone: c.phone || '',
+                  'E-mail': c.email_na
+                    ? 'Não se aplica'
+                    : c.no_email
+                      ? 'Sem e-mail'
+                      : c.email || '',
+                  Telefone: c.phone_na
+                    ? 'Não se aplica'
+                    : c.no_phone
+                      ? 'Sem telefone'
+                      : c.phone || '',
                   Endereço: c.address || '',
                   CEP: c.cep || '',
                   Rua: c.street || '',
@@ -521,17 +529,32 @@ export default function Clients() {
                           </div>
                         </TableCell>
                         <TableCell>{c.document}</TableCell>
-                        <TableCell className="text-sm flex items-center gap-2">
-                          {c.phone ? formatPhone(c.phone) : '—'}{' '}
-                          {c.phone && getWhatsAppPhone(c.phone) && (
-                            <a
-                              href={`https://wa.me/${getWhatsAppPhone(c.phone)}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-green-500 hover:scale-110 transition-transform"
-                            >
-                              <MessageCircle className="h-4 w-4" />
-                            </a>
+                        <TableCell className="text-sm">
+                          {c.phone_na ? (
+                            <span className="text-muted-foreground italic text-xs">
+                              Não se aplica
+                            </span>
+                          ) : c.no_phone ? (
+                            <span className="text-muted-foreground italic text-xs">
+                              Sem telefone
+                            </span>
+                          ) : c.phone ? (
+                            <div className="flex items-center gap-2">
+                              <span>{formatPhone(c.phone)}</span>
+                              {getWhatsAppPhone(c.phone) && (
+                                <a
+                                  href={`https://wa.me/${getWhatsAppPhone(c.phone)}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-green-500 hover:scale-110 transition-transform"
+                                  title="Abrir WhatsApp"
+                                >
+                                  <MessageCircle className="h-4 w-4" />
+                                </a>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">Não informado</span>
                           )}
                         </TableCell>
                         <TableCell>
@@ -665,16 +688,32 @@ export default function Clients() {
                           Captação: <span className="font-medium">{c.captacao || '—'}</span>
                         </p>
                         <p className="flex items-center gap-2">
-                          Tel: {c.phone ? formatPhone(c.phone) : '—'}{' '}
-                          {c.phone && getWhatsAppPhone(c.phone) && (
-                            <a
-                              href={`https://wa.me/${getWhatsAppPhone(c.phone)}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-green-500"
-                            >
-                              <MessageCircle className="h-4 w-4" />
-                            </a>
+                          Tel:{' '}
+                          {c.phone_na ? (
+                            <span className="text-muted-foreground italic text-xs">
+                              Não se aplica
+                            </span>
+                          ) : c.no_phone ? (
+                            <span className="text-muted-foreground italic text-xs">
+                              Sem telefone
+                            </span>
+                          ) : c.phone ? (
+                            <>
+                              <span>{formatPhone(c.phone)}</span>
+                              {getWhatsAppPhone(c.phone) && (
+                                <a
+                                  href={`https://wa.me/${getWhatsAppPhone(c.phone)}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-green-500"
+                                  title="Abrir WhatsApp"
+                                >
+                                  <MessageCircle className="h-4 w-4" />
+                                </a>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-muted-foreground">Não informado</span>
                           )}
                         </p>
                         <p>

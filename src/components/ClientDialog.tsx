@@ -18,6 +18,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Toggle } from '@/components/ui/toggle'
 import { Textarea } from '@/components/ui/textarea'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Star } from 'lucide-react'
 import { RichTextEditor } from '@/components/RichTextEditor'
 import useLegalStore from '@/stores/useLegalStore'
@@ -39,6 +40,10 @@ function getEmptyForm(users: any[]) {
     type: '',
     email: '',
     phone: '',
+    no_phone: false,
+    no_email: false,
+    phone_na: false,
+    email_na: false,
     address: '',
     cep: '',
     street: '',
@@ -151,11 +156,20 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
     }
 
     const mandatoryErrors: Record<string, string> = {}
-    if (!fd.email?.trim()) mandatoryErrors.email = 'Este campo é obrigatório'
-    if (!fd.phone?.trim()) {
-      mandatoryErrors.phone = 'Este campo é obrigatório'
-    } else if (!isValidClientPhone(fd.phone)) {
-      mandatoryErrors.phone = 'Informe DDD + número (8 ou 9 dígitos). Ex.: (31) 98765-4321'
+    const emailExempt = !!fd.no_email || !!fd.email_na
+    const phoneExempt = !!fd.no_phone || !!fd.phone_na
+
+    if (!emailExempt) {
+      if (!fd.email?.trim()) {
+        mandatoryErrors.email = 'Este campo é obrigatório'
+      }
+    }
+    if (!phoneExempt) {
+      if (!fd.phone?.trim()) {
+        mandatoryErrors.phone = 'Este campo é obrigatório'
+      } else if (!isValidClientPhone(fd.phone)) {
+        mandatoryErrors.phone = 'Informe DDD + número (8 ou 9 dígitos). Ex.: (31) 98765-4321'
+      }
     }
     if (!fd.document?.trim()) {
       mandatoryErrors.document = 'Este campo é obrigatório'
@@ -167,9 +181,16 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
     }
     if (Object.keys(mandatoryErrors).length > 0) {
       setFormErrors(mandatoryErrors)
+      const missingList: string[] = []
+      if (!emailExempt && !fd.email?.trim()) missingList.push('E-mail')
+      if (!phoneExempt && (!fd.phone?.trim() || !isValidClientPhone(fd.phone)))
+        missingList.push('Celular')
+      if (!fd.document?.trim() || !isValidDocumentFormat(fd.document, fd.type)) {
+        missingList.push(fd.type === 'PJ' ? 'CNPJ' : 'CPF')
+      }
       toast({
         title: 'Campos Obrigatórios',
-        description: 'E-mail, Celular e CPF/CNPJ são de preenchimento obrigatório.',
+        description: `Verifique os campos: ${missingList.join(', ')}.`,
         variant: 'destructive',
       })
       return
@@ -218,13 +239,19 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
       .filter(Boolean)
       .join(', ')
 
-    const sanitizedPhone = sanitizeClientPhone(fd.phone)
+    const sanitizedPhone = phoneExempt ? '' : sanitizeClientPhone(fd.phone)
+    const sanitizedEmail = emailExempt ? '' : (fd.email || '').trim()
 
     const payload = {
       ...fd,
       marital_status: fd.type === 'PJ' ? null : fd.marital_status || null,
       address: fullAddress,
       phone: sanitizedPhone,
+      email: sanitizedEmail,
+      no_phone: !!fd.no_phone,
+      no_email: !!fd.no_email,
+      phone_na: fd.type === 'PJ' ? !!fd.phone_na : false,
+      email_na: fd.type === 'PJ' ? !!fd.email_na : false,
     }
     const { isNew, ...finalPayload } = payload
 
@@ -298,6 +325,8 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
                     type: v,
                     document: isShorter ? '' : reFormatted,
                     marital_status: v === 'PJ' ? '' : fd.marital_status,
+                    phone_na: v === 'PJ' ? fd.phone_na : false,
+                    email_na: v === 'PJ' ? fd.email_na : false,
                   })
                   setFormErrors((prev) => ({ ...prev, document: '' }))
                 }}
@@ -380,26 +409,83 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
             </div>
 
             <div className="space-y-2">
-              <Label>
-                E-mail <span className="text-red-500">*</span>
+              <Label className={fd.no_email || fd.email_na ? 'text-muted-foreground' : ''}>
+                E-mail {!fd.no_email && !fd.email_na && <span className="text-red-500">*</span>}
               </Label>
               <Input
                 type="email"
-                value={fd.email}
+                disabled={!!fd.no_email || !!fd.email_na}
+                placeholder={
+                  fd.email_na ? 'Não se aplica' : fd.no_email ? 'Sem e-mail' : 'exemplo@email.com'
+                }
+                className={
+                  fd.no_email || fd.email_na
+                    ? 'bg-muted/50 cursor-not-allowed text-muted-foreground'
+                    : ''
+                }
+                value={fd.no_email || fd.email_na ? '' : fd.email || ''}
                 onChange={(e) => {
                   setFd({ ...fd, email: e.target.value })
                   setFormErrors((prev) => ({ ...prev, email: '' }))
                 }}
               />
+              <div className="flex flex-wrap items-center gap-4 pt-1">
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none hover:text-foreground">
+                  <Checkbox
+                    checked={!!fd.no_email}
+                    onCheckedChange={(checked) => {
+                      const isChecked = !!checked
+                      setFd((prev: any) => ({
+                        ...prev,
+                        no_email: isChecked,
+                        ...(isChecked ? { email_na: false, email: '' } : {}),
+                      }))
+                      if (isChecked) {
+                        setFormErrors((prev) => ({ ...prev, email: '' }))
+                      }
+                    }}
+                  />
+                  <span>Sem e-mail</span>
+                </label>
+                {fd.type === 'PJ' && (
+                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none hover:text-foreground">
+                    <Checkbox
+                      checked={!!fd.email_na}
+                      onCheckedChange={(checked) => {
+                        const isChecked = !!checked
+                        setFd((prev: any) => ({
+                          ...prev,
+                          email_na: isChecked,
+                          ...(isChecked ? { no_email: false, email: '' } : {}),
+                        }))
+                        if (isChecked) {
+                          setFormErrors((prev) => ({ ...prev, email: '' }))
+                        }
+                      }}
+                    />
+                    <span>Não se aplica</span>
+                  </label>
+                )}
+              </div>
               {formErrors.email && <p className="text-xs text-red-500">{formErrors.email}</p>}
             </div>
 
             <div className="space-y-2">
-              <Label>
-                Celular (com DDD) <span className="text-red-500">*</span>
+              <Label className={fd.no_phone || fd.phone_na ? 'text-muted-foreground' : ''}>
+                Celular (com DDD){' '}
+                {!fd.no_phone && !fd.phone_na && <span className="text-red-500">*</span>}
               </Label>
               <Input
-                value={formatPhone(fd.phone || '')}
+                disabled={!!fd.no_phone || !!fd.phone_na}
+                placeholder={
+                  fd.phone_na ? 'Não se aplica' : fd.no_phone ? 'Sem telefone' : '(31) 98765-4321'
+                }
+                className={
+                  fd.no_phone || fd.phone_na
+                    ? 'bg-muted/50 cursor-not-allowed text-muted-foreground'
+                    : ''
+                }
+                value={fd.no_phone || fd.phone_na ? '' : formatPhone(fd.phone || '')}
                 onChange={(e) => {
                   const rawDigits = sanitizeClientPhone(e.target.value)
                   setFd({ ...fd, phone: rawDigits })
@@ -407,8 +493,45 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
                 }}
                 inputMode="numeric"
                 maxLength={15}
-                placeholder="(31) 98765-4321"
               />
+              <div className="flex flex-wrap items-center gap-4 pt-1">
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none hover:text-foreground">
+                  <Checkbox
+                    checked={!!fd.no_phone}
+                    onCheckedChange={(checked) => {
+                      const isChecked = !!checked
+                      setFd((prev: any) => ({
+                        ...prev,
+                        no_phone: isChecked,
+                        ...(isChecked ? { phone_na: false, phone: '' } : {}),
+                      }))
+                      if (isChecked) {
+                        setFormErrors((prev) => ({ ...prev, phone: '' }))
+                      }
+                    }}
+                  />
+                  <span>Sem telefone</span>
+                </label>
+                {fd.type === 'PJ' && (
+                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none hover:text-foreground">
+                    <Checkbox
+                      checked={!!fd.phone_na}
+                      onCheckedChange={(checked) => {
+                        const isChecked = !!checked
+                        setFd((prev: any) => ({
+                          ...prev,
+                          phone_na: isChecked,
+                          ...(isChecked ? { no_phone: false, phone: '' } : {}),
+                        }))
+                        if (isChecked) {
+                          setFormErrors((prev) => ({ ...prev, phone: '' }))
+                        }
+                      }}
+                    />
+                    <span>Não se aplica</span>
+                  </label>
+                )}
+              </div>
               {formErrors.phone && <p className="text-xs text-red-500">{formErrors.phone}</p>}
             </div>
 

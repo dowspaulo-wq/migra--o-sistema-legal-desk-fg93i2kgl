@@ -21,6 +21,10 @@ export interface Client {
   observacoes: string
   captacao?: string
   classification?: string
+  no_phone?: boolean
+  no_email?: boolean
+  phone_na?: boolean
+  email_na?: boolean
 }
 export interface Case {
   id: string

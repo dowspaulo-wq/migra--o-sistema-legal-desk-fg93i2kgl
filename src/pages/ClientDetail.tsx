@@ -492,25 +492,44 @@ export default function ClientDetail() {
               <p className="text-sm text-muted-foreground flex items-center gap-2">
                 <Mail className="h-4 w-4" /> Email
               </p>
-              <p className="font-medium text-sm">{client.email || 'Não informado'}</p>
+              <p className="font-medium text-sm">
+                {client.email_na ? (
+                  <span className="text-muted-foreground italic">Não se aplica</span>
+                ) : client.no_email ? (
+                  <span className="text-muted-foreground italic">Sem e-mail</span>
+                ) : (
+                  client.email || 'Não informado'
+                )}
+              </p>
             </div>
             <div>
               <p className="text-sm text-muted-foreground flex items-center gap-2">
                 <MessageCircle className="h-4 w-4" /> Celular
               </p>
-              <p className="font-medium flex items-center gap-2 text-sm">
-                {client.phone ? formatPhone(client.phone) : 'Não informado'}
-                {client.phone && getWhatsAppPhone(client.phone) && (
-                  <a
-                    href={`https://wa.me/${getWhatsAppPhone(client.phone)}`}
-                    target="_blank"
-                    className="text-green-500 hover:scale-110 transition-transform"
-                    rel="noreferrer"
-                  >
-                    <MessageCircle className="h-4 w-4" />
-                  </a>
+              <div className="font-medium flex items-center gap-2 text-sm">
+                {client.phone_na ? (
+                  <span className="text-muted-foreground italic">Não se aplica</span>
+                ) : client.no_phone ? (
+                  <span className="text-muted-foreground italic">Sem telefone</span>
+                ) : client.phone ? (
+                  <>
+                    <span>{formatPhone(client.phone)}</span>
+                    {getWhatsAppPhone(client.phone) && (
+                      <a
+                        href={`https://wa.me/${getWhatsAppPhone(client.phone)}`}
+                        target="_blank"
+                        className="text-green-500 hover:scale-110 transition-transform"
+                        rel="noreferrer"
+                        title="Abrir WhatsApp"
+                      >
+                        <MessageCircle className="h-4 w-4" />
+                      </a>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-muted-foreground">Não informado</span>
                 )}
-              </p>
+              </div>
             </div>
             <div>
               <p className="text-sm text-muted-foreground flex items-center gap-2">

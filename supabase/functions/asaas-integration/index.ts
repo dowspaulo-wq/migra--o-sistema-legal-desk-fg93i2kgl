@@ -104,12 +104,15 @@ Deno.serve(async (req: Request) => {
         .filter(Boolean)
         .join(', ')
 
+      const hasNoPhone = (client as any).no_phone || (client as any).phone_na
+      const hasNoEmail = (client as any).no_email || (client as any).email_na
+
       const customerData: any = {
         name: client.name,
         cpfCnpj: normalizeDocument(client.document) || undefined,
-        email: client.email || undefined,
-        phone: formatPhone(client.phone),
-        mobilePhone: formatPhone(client.phone),
+        email: !hasNoEmail && client.email ? client.email : undefined,
+        phone: !hasNoPhone ? formatPhone(client.phone) : undefined,
+        mobilePhone: !hasNoPhone ? formatPhone(client.phone) : undefined,
         postalCode: formatCep((client as any).cep),
         address: (client as any).street || client.address || undefined,
         addressNumber: (client as any).number || undefined,
