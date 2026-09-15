@@ -137,16 +137,21 @@ export function ConciliationTab({
     const changes: Record<string, any> = supplierId
       ? {
           supplierId,
+          clientId: null,
+          processId: null,
           pendente_vinculo: false,
         }
       : isExpense
         ? {
             clientId,
+            supplierId: null,
+            processId: null,
             pendente_vinculo: false,
           }
         : {
             clientId,
             processId,
+            supplierId: null,
             pendente_vinculo: false,
           }
 

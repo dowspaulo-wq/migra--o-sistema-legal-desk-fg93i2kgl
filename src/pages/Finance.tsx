@@ -172,7 +172,7 @@ export default function Finance() {
       }
       if (t.type === 'income') {
         dataByDate[t.date].income += t.amount
-      } else {
+      } else if (t.category !== 'Repasse ao cliente') {
         dataByDate[t.date].expense += t.amount
       }
     })
@@ -282,7 +282,12 @@ export default function Finance() {
   if (!state.currentUser.canViewFinance) return <Navigate to="/" replace />
 
   const income = filtered.filter((t) => t.type === 'income').reduce((a, b) => a + b.amount, 0)
-  const expense = filtered.filter((t) => t.type === 'expense').reduce((a, b) => a + b.amount, 0)
+  const expense = filtered
+    .filter((t) => t.type === 'expense' && t.category !== 'Repasse ao cliente')
+    .reduce((a, b) => a + b.amount, 0)
+  const clientRepassTotal = filtered
+    .filter((t) => t.type === 'expense' && t.category === 'Repasse ao cliente')
+    .reduce((a, b) => a + b.amount, 0)
   const balance = income - expense
 
   return (
@@ -489,7 +494,7 @@ export default function Finance() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <Card className="bg-green-50 border-green-200">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-green-800">Entradas</CardTitle>
@@ -520,6 +525,19 @@ export default function Finance() {
             <div className="text-2xl font-bold">
               R$ {balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
             </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-blue-50 border-blue-200">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-blue-800">
+              Repasses a clientes (neutro)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-700">
+              R$ {clientRepassTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            </div>
+            <p className="text-[11px] text-blue-600 mt-1">Fora do total de saídas</p>
           </CardContent>
         </Card>
       </div>
