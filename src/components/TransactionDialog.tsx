@@ -301,8 +301,9 @@ export function TransactionDialog({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Nenhum</SelectItem>
-                  {(state.suppliers || [])
+                  {[...(state.suppliers || [])]
                     .filter((s: any) => s.status === 'Ativo')
+                    .sort((a: any, b: any) => (a.name || '').localeCompare(b.name || '', 'pt-BR'))
                     .map((s: any) => (
                       <SelectItem key={s.id} value={s.id}>
                         {s.name}

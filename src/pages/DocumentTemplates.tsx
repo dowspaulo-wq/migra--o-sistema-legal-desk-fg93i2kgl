@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Navigate } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -19,8 +20,12 @@ import {
   uploadDocumentTemplate,
   deleteDocumentTemplate,
 } from '@/services/document-templates'
+import useLegalStore from '@/stores/useLegalStore'
 
 export default function DocumentTemplates() {
+  const { state } = useLegalStore()
+  const isAdmin = ['Admin', 'ADM', 'admin'].includes(state.currentUser?.role || '')
+
   const [templates, setTemplates] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
@@ -80,6 +85,10 @@ export default function DocumentTemplates() {
       return
     }
     setSelectedFile(file)
+  }
+
+  if (!isAdmin) {
+    return <Navigate to="/" replace />
   }
 
   return (

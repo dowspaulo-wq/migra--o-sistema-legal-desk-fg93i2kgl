@@ -90,7 +90,8 @@ export default function Finance() {
       'dez',
     ]
     const now = new Date()
-    return [-1, 0, 1].map((offset) => {
+    const offsets = [-6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6]
+    return offsets.map((offset) => {
       const target = new Date(now.getFullYear(), now.getMonth() + offset, 1)
       return {
         label: `${months[target.getMonth()]}/${target.getFullYear().toString().slice(2)}`,
@@ -178,6 +179,12 @@ export default function Finance() {
 
     return Object.values(dataByDate).sort((a, b) => a.date.localeCompare(b.date))
   }, [filtered])
+
+  const sortedSuppliers = useMemo(() => {
+    return [...(state.suppliers || [])].sort((a: any, b: any) =>
+      (a.name || '').localeCompare(b.name || '', 'pt-BR'),
+    )
+  }, [state.suppliers])
 
   const categories = useMemo(() => {
     const cats = new Set(baseTransactions.map((t) => t.category).filter(Boolean))
@@ -552,7 +559,7 @@ export default function Finance() {
                     <Filter className="h-5 w-5 text-muted-foreground" />
                     Filtros
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm text-muted-foreground">Atalhos por Mês:</span>
                     {monthShortcuts.map((m) => (
                       <Button
@@ -625,7 +632,7 @@ export default function Finance() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Todos">Todos</SelectItem>
-                        {state.suppliers?.map((s: any) => (
+                        {sortedSuppliers.map((s: any) => (
                           <SelectItem key={s.id} value={s.id}>
                             {s.name}
                           </SelectItem>
@@ -884,7 +891,7 @@ export default function Finance() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(state.suppliers || []).map((s: any) => (
+                    {sortedSuppliers.map((s: any) => (
                       <TableRow key={s.id}>
                         <TableCell className="font-medium">{s.name}</TableCell>
                         <TableCell>{s.document || '-'}</TableCell>

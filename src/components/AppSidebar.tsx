@@ -63,6 +63,13 @@ export default function AppSidebar() {
       return false
     if (item.name === 'Backups' && !['Admin', 'ADM', 'admin'].includes(legalState.currentUser.role))
       return false
+    if (item.name === 'Logs' && !['Admin', 'ADM', 'admin'].includes(legalState.currentUser.role))
+      return false
+    if (
+      item.name === 'Modelos (em construção)' &&
+      !['Admin', 'ADM', 'admin'].includes(legalState.currentUser.role)
+    )
+      return false
     if (item.name === 'Configurações' && legalState.currentUser.role !== 'Admin') return false
     if (item.name === 'Agenda' && legalState.currentUser.role !== 'Admin') return false
     return true

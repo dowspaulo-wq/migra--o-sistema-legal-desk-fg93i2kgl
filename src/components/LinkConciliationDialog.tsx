@@ -83,6 +83,10 @@ export function LinkConciliationDialog({
     return clients.find((c) => c.id === selectedClientId)
   }, [clients, selectedClientId])
 
+  const sortedSuppliers = useMemo(() => {
+    return [...suppliers].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'))
+  }, [suppliers])
+
   const selectedSupplier = useMemo(() => {
     return suppliers.find((s) => s.id === selectedSupplierId)
   }, [suppliers, selectedSupplierId])
@@ -214,7 +218,7 @@ export function LinkConciliationDialog({
                     <CommandList className="max-h-60">
                       <CommandEmpty>Nenhum fornecedor encontrado.</CommandEmpty>
                       <CommandGroup>
-                        {suppliers.map((supplier) => (
+                        {sortedSuppliers.map((supplier) => (
                           <CommandItem
                             key={supplier.id}
                             value={supplier.name}

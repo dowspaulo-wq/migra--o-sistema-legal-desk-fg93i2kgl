@@ -1,3 +1,4 @@
+import { Navigate } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Table,
@@ -13,12 +14,10 @@ import useLegalStore from '@/stores/useLegalStore'
 export default function Logs() {
   const { state } = useLegalStore()
 
-  if (state.currentUser.role !== 'Admin') {
-    return (
-      <div className="p-8 text-center text-destructive font-bold">
-        Acesso negado. Apenas administradores.
-      </div>
-    )
+  const isAdmin = ['Admin', 'ADM', 'admin'].includes(state.currentUser?.role || '')
+
+  if (!isAdmin) {
+    return <Navigate to="/" replace />
   }
 
   return (
