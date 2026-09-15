@@ -108,17 +108,29 @@ export function LinkConciliationDialog({
   }
 
   const isExpense = transaction?.type === 'expense'
+  const isClientRepassExpense = isExpense && transaction?.category === 'Repasse ao cliente'
 
   const handleSave = async () => {
     if (!transaction) return
     if (isExpense) {
-      if (!selectedSupplierId) return
-      try {
-        setSaving(true)
-        await onSaveLink(transaction.id, null, null, selectedSupplierId)
-        onOpenChange(false)
-      } finally {
-        setSaving(false)
+      if (isClientRepassExpense) {
+        if (!selectedClientId) return
+        try {
+          setSaving(true)
+          await onSaveLink(transaction.id, selectedClientId, null)
+          onOpenChange(false)
+        } finally {
+          setSaving(false)
+        }
+      } else {
+        if (!selectedSupplierId) return
+        try {
+          setSaving(true)
+          await onSaveLink(transaction.id, null, null, selectedSupplierId)
+          onOpenChange(false)
+        } finally {
+          setSaving(false)
+        }
       }
     } else {
       if (!selectedClientId) return
@@ -161,7 +173,9 @@ export function LinkConciliationDialog({
           <DialogTitle>Vincular Lançamento</DialogTitle>
           <DialogDescription>
             {isExpense
-              ? 'Selecione o fornecedor para conciliar este lançamento.'
+              ? isClientRepassExpense
+                ? 'Selecione o cliente para conciliar este lançamento.'
+                : 'Selecione o fornecedor para conciliar este lançamento.'
               : 'Selecione o cliente e, se aplicável, o processo judicial para conciliar este lançamento.'}
           </DialogDescription>
         </DialogHeader>
@@ -193,52 +207,99 @@ export function LinkConciliationDialog({
 
         <div className="space-y-4 py-2">
           {isExpense ? (
-            /* Campo de Fornecedor com Busca */
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">Fornecedor *</Label>
-              <Popover open={supplierSearchOpen} onOpenChange={setSupplierSearchOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    role="combobox"
-                    aria-expanded={supplierSearchOpen}
-                    className="w-full justify-between font-normal bg-white"
-                  >
-                    <span className="truncate">
-                      {selectedSupplier
-                        ? selectedSupplier.name
-                        : 'Selecione ou busque um fornecedor...'}
-                    </span>
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                  <Command>
-                    <CommandInput placeholder="Buscar fornecedor por nome..." />
-                    <CommandList className="max-h-60">
-                      <CommandEmpty>Nenhum fornecedor encontrado.</CommandEmpty>
-                      <CommandGroup>
-                        {sortedSuppliers.map((supplier) => (
-                          <CommandItem
-                            key={supplier.id}
-                            value={supplier.name}
-                            onSelect={() => handleSupplierSelect(supplier.id)}
-                          >
-                            <Check
-                              className={cn(
-                                'mr-2 h-4 w-4',
-                                selectedSupplierId === supplier.id ? 'opacity-100' : 'opacity-0',
-                              )}
-                            />
-                            <span className="truncate">{supplier.name}</span>
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-            </div>
+            isClientRepassExpense ? (
+              /* Campo de Cliente com Busca para Repasse ao cliente */
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold">Cliente *</Label>
+                <Popover open={clientSearchOpen} onOpenChange={setClientSearchOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={clientSearchOpen}
+                      className="w-full justify-between font-normal bg-white"
+                    >
+                      <span className="truncate">
+                        {selectedClient ? selectedClient.name : 'Selecione ou busque um cliente...'}
+                      </span>
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar cliente por nome..." />
+                      <CommandList className="max-h-60">
+                        <CommandEmpty>Nenhum cliente encontrado.</CommandEmpty>
+                        <CommandGroup>
+                          {clients.map((client) => (
+                            <CommandItem
+                              key={client.id}
+                              value={client.name}
+                              onSelect={() => handleClientSelect(client.id)}
+                            >
+                              <Check
+                                className={cn(
+                                  'mr-2 h-4 w-4',
+                                  selectedClientId === client.id ? 'opacity-100' : 'opacity-0',
+                                )}
+                              />
+                              <span className="truncate">{client.name}</span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            ) : (
+              /* Campo de Fornecedor com Busca */
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold">Fornecedor *</Label>
+                <Popover open={supplierSearchOpen} onOpenChange={setSupplierSearchOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={supplierSearchOpen}
+                      className="w-full justify-between font-normal bg-white"
+                    >
+                      <span className="truncate">
+                        {selectedSupplier
+                          ? selectedSupplier.name
+                          : 'Selecione ou busque um fornecedor...'}
+                      </span>
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar fornecedor por nome..." />
+                      <CommandList className="max-h-60">
+                        <CommandEmpty>Nenhum fornecedor encontrado.</CommandEmpty>
+                        <CommandGroup>
+                          {sortedSuppliers.map((supplier) => (
+                            <CommandItem
+                              key={supplier.id}
+                              value={supplier.name}
+                              onSelect={() => handleSupplierSelect(supplier.id)}
+                            >
+                              <Check
+                                className={cn(
+                                  'mr-2 h-4 w-4',
+                                  selectedSupplierId === supplier.id ? 'opacity-100' : 'opacity-0',
+                                )}
+                              />
+                              <span className="truncate">{supplier.name}</span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            )
           ) : (
             <>
               {/* Select de Cliente com Busca */}
@@ -346,7 +407,15 @@ export function LinkConciliationDialog({
             <Button
               type="button"
               onClick={handleSave}
-              disabled={(isExpense ? !selectedSupplierId : !selectedClientId) || saving || ignoring}
+              disabled={
+                (isExpense
+                  ? isClientRepassExpense
+                    ? !selectedClientId
+                    : !selectedSupplierId
+                  : !selectedClientId) ||
+                saving ||
+                ignoring
+              }
             >
               {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
               Salvar vínculo

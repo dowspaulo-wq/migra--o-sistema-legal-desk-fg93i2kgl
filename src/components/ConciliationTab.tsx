@@ -131,16 +131,24 @@ export function ConciliationTab({
     processId: string | null,
     supplierId?: string | null,
   ) => {
+    const targetTransaction = transactions.find((t) => t.id === transactionId)
+    const isExpense = targetTransaction?.type === 'expense'
+
     const changes: Record<string, any> = supplierId
       ? {
           supplierId,
           pendente_vinculo: false,
         }
-      : {
-          clientId,
-          processId,
-          pendente_vinculo: false,
-        }
+      : isExpense
+        ? {
+            clientId,
+            pendente_vinculo: false,
+          }
+        : {
+            clientId,
+            processId,
+            pendente_vinculo: false,
+          }
 
     const { error } = await supabase.from('transactions').update(changes).eq('id', transactionId)
 
