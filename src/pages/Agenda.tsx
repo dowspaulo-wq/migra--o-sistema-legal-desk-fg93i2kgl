@@ -186,7 +186,9 @@ export default function Agenda() {
     const virtualBirthdays: any[] = []
 
     state.clients.forEach((client) => {
-      if (client.birthday) {
+      // Exibir aniversário apenas para clientes Pessoa Física (PF)
+      const isPF = client.type === 'PF'
+      if (isPF && client.birthday) {
         const parts = client.birthday.split('T')[0].split('-')
         if (parts.length === 3) {
           const m = parts[1]
