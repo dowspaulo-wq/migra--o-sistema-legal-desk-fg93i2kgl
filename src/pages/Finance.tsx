@@ -839,6 +839,7 @@ export default function Finance() {
               transactions={state.transactions || []}
               clients={state.clients || []}
               cases={state.cases || []}
+              suppliers={state.suppliers || []}
               onUpdateTransaction={(id: string, changes: any) =>
                 updateItem('transactions', id, changes)
               }

@@ -29,6 +29,7 @@ interface ConciliationTabProps {
   transactions: any[]
   clients: any[]
   cases: any[]
+  suppliers?: any[]
   onUpdateTransaction: (id: string, changes: any) => Promise<void> | void
 }
 
@@ -36,6 +37,7 @@ export function ConciliationTab({
   transactions,
   clients,
   cases,
+  suppliers = [],
   onUpdateTransaction,
 }: ConciliationTabProps) {
   // Filtros
@@ -122,17 +124,23 @@ export function ConciliationTab({
     )
   }
 
-  // Ação: Salvar Vínculo (PATCH em transactions setando clientId/processId e pendente_vinculo = false)
+  // Ação: Salvar Vínculo (PATCH em transactions setando supplierId ou clientId/processId e pendente_vinculo = false)
   const handleSaveLink = async (
     transactionId: string,
-    clientId: string,
+    clientId: string | null,
     processId: string | null,
+    supplierId?: string | null,
   ) => {
-    const changes: Record<string, any> = {
-      clientId,
-      processId,
-      pendente_vinculo: false,
-    }
+    const changes: Record<string, any> = supplierId
+      ? {
+          supplierId,
+          pendente_vinculo: false,
+        }
+      : {
+          clientId,
+          processId,
+          pendente_vinculo: false,
+        }
 
     const { error } = await supabase.from('transactions').update(changes).eq('id', transactionId)
 
@@ -430,6 +438,7 @@ export function ConciliationTab({
         transaction={linkingTransaction}
         clients={clients}
         cases={cases}
+        suppliers={suppliers}
         onSaveLink={handleSaveLink}
         onIgnore={handleIgnore}
       />

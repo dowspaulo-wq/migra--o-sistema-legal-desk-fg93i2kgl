@@ -35,7 +35,13 @@ interface LinkConciliationDialogProps {
   transaction: any | null
   clients: any[]
   cases: any[]
-  onSaveLink: (transactionId: string, clientId: string, processId: string | null) => Promise<void>
+  suppliers?: any[]
+  onSaveLink: (
+    transactionId: string,
+    clientId: string | null,
+    processId: string | null,
+    supplierId?: string | null,
+  ) => Promise<void>
   onIgnore: (transactionId: string) => Promise<void>
 }
 
@@ -45,12 +51,15 @@ export function LinkConciliationDialog({
   transaction,
   clients,
   cases,
+  suppliers = [],
   onSaveLink,
   onIgnore,
 }: LinkConciliationDialogProps) {
   const [selectedClientId, setSelectedClientId] = useState<string>('')
   const [selectedCaseId, setSelectedCaseId] = useState<string>('none')
+  const [selectedSupplierId, setSelectedSupplierId] = useState<string>('')
   const [clientSearchOpen, setClientSearchOpen] = useState(false)
+  const [supplierSearchOpen, setSupplierSearchOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [ignoring, setIgnoring] = useState(false)
 
@@ -58,16 +67,25 @@ export function LinkConciliationDialog({
     if (open && transaction) {
       setSelectedClientId(transaction.clientId || '')
       setSelectedCaseId(transaction.processId || 'none')
+      setSelectedSupplierId(transaction.supplierId || '')
       setClientSearchOpen(false)
+      setSupplierSearchOpen(false)
     } else {
       setSelectedClientId('')
       setSelectedCaseId('none')
+      setSelectedSupplierId('')
+      setClientSearchOpen(false)
+      setSupplierSearchOpen(false)
     }
   }, [open, transaction])
 
   const selectedClient = useMemo(() => {
     return clients.find((c) => c.id === selectedClientId)
   }, [clients, selectedClientId])
+
+  const selectedSupplier = useMemo(() => {
+    return suppliers.find((s) => s.id === selectedSupplierId)
+  }, [suppliers, selectedSupplierId])
 
   const clientCases = useMemo(() => {
     if (!selectedClientId) return []
@@ -80,15 +98,34 @@ export function LinkConciliationDialog({
     setClientSearchOpen(false)
   }
 
+  const handleSupplierSelect = (supplierId: string) => {
+    setSelectedSupplierId(supplierId)
+    setSupplierSearchOpen(false)
+  }
+
+  const isExpense = transaction?.type === 'expense'
+
   const handleSave = async () => {
-    if (!transaction || !selectedClientId) return
-    try {
-      setSaving(true)
-      const processIdToSave = selectedCaseId && selectedCaseId !== 'none' ? selectedCaseId : null
-      await onSaveLink(transaction.id, selectedClientId, processIdToSave)
-      onOpenChange(false)
-    } finally {
-      setSaving(false)
+    if (!transaction) return
+    if (isExpense) {
+      if (!selectedSupplierId) return
+      try {
+        setSaving(true)
+        await onSaveLink(transaction.id, null, null, selectedSupplierId)
+        onOpenChange(false)
+      } finally {
+        setSaving(false)
+      }
+    } else {
+      if (!selectedClientId) return
+      try {
+        setSaving(true)
+        const processIdToSave = selectedCaseId && selectedCaseId !== 'none' ? selectedCaseId : null
+        await onSaveLink(transaction.id, selectedClientId, processIdToSave)
+        onOpenChange(false)
+      } finally {
+        setSaving(false)
+      }
     }
   }
 
@@ -119,7 +156,9 @@ export function LinkConciliationDialog({
         <DialogHeader>
           <DialogTitle>Vincular Lançamento</DialogTitle>
           <DialogDescription>
-            Selecione o cliente e, se aplicável, o processo judicial para conciliar este lançamento.
+            {isExpense
+              ? 'Selecione o fornecedor para conciliar este lançamento.'
+              : 'Selecione o cliente e, se aplicável, o processo judicial para conciliar este lançamento.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -149,84 +188,135 @@ export function LinkConciliationDialog({
         </div>
 
         <div className="space-y-4 py-2">
-          {/* Select de Cliente com Busca */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold">Cliente *</Label>
-            <Popover open={clientSearchOpen} onOpenChange={setClientSearchOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  role="combobox"
-                  aria-expanded={clientSearchOpen}
-                  className="w-full justify-between font-normal bg-white"
-                >
-                  <span className="truncate">
-                    {selectedClient ? selectedClient.name : 'Selecione ou busque um cliente...'}
-                  </span>
-                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                <Command>
-                  <CommandInput placeholder="Buscar cliente por nome..." />
-                  <CommandList className="max-h-60">
-                    <CommandEmpty>Nenhum cliente encontrado.</CommandEmpty>
-                    <CommandGroup>
-                      {clients.map((client) => (
-                        <CommandItem
-                          key={client.id}
-                          value={client.name}
-                          onSelect={() => handleClientSelect(client.id)}
-                        >
-                          <Check
-                            className={cn(
-                              'mr-2 h-4 w-4',
-                              selectedClientId === client.id ? 'opacity-100' : 'opacity-0',
-                            )}
-                          />
-                          <span className="truncate">{client.name}</span>
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-          </div>
+          {isExpense ? (
+            /* Campo de Fornecedor com Busca */
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Fornecedor *</Label>
+              <Popover open={supplierSearchOpen} onOpenChange={setSupplierSearchOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={supplierSearchOpen}
+                    className="w-full justify-between font-normal bg-white"
+                  >
+                    <span className="truncate">
+                      {selectedSupplier
+                        ? selectedSupplier.name
+                        : 'Selecione ou busque um fornecedor...'}
+                    </span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Buscar fornecedor por nome..." />
+                    <CommandList className="max-h-60">
+                      <CommandEmpty>Nenhum fornecedor encontrado.</CommandEmpty>
+                      <CommandGroup>
+                        {suppliers.map((supplier) => (
+                          <CommandItem
+                            key={supplier.id}
+                            value={supplier.name}
+                            onSelect={() => handleSupplierSelect(supplier.id)}
+                          >
+                            <Check
+                              className={cn(
+                                'mr-2 h-4 w-4',
+                                selectedSupplierId === supplier.id ? 'opacity-100' : 'opacity-0',
+                              )}
+                            />
+                            <span className="truncate">{supplier.name}</span>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+          ) : (
+            <>
+              {/* Select de Cliente com Busca */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold">Cliente *</Label>
+                <Popover open={clientSearchOpen} onOpenChange={setClientSearchOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={clientSearchOpen}
+                      className="w-full justify-between font-normal bg-white"
+                    >
+                      <span className="truncate">
+                        {selectedClient ? selectedClient.name : 'Selecione ou busque um cliente...'}
+                      </span>
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar cliente por nome..." />
+                      <CommandList className="max-h-60">
+                        <CommandEmpty>Nenhum cliente encontrado.</CommandEmpty>
+                        <CommandGroup>
+                          {clients.map((client) => (
+                            <CommandItem
+                              key={client.id}
+                              value={client.name}
+                              onSelect={() => handleClientSelect(client.id)}
+                            >
+                              <Check
+                                className={cn(
+                                  'mr-2 h-4 w-4',
+                                  selectedClientId === client.id ? 'opacity-100' : 'opacity-0',
+                                )}
+                              />
+                              <span className="truncate">{client.name}</span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
 
-          {/* Select de Processo */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold">Processo</Label>
-            <Select
-              value={selectedCaseId}
-              onValueChange={setSelectedCaseId}
-              disabled={!selectedClientId}
-            >
-              <SelectTrigger className="bg-white">
-                <SelectValue
-                  placeholder={
-                    selectedClientId ? 'Selecione o processo' : 'Selecione primeiro o cliente'
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">Sem processo</SelectItem>
-                {clientCases.map((c) => {
-                  const label = c.process_name ? `${c.number} (${c.process_name})` : c.number
-                  return (
-                    <SelectItem key={c.id} value={c.id}>
-                      {label}
-                    </SelectItem>
-                  )
-                })}
-              </SelectContent>
-            </Select>
-            {selectedClientId && clientCases.length === 0 && (
-              <p className="text-[11px] text-muted-foreground">
-                Nenhum processo vinculado a este cliente. A opção "Sem processo" será mantida.
-              </p>
-            )}
-          </div>
+              {/* Select de Processo */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold">Processo</Label>
+                <Select
+                  value={selectedCaseId}
+                  onValueChange={setSelectedCaseId}
+                  disabled={!selectedClientId}
+                >
+                  <SelectTrigger className="bg-white">
+                    <SelectValue
+                      placeholder={
+                        selectedClientId ? 'Selecione o processo' : 'Selecione primeiro o cliente'
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sem processo</SelectItem>
+                    {clientCases.map((c) => {
+                      const label = c.process_name ? `${c.number} (${c.process_name})` : c.number
+                      return (
+                        <SelectItem key={c.id} value={c.id}>
+                          {label}
+                        </SelectItem>
+                      )
+                    })}
+                  </SelectContent>
+                </Select>
+                {selectedClientId && clientCases.length === 0 && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Nenhum processo vinculado a este cliente. A opção "Sem processo" será mantida.
+                  </p>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-between gap-2 pt-2">
@@ -252,7 +342,7 @@ export function LinkConciliationDialog({
             <Button
               type="button"
               onClick={handleSave}
-              disabled={!selectedClientId || saving || ignoring}
+              disabled={(isExpense ? !selectedSupplierId : !selectedClientId) || saving || ignoring}
             >
               {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
               Salvar vínculo
