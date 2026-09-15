@@ -54,6 +54,7 @@ import { supabase } from '@/lib/supabase/client'
 import { toast } from '@/hooks/use-toast'
 import { Link2 } from 'lucide-react'
 import { RecurringTransactionEditDialog } from '@/components/RecurringTransactionEditDialog'
+import { ConciliationTab } from '@/components/ConciliationTab'
 
 export default function Finance() {
   const { state, updateItem, deleteItem, addTransaction, addSupplier } = useLegalStore() as any
@@ -517,13 +518,32 @@ export default function Finance() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full max-w-3xl grid-cols-3">
+        <TabsList className="grid w-full max-w-3xl grid-cols-4">
           <TabsTrigger value="geral">Visão Geral</TabsTrigger>
           <TabsTrigger value="honorarios">Honorários</TabsTrigger>
           <TabsTrigger value="fornecedores">Fornecedores</TabsTrigger>
+          <TabsTrigger value="conciliacao" className="relative">
+            Conciliação
+            {(() => {
+              const pendingCount = (state.transactions || []).filter((t: any) =>
+                Boolean(t.pendente_vinculo),
+              ).length
+              if (pendingCount > 0) {
+                return (
+                  <Badge
+                    variant="destructive"
+                    className="ml-1.5 h-4 px-1.5 text-[10px] leading-none rounded-full"
+                  >
+                    {pendingCount}
+                  </Badge>
+                )
+              }
+              return null
+            })()}
+          </TabsTrigger>
         </TabsList>
 
-        {activeTab !== 'fornecedores' && (
+        {activeTab !== 'fornecedores' && activeTab !== 'conciliacao' && (
           <Card className="mt-4">
             <CardHeader className="pb-4">
               <div className="flex flex-col gap-4">
@@ -811,6 +831,19 @@ export default function Finance() {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {activeTab === 'conciliacao' && (
+          <div className="mt-4">
+            <ConciliationTab
+              transactions={state.transactions || []}
+              clients={state.clients || []}
+              cases={state.cases || []}
+              onUpdateTransaction={(id: string, changes: any) =>
+                updateItem('transactions', id, changes)
+              }
+            />
+          </div>
         )}
 
         {activeTab === 'fornecedores' && (
