@@ -53,6 +53,7 @@ function getEmptyForm(users: any[]) {
     city: '',
     state: '',
     birthday: '',
+    hide_birthday: false,
     status: '',
     isSpecial: false,
     observacoes: '',
@@ -252,6 +253,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
       no_email: !!fd.no_email,
       phone_na: fd.type === 'PJ' ? !!fd.phone_na : false,
       email_na: fd.type === 'PJ' ? !!fd.email_na : false,
+      hide_birthday: !!fd.hide_birthday,
     }
     const { isNew, ...finalPayload } = payload
 
@@ -380,6 +382,17 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
                 value={fd.birthday}
                 onChange={(e) => setFd({ ...fd, birthday: e.target.value })}
               />
+              <div className="pt-1">
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none hover:text-foreground">
+                  <Checkbox
+                    checked={!!fd.hide_birthday}
+                    onCheckedChange={(checked) =>
+                      setFd((prev: any) => ({ ...prev, hide_birthday: !!checked }))
+                    }
+                  />
+                  <span>Não exibir aniversário no calendário</span>
+                </label>
+              </div>
             </div>
 
             <div className="space-y-2">

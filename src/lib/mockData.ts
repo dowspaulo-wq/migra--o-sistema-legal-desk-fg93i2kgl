@@ -25,6 +25,7 @@ export interface Client {
   no_email?: boolean
   phone_na?: boolean
   email_na?: boolean
+  hide_birthday?: boolean
 }
 export interface Case {
   id: string
