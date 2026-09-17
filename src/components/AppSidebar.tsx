@@ -39,7 +39,6 @@ const navigation = [
   { name: 'Financeiro', href: '/financeiro', icon: DollarSign },
   { name: 'Dashboard Financeiro', href: '/dashboard-financeiro', icon: Wallet },
   { name: 'Petições', href: '/peticoes', icon: FileText },
-  { name: 'Modelos (em construção)', href: '/modelos', icon: Files },
   { name: 'Logs', href: '/logs', icon: History },
   { name: 'Acessos', href: '/acessos', icon: KeyRound },
   { name: 'Backups', href: '/backups', icon: Database },
@@ -64,11 +63,6 @@ export default function AppSidebar() {
     if (item.name === 'Backups' && !['Admin', 'ADM', 'admin'].includes(legalState.currentUser.role))
       return false
     if (item.name === 'Logs' && !['Admin', 'ADM', 'admin'].includes(legalState.currentUser.role))
-      return false
-    if (
-      item.name === 'Modelos (em construção)' &&
-      !['Admin', 'ADM', 'admin'].includes(legalState.currentUser.role)
-    )
       return false
     if (item.name === 'Configurações' && legalState.currentUser.role !== 'Admin') return false
     if (item.name === 'Agenda' && legalState.currentUser.role !== 'Admin') return false
