@@ -7,6 +7,7 @@
     "datajud-sync": 3,
     "database-backup": 47,
     "electronic-signature": 28,
-    "zapsign-integration": 28
+    "zapsign-integration": 28,
+    "backup-export": 1
   }
 }
