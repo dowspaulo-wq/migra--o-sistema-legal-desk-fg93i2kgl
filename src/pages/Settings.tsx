@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
+import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -295,6 +296,46 @@ export default function Settings() {
       toast({
         title: 'Erro',
         description: err.message || 'Erro ao enviar foto',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleToggleUserActive = async (userItem: any) => {
+    if (userItem.id === state.currentUser.id) {
+      toast({
+        title: 'Ação não permitida',
+        description: 'Você não pode desativar seu próprio usuário.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    const currentStatus = userItem.is_active !== false
+    const newStatus = !currentStatus
+    const statusLabel = newStatus ? 'ativado' : 'desativado'
+
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ is_active: newStatus })
+        .eq('id', userItem.id)
+
+      if (error) throw new Error(error.message)
+      updateUser(userItem.id, { is_active: newStatus })
+      toast({
+        title: 'Status atualizado',
+        description: `Usuário ${userItem.name} foi ${statusLabel} com sucesso.`,
+      })
+      addLog(
+        'Atualizar',
+        'Usuário',
+        `Usuário ${userItem.name} (${userItem.email}) foi ${statusLabel}.`,
+      )
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao alterar status',
+        description: err.message || 'Não foi possível alterar o status do usuário.',
         variant: 'destructive',
       })
     }
@@ -625,6 +666,7 @@ export default function Settings() {
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead>Status</TableHead>
                         <TableHead>Nome</TableHead>
                         <TableHead>E-mail</TableHead>
                         <TableHead>Nível</TableHead>
@@ -634,46 +676,96 @@ export default function Settings() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {(state.users as any[]).map((u) => (
-                        <TableRow key={u.id}>
-                          <TableCell className="font-medium">{u.name}</TableCell>
-                          <TableCell>{u.email || '—'}</TableCell>
-                          <TableCell>
-                            <select
-                              className="border rounded p-1 text-sm bg-white"
-                              value={u.role}
-                              onChange={(e) =>
-                                handleUpdateUser(u.id, { role: e.target.value as 'Admin' | 'User' })
-                              }
-                              disabled={u.id === state.currentUser.id}
-                            >
-                              <option value="Admin">Admin</option>
-                              <option value="User">Colaborador</option>
-                            </select>
-                          </TableCell>
-                          <TableCell>
-                            <Switch
-                              checked={u.canViewFinance}
-                              onCheckedChange={(v) => handleUpdateUser(u.id, { canViewFinance: v })}
-                              disabled={u.id === state.currentUser.id}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Switch checked={u.role === 'Admin'} disabled />
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="color"
-                                value={u.color || '#3b82f6'}
-                                onChange={(e) => updateUser(u.id, { color: e.target.value })}
-                                onBlur={(e) => handleUpdateUser(u.id, { color: e.target.value })}
-                                className="h-8 w-8 rounded cursor-pointer border-0 p-0"
+                      {(state.users as any[]).map((u) => {
+                        const isActive = u.is_active !== false
+                        const isSelf = u.id === state.currentUser.id
+                        return (
+                          <TableRow
+                            key={u.id}
+                            className={
+                              !isActive
+                                ? 'opacity-50 bg-muted/30 transition-opacity'
+                                : 'transition-opacity'
+                            }
+                          >
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <Switch
+                                  checked={isActive}
+                                  onCheckedChange={() => handleToggleUserActive(u)}
+                                  disabled={isSelf}
+                                  title={
+                                    isSelf
+                                      ? 'Você não pode desativar seu próprio usuário'
+                                      : isActive
+                                        ? 'Desativar usuário'
+                                        : 'Ativar usuário'
+                                  }
+                                />
+                                <Badge
+                                  variant={isActive ? 'default' : 'secondary'}
+                                  className={
+                                    isActive
+                                      ? 'bg-emerald-600 hover:bg-emerald-600 text-white font-normal text-xs'
+                                      : 'bg-muted text-muted-foreground font-normal text-xs'
+                                  }
+                                >
+                                  {isActive ? 'Ativo' : 'Inativo'}
+                                </Badge>
+                              </div>
+                            </TableCell>
+                            <TableCell className="font-medium">
+                              <div className="flex items-center gap-2">
+                                <span>{u.name}</span>
+                                {isSelf && (
+                                  <span className="text-xs text-muted-foreground font-normal">
+                                    (você)
+                                  </span>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>{u.email || '—'}</TableCell>
+                            <TableCell>
+                              <select
+                                className="border rounded p-1 text-sm bg-white"
+                                value={u.role}
+                                onChange={(e) =>
+                                  handleUpdateUser(u.id, {
+                                    role: e.target.value as 'Admin' | 'User',
+                                  })
+                                }
+                                disabled={isSelf}
+                              >
+                                <option value="Admin">Admin</option>
+                                <option value="User">Colaborador</option>
+                              </select>
+                            </TableCell>
+                            <TableCell>
+                              <Switch
+                                checked={u.canViewFinance}
+                                onCheckedChange={(v) =>
+                                  handleUpdateUser(u.id, { canViewFinance: v })
+                                }
+                                disabled={isSelf}
                               />
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                            </TableCell>
+                            <TableCell>
+                              <Switch checked={u.role === 'Admin'} disabled />
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="color"
+                                  value={u.color || '#3b82f6'}
+                                  onChange={(e) => updateUser(u.id, { color: e.target.value })}
+                                  onBlur={(e) => handleUpdateUser(u.id, { color: e.target.value })}
+                                  className="h-8 w-8 rounded cursor-pointer border-0 p-0"
+                                />
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
                     </TableBody>
                   </Table>
                 </CardContent>

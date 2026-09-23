@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '@/hooks/use-auth'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,10 +11,21 @@ import { toast } from '@/hooks/use-toast'
 export default function Login() {
   const { signIn, resetPassword, user } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [isResetMode, setIsResetMode] = useState(false)
+
+  useEffect(() => {
+    if (searchParams.get('inactive') === '1') {
+      toast({
+        title: 'Acesso bloqueado',
+        description: 'Usuário inativo. Contate o administrador.',
+        variant: 'destructive',
+      })
+    }
+  }, [searchParams])
 
   if (user) return <Navigate to="/" replace />
 
@@ -25,7 +36,20 @@ export default function Login() {
       const { error } = await signIn(email.trim(), password)
       if (error) {
         const errorMsg = (error.message || '').toLowerCase()
-        if (errorMsg.includes('not confirmed') || errorMsg.includes('email não confirmado')) {
+        if (
+          error.code === 'USER_INACTIVE' ||
+          errorMsg.includes('usuário inativo') ||
+          errorMsg.includes('usuario inativo')
+        ) {
+          toast({
+            title: 'Acesso bloqueado',
+            description: 'Usuário inativo. Contate o administrador.',
+            variant: 'destructive',
+          })
+        } else if (
+          errorMsg.includes('not confirmed') ||
+          errorMsg.includes('email não confirmado')
+        ) {
           toast({
             title: 'Acesso bloqueado',
             description: 'Por favor, confirme seu e-mail para acessar o sistema.',

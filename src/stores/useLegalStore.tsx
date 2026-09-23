@@ -128,12 +128,12 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
             user.email?.toLowerCase().includes('admin') || profile?.role === 'Admin'
               ? 'Admin'
               : 'User',
+          is_active: profile?.is_active ?? true,
         }
 
-        if (currentUser.role === 'Inativo') {
-          supabase.auth.signOut().then(() => {
-            window.location.href = '/login'
-          })
+        if (currentUser.is_active === false || currentUser.role === 'Inativo') {
+          await supabase.auth.signOut()
+          window.location.href = '/login?inactive=1'
           return
         }
 

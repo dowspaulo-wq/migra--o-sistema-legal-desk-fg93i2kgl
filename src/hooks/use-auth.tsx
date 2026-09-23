@@ -209,6 +209,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const ping = async () => {
       try {
+        const { data: profileCheck } = await supabase
+          .from('profiles')
+          .select('is_active')
+          .eq('id', user.id)
+          .single()
+
+        if (profileCheck && profileCheck.is_active === false) {
+          await supabase.auth.signOut()
+          window.location.href = '/login?inactive=1'
+          return
+        }
+
         await ensureActiveSession(user.id)
       } catch (error) {
         console.error('Heartbeat ping failed:', error)
@@ -245,6 +257,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
 
       if (data?.user) {
+        // Check if user profile is inactive
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('is_active')
+          .eq('id', data.user.id)
+          .single()
+
+        if (profile && profile.is_active === false) {
+          await supabase.auth.signOut()
+          return {
+            error: {
+              code: 'USER_INACTIVE',
+              message: 'Usuário inativo. Contate o administrador.',
+            },
+          }
+        }
+
         // A fresh login always closes any previous open session and creates a brand-new one.
         // Never let an error in session logging abort or break the login flow.
         currentSessionIdRef.current = null

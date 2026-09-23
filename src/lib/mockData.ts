@@ -1,10 +1,12 @@
 export interface User {
   id: string
   name: string
+  email?: string
   role: 'Admin' | 'User'
   canViewFinance: boolean
   color: string
   avatar_url?: string
+  is_active?: boolean
 }
 export interface Client {
   id: string
@@ -150,7 +152,14 @@ export interface LegalState {
 }
 
 export const initialData: LegalState = {
-  currentUser: { id: '', name: '', role: 'User', canViewFinance: false, color: '#3b82f6' },
+  currentUser: {
+    id: '',
+    name: '',
+    role: 'User',
+    canViewFinance: false,
+    color: '#3b82f6',
+    is_active: true,
+  },
   users: [],
   clients: [],
   cases: [],
