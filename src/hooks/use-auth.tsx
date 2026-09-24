@@ -8,7 +8,7 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error: any }>
   signOut: () => Promise<{ error: any }>
   resetPassword: (email: string) => Promise<{ error: any }>
-  updatePassword: (newPassword: string) => Promise<{ error: any }>
+  updatePassword: (newPassword: string) => Promise<{ data?: any; error: any }>
   loading: boolean
 }
 
@@ -280,8 +280,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return
     }
 
+    // If the user is currently on /update-password (e.g. recovery flow),
+    // skip heartbeat/active session check to avoid interference with the recovery session.
+    if (window.location.pathname.startsWith('/update-password')) {
+      return
+    }
+
     const ping = async () => {
       try {
+        if (window.location.pathname.startsWith('/update-password')) {
+          return
+        }
+
         const profileCheck = await withTimeout(
           Promise.resolve(
             supabase.from('profiles').select('is_active').eq('id', user.id).maybeSingle(),
@@ -444,8 +454,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }
 
   const updatePassword = async (newPassword: string) => {
-    const { error } = await supabase.auth.updateUser({ password: newPassword })
-    return { error }
+    const { data, error } = await supabase.auth.updateUser({ password: newPassword })
+    return { data, error }
   }
 
   return (

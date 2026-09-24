@@ -48,6 +48,7 @@ const App = () => (
             <Route path="/login" element={<Login />} />
             <Route path="/google-callback" element={<GoogleCallback />} />
             <Route path="/update-password" element={<UpdatePassword />} />
+            <Route path="/reset-password" element={<UpdatePassword />} />
             <Route element={<Layout />}>
               <Route path="/" element={<Index />} />
               <Route path="/clientes" element={<Clients />} />

@@ -1,10 +1,9 @@
-import { useState, useEffect } from 'react'
-import { Navigate, useNavigate, Link } from 'react-router-dom'
+import { useState, useEffect, useRef } from 'react'
+import { useNavigate, Link } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Scale, Eye, EyeOff, Lock, AlertCircle, ArrowLeft, CheckCircle2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase/client'
 import { toast } from '@/hooks/use-toast'
@@ -19,17 +18,149 @@ export default function UpdatePassword() {
   const [hasSession, setHasSession] = useState<boolean | null>(null)
   const [sessionError, setSessionError] = useState<string | null>(null)
 
+  // Track if session setup was already completed to prevent duplicate executions
+  const initializedRef = useRef(false)
+
   useEffect(() => {
-    const checkSession = async () => {
-      const { data, error } = await supabase.auth.getSession()
-      if (error || !data.session) {
-        setHasSession(false)
-        setSessionError('O link de recuperação é inválido ou expirou.')
-      } else {
-        setHasSession(true)
+    if (initializedRef.current) return
+    initializedRef.current = true
+
+    let isMounted = true
+
+    const establishSession = async () => {
+      try {
+        // 1. Check if Supabase auth already has an active session (e.g. from localStorage or early parse)
+        const { data: initialData } = await supabase.auth.getSession()
+        if (initialData?.session) {
+          if (isMounted) {
+            setHasSession(true)
+            setSessionError(null)
+          }
+          return
+        }
+
+        // 2. Inspect URL hash or query string for auth tokens or PKCE code
+        const hash = window.location.hash ? window.location.hash.substring(1) : ''
+        const search = window.location.search ? window.location.search.substring(1) : ''
+
+        const hashParams = new URLSearchParams(hash)
+        const searchParams = new URLSearchParams(search)
+
+        // Check for error parameters in the URL
+        const errorDesc =
+          hashParams.get('error_description') ||
+          searchParams.get('error_description') ||
+          hashParams.get('error') ||
+          searchParams.get('error')
+
+        if (errorDesc) {
+          console.error('[UpdatePassword] URL error detected:', errorDesc)
+          if (isMounted) {
+            setHasSession(false)
+            setSessionError(decodeURIComponent(errorDesc.replace(/\+/g, ' ')))
+          }
+          return
+        }
+
+        // Check for PKCE exchange code (?code=... or #code=...)
+        const code = searchParams.get('code') || hashParams.get('code')
+        if (code) {
+          console.log('[UpdatePassword] Exchanging auth code for session...')
+          const { data: exchangeData, error: exchangeError } =
+            await supabase.auth.exchangeCodeForSession(code)
+          if (!exchangeError && exchangeData?.session) {
+            if (isMounted) {
+              setHasSession(true)
+              setSessionError(null)
+            }
+            return
+          }
+          if (exchangeError) {
+            console.warn('[UpdatePassword] exchangeCodeForSession error:', exchangeError)
+          }
+        }
+
+        // Check for implicit flow tokens in hash (#access_token=...&refresh_token=...)
+        const accessToken = hashParams.get('access_token') || searchParams.get('access_token')
+        const refreshToken =
+          hashParams.get('refresh_token') || searchParams.get('refresh_token') || ''
+
+        if (accessToken) {
+          console.log('[UpdatePassword] Setting session from URL tokens...')
+          const { data: sessionData, error: sessionErr } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          })
+
+          if (!sessionErr && sessionData?.session) {
+            if (isMounted) {
+              setHasSession(true)
+              setSessionError(null)
+            }
+            return
+          }
+          if (sessionErr) {
+            console.warn('[UpdatePassword] setSession error:', sessionErr)
+          }
+        }
+
+        // 3. Fallback: wait a moment for supabase.auth.onAuthStateChange if the client is still parsing in background
+        const timeoutPromise = new Promise<{ session: any }>((resolve) =>
+          setTimeout(() => resolve({ session: null }), 1800),
+        )
+
+        const authStatePromise = new Promise<{ session: any }>((resolve) => {
+          const {
+            data: { subscription },
+          } = supabase.auth.onAuthStateChange((event, session) => {
+            if (
+              session &&
+              (event === 'SIGNED_IN' ||
+                event === 'PASSWORD_RECOVERY' ||
+                event === 'INITIAL_SESSION')
+            ) {
+              subscription.unsubscribe()
+              resolve({ session })
+            }
+          })
+        })
+
+        const winner = await Promise.race([authStatePromise, timeoutPromise])
+        if (winner?.session) {
+          if (isMounted) {
+            setHasSession(true)
+            setSessionError(null)
+          }
+          return
+        }
+
+        // Final check after waiting
+        const { data: finalCheck } = await supabase.auth.getSession()
+        if (finalCheck?.session) {
+          if (isMounted) {
+            setHasSession(true)
+            setSessionError(null)
+          }
+        } else {
+          if (isMounted) {
+            setHasSession(false)
+            setSessionError('O link de recuperação é inválido ou expirou. Solicite um novo link.')
+          }
+        }
+      } catch (err: any) {
+        console.error('[UpdatePassword] Session verification error:', err)
+        if (isMounted) {
+          setHasSession(false)
+          setSessionError(err?.message || 'Falha ao verificar sessão de recuperação.')
+        }
       }
     }
-    checkSession()
+
+    establishSession()
+
+    return () => {
+      isMounted = false
+    }
   }, [])
 
   const passwordTooShort = newPassword.length > 0 && newPassword.length < 8
@@ -62,23 +193,62 @@ export default function UpdatePassword() {
     }
 
     setLoading(true)
-    const { error } = await supabase.auth.updateUser({ password: newPassword })
-    setLoading(false)
 
-    if (error) {
+    // Ensure we have an active session right before calling updateUser
+    let activeSession = (await supabase.auth.getSession()).data?.session
+    if (!activeSession) {
+      // Attempt re-capturing tokens from hash if still present
+      const hash = window.location.hash ? window.location.hash.substring(1) : ''
+      const hashParams = new URLSearchParams(hash)
+      const accessToken = hashParams.get('access_token')
+      const refreshToken = hashParams.get('refresh_token') || ''
+
+      if (accessToken) {
+        const { data: retrySession } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        })
+        activeSession = retrySession?.session ?? null
+      }
+    }
+
+    if (!activeSession) {
+      setLoading(false)
+      setHasSession(false)
+      setSessionError('Sessão expirada. Por favor, solicite um novo link de recuperação.')
       toast({
-        title: 'Erro ao atualizar senha',
-        description: 'Não foi possível atualizar sua senha. Tente novamente.',
+        title: 'Sessão expirada',
+        description:
+          'Sua sessão de recuperação expirou. Por favor, solicite um novo link no login.',
         variant: 'destructive',
       })
       return
     }
 
-    await supabase.auth.signOut()
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+    setLoading(false)
+
+    if (error) {
+      console.error('[UpdatePassword] Error from supabase.auth.updateUser:', error)
+      const errorDetail = error.message || error.toString()
+      toast({
+        title: 'Erro ao atualizar senha',
+        description: `Não foi possível atualizar sua senha: ${errorDetail}`,
+        variant: 'destructive',
+      })
+      return
+    }
+
+    // Sign out to clean up recovery session tokens and ensure fresh login
+    try {
+      await supabase.auth.signOut()
+    } catch (signOutErr) {
+      console.warn('SignOut error after password change (ignorable):', signOutErr)
+    }
 
     toast({
       title: 'Senha alterada com sucesso!',
-      description: 'Faça login com sua nova senha.',
+      description: 'Sua senha foi redefinida com sucesso. Faça login agora com a nova senha.',
     })
 
     navigate('/login', { replace: true })
@@ -87,7 +257,9 @@ export default function UpdatePassword() {
   if (hasSession === null) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-50">
-        <div className="animate-pulse text-slate-400">Verificando sessão...</div>
+        <div className="animate-pulse text-slate-500 font-medium">
+          Verificando link de recuperação...
+        </div>
       </div>
     )
   }
@@ -100,23 +272,25 @@ export default function UpdatePassword() {
             <div className="mx-auto bg-destructive/10 w-16 h-16 flex items-center justify-center rounded-full mb-4">
               <AlertCircle className="h-8 w-8 text-destructive" />
             </div>
-            <CardTitle className="text-2xl font-bold text-slate-800">Link Expirado</CardTitle>
+            <CardTitle className="text-2xl font-bold text-slate-800">
+              Link Inválido ou Expirado
+            </CardTitle>
             <CardDescription>
               {sessionError || 'O link de recuperação é inválido ou expirou.'}
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-2">
             <Button
               type="button"
               className="w-full h-12 text-base"
               onClick={() => navigate('/login', { replace: true })}
             >
-              Solicitar um novo link
+              Solicitar novo link
             </Button>
             <Button
               type="button"
               variant="ghost"
-              className="w-full mt-2"
+              className="w-full"
               onClick={() => navigate('/login', { replace: true })}
             >
               <ArrowLeft className="w-4 h-4 mr-2" /> Voltar para o login
@@ -151,6 +325,7 @@ export default function UpdatePassword() {
                   placeholder="••••••••"
                   className="pl-9 pr-10"
                   minLength={8}
+                  disabled={loading}
                 />
                 <button
                   type="button"
@@ -182,6 +357,7 @@ export default function UpdatePassword() {
                   placeholder="••••••••"
                   className="pl-9 pr-10"
                   minLength={8}
+                  disabled={loading}
                 />
                 <button
                   type="button"

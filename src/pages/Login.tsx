@@ -122,9 +122,10 @@ export default function Login() {
     setLoading(false)
 
     if (error) {
+      console.error('Error requesting password reset:', error)
       toast({
         title: 'Erro ao recuperar senha',
-        description: 'Verifique se o e-mail está correto e tente novamente.',
+        description: error.message || 'Verifique se o e-mail está correto e tente novamente.',
         variant: 'destructive',
       })
     } else {
