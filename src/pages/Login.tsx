@@ -162,7 +162,7 @@ export default function Login() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="dowspaulo@gmail.com"
+                  placeholder="advdouglaspsantos@gmail.com"
                 />
               </div>
               <Button type="submit" className="w-full h-12 text-base" disabled={loading}>
