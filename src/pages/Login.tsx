@@ -33,7 +33,22 @@ export default function Login() {
     e.preventDefault()
     setLoading(true)
     try {
-      const { error } = await signIn(email.trim(), password)
+      // 15 second client-side safety guard in case of extreme network/hang situations
+      const loginPromise = signIn(email.trim(), password)
+      const timeoutPromise = new Promise<{ error: any }>((resolve) =>
+        setTimeout(
+          () =>
+            resolve({
+              error: {
+                message:
+                  'Tempo limite de conexão excedido ao tentar entrar. Verifique sua conexão e tente novamente.',
+              },
+            }),
+          15000,
+        ),
+      )
+
+      const { error } = await Promise.race([loginPromise, timeoutPromise])
       if (error) {
         const errorMsg = (error.message || '').toLowerCase()
         if (
@@ -83,7 +98,7 @@ export default function Login() {
       console.error('Login submit error:', err)
       toast({
         title: 'Erro inesperado',
-        description: err.message || 'Falha na conexão. Tente novamente.',
+        description: err?.message || 'Falha na conexão. Tente novamente.',
         variant: 'destructive',
       })
     } finally {

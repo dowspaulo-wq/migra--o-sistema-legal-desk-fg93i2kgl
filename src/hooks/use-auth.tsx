@@ -30,55 +30,128 @@ const getLocalDateString = () => {
   return `${year}-${month}-${day}`
 }
 
+/**
+ * Executes a promise with a timeout limit so hanging Supabase network calls
+ * never freeze the application or authentication flow indefinitely.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, fallbackValue?: T): Promise<T> {
+  let timer: any
+  const timeoutPromise = new Promise<T>((resolve, reject) => {
+    timer = setTimeout(() => {
+      if (fallbackValue !== undefined) {
+        resolve(fallbackValue)
+      } else {
+        reject(new Error(`Operação excedeu o tempo limite de ${ms}ms`))
+      }
+    }, ms)
+  })
+
+  return Promise.race([
+    promise
+      .then((res) => {
+        clearTimeout(timer)
+        return res
+      })
+      .catch((err) => {
+        clearTimeout(timer)
+        throw err
+      }),
+    timeoutPromise,
+  ])
+}
+
 async function createSession(profileId: string): Promise<string | null> {
-  const { data, error } = await supabase
-    .from('user_sessions')
-    .insert({
-      profile_id: profileId,
-      login_at: nowISO(),
-      last_activity_at: nowISO(),
-      date: getLocalDateString(),
-    })
-    .select('id')
-    .single()
-  if (error) console.error('Failed to create session:', error)
-  return data?.id ?? null
+  try {
+    const res = await withTimeout(
+      Promise.resolve(
+        supabase
+          .from('user_sessions')
+          .insert({
+            profile_id: profileId,
+            login_at: nowISO(),
+            last_activity_at: nowISO(),
+            date: getLocalDateString(),
+          })
+          .select('id')
+          .single(),
+      ),
+      5000,
+      { data: null, error: null } as any,
+    )
+    if (res.error) console.error('Failed to create session:', res.error)
+    return res.data?.id ?? null
+  } catch (err) {
+    console.error('Failed to create session (timed out/failed):', err)
+    return null
+  }
 }
 
 async function findOpenSession(profileId: string): Promise<string | null> {
-  const { data } = await supabase
-    .from('user_sessions')
-    .select('id')
-    .eq('profile_id', profileId)
-    .is('logout_at', null)
-    .order('login_at', { ascending: false })
-    .limit(1)
-  return data?.[0]?.id ?? null
+  try {
+    const res = await withTimeout(
+      Promise.resolve(
+        supabase
+          .from('user_sessions')
+          .select('id')
+          .eq('profile_id', profileId)
+          .is('logout_at', null)
+          .order('login_at', { ascending: false })
+          .limit(1),
+      ),
+      4000,
+      { data: null } as any,
+    )
+    return res.data?.[0]?.id ?? null
+  } catch {
+    return null
+  }
 }
 
 async function closeSession(sessionId: string) {
-  await supabase
-    .from('user_sessions')
-    .update({ logout_at: nowISO(), last_activity_at: nowISO() })
-    .eq('id', sessionId)
-    .is('logout_at', null)
+  try {
+    await withTimeout(
+      Promise.resolve(
+        supabase
+          .from('user_sessions')
+          .update({ logout_at: nowISO(), last_activity_at: nowISO() })
+          .eq('id', sessionId)
+          .is('logout_at', null),
+      ),
+      3000,
+      null,
+    )
+  } catch (err) {
+    console.error('Error closing session:', err)
+  }
 }
 
 async function closeAllOpenSessions(profileId: string): Promise<void> {
-  const { data } = await supabase
-    .from('user_sessions')
-    .select('id, last_activity_at, login_at')
-    .eq('profile_id', profileId)
-    .is('logout_at', null)
-  if (data && data.length > 0) {
-    for (const session of data) {
-      const computedLogout = session.last_activity_at || session.login_at || nowISO()
-      await supabase
-        .from('user_sessions')
-        .update({ logout_at: computedLogout })
-        .eq('id', session.id)
-        .is('logout_at', null)
+  try {
+    const { data } = await withTimeout(
+      Promise.resolve(
+        supabase
+          .from('user_sessions')
+          .select('id, last_activity_at, login_at')
+          .eq('profile_id', profileId)
+          .is('logout_at', null),
+      ),
+      4000,
+      { data: null } as any,
+    )
+    if (data && data.length > 0) {
+      const now = nowISO()
+      const updatePromises = data.map((session: any) => {
+        const computedLogout = session.last_activity_at || session.login_at || now
+        return supabase
+          .from('user_sessions')
+          .update({ logout_at: computedLogout })
+          .eq('id', session.id)
+          .is('logout_at', null)
+      })
+      await withTimeout(Promise.all(updatePromises), 4000, [])
     }
+  } catch (err) {
+    console.error('Error in closeAllOpenSessions:', err)
   }
 }
 
@@ -209,13 +282,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const ping = async () => {
       try {
-        const { data: profileCheck } = await supabase
-          .from('profiles')
-          .select('is_active')
-          .eq('id', user.id)
-          .single()
+        const profileCheck = await withTimeout(
+          Promise.resolve(
+            supabase.from('profiles').select('is_active').eq('id', user.id).maybeSingle(),
+          ),
+          5000,
+          { data: null, error: null } as any,
+        )
 
-        if (profileCheck && profileCheck.is_active === false) {
+        if (profileCheck.data && profileCheck.data.is_active === false) {
           await supabase.auth.signOut()
           window.location.href = '/login?inactive=1'
           return
@@ -223,7 +298,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
         await ensureActiveSession(user.id)
       } catch (error) {
-        console.error('Heartbeat ping failed:', error)
+        console.error('Heartbeat ping failed (non-fatal):', error)
       }
     }
 
@@ -251,21 +326,39 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const signIn = async (email: string, password: string) => {
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+      // 1. Authenticate with Supabase Auth with a 10s safety timeout
+      const authResult = await withTimeout(
+        supabase.auth.signInWithPassword({ email, password }),
+        10000,
+      )
+
+      const { data, error } = authResult
       if (error) {
         return { error }
       }
 
       if (data?.user) {
-        // Check if user profile is inactive
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('is_active')
-          .eq('id', data.user.id)
-          .single()
+        // 2. Check if user profile is inactive (using maybeSingle and 6s timeout)
+        let profile: { is_active?: boolean | null } | null = null
+        try {
+          const profileRes = await withTimeout(
+            Promise.resolve(
+              supabase.from('profiles').select('is_active').eq('id', data.user.id).maybeSingle(),
+            ),
+            6000,
+            { data: null, error: null } as any,
+          )
+          profile = profileRes.data
+        } catch (profileErr) {
+          console.warn('Could not check profile is_active in time:', profileErr)
+        }
 
         if (profile && profile.is_active === false) {
-          await supabase.auth.signOut()
+          try {
+            await supabase.auth.signOut()
+          } catch (signOutErr) {
+            console.error('Error signing out inactive user:', signOutErr)
+          }
           return {
             error: {
               code: 'USER_INACTIVE',
@@ -274,17 +367,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           }
         }
 
-        // A fresh login always closes any previous open session and creates a brand-new one.
-        // Never let an error in session logging abort or break the login flow.
+        // 3. A fresh login always closes any previous open session and creates a brand-new one.
+        // Handled in a non-blocking or timed background operation so session logging never blocks login.
         currentSessionIdRef.current = null
         sessionPromiseRef.current = null
 
-        try {
-          await startNewSession(data.user.id)
-        } catch (sessionErr) {
+        // Non-blocking session creation
+        startNewSession(data.user.id).catch((sessionErr) => {
           console.error('Non-blocking error creating session record:', sessionErr)
-        }
+        })
 
+        // Non-blocking log
         try {
           supabase
             .from('logs')
@@ -304,7 +397,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return { error: null }
     } catch (err: any) {
       console.error('Unexpected signIn error:', err)
-      return { error: err }
+      return {
+        error: {
+          message:
+            err?.message || 'Não foi possível autenticar. Verifique sua conexão e tente novamente.',
+        },
+      }
     }
   }
 

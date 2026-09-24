@@ -94,6 +94,8 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!user) return
+    let isMounted = true
+
     const load = async () => {
       try {
         const tables = [
@@ -112,11 +114,32 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           'transaction_cases',
         ]
 
-        // Fetch all tables
-        const results = await Promise.all(tables.map((t) => supabase.from(t).select('*')))
+        // Fetch all tables with individual timeouts and fallbacks so one slow/blocked query
+        // never hangs the entire application indefinitely.
+        const queryWithTimeout = async (t: string) => {
+          try {
+            const timeoutPromise = new Promise<{ data: any[]; error: any }>((resolve) =>
+              setTimeout(
+                () => resolve({ data: [], error: new Error(`Timeout loading ${t}`) }),
+                12000,
+              ),
+            )
+            return await Promise.race([
+              Promise.resolve(supabase.from(t).select('*')),
+              timeoutPromise,
+            ])
+          } catch (e) {
+            console.warn(`Error or timeout fetching table ${t}:`, e)
+            return { data: [], error: e }
+          }
+        }
+
+        const results = await Promise.all(tables.map((t) => queryWithTimeout(t)))
+
+        if (!isMounted) return
 
         const profiles = results[0].data || []
-        const profile = profiles.find((p) => p.id === user.id)
+        const profile = profiles.find((p: any) => p.id === user.id)
 
         // Ensure we always have a valid currentUser object to prevent infinite loading state
         const currentUser = profile || {
@@ -132,7 +155,11 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         }
 
         if (currentUser.is_active === false || currentUser.role === 'Inativo') {
-          await supabase.auth.signOut()
+          try {
+            await supabase.auth.signOut()
+          } catch (signOutErr) {
+            console.error('Error on sign out inactive user:', signOutErr)
+          }
           window.location.href = '/login?inactive=1'
           return
         }
@@ -217,19 +244,26 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       } catch (err) {
         console.error('Failed to load initial data', err)
         // Set a fallback state to unblock the UI
-        setState((prev) => ({
-          ...prev,
-          currentUser: {
-            ...initialData.currentUser,
-            id: user.id,
-            email: user.email || '',
-            name: user.email?.split('@')[0] || 'User',
-            role: 'Admin',
-          },
-        }))
+        if (isMounted) {
+          setState((prev) => ({
+            ...prev,
+            currentUser: {
+              ...initialData.currentUser,
+              id: user.id,
+              email: user.email || '',
+              name: user.email?.split('@')[0] || 'User',
+              role: user.email?.toLowerCase().includes('admin') ? 'Admin' : 'User',
+              is_active: true,
+            },
+          }))
+        }
       }
     }
     load()
+
+    return () => {
+      isMounted = false
+    }
   }, [user])
 
   const addLog = useCallback(
