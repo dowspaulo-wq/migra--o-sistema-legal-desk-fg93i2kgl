@@ -447,10 +447,33 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }
 
   const resetPassword = async (email: string) => {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/update-password`,
-    })
-    return { error }
+    try {
+      const origin =
+        typeof window !== 'undefined' && window.location?.origin
+          ? window.location.origin
+          : 'https://dpsadvocacia.goskip.app'
+      const cleanEmail = email.trim()
+
+      const result = await withTimeout(
+        supabase.auth.resetPasswordForEmail(cleanEmail, {
+          redirectTo: `${origin}/update-password`,
+        }),
+        10000,
+      )
+      return { error: result.error ?? null }
+    } catch (err: any) {
+      console.error('resetPassword error caught in use-auth:', err)
+      return {
+        error: {
+          name: err?.name || 'AuthError',
+          message:
+            err?.message ||
+            'Não foi possível conectar ao servidor para recuperar a senha. Tente novamente.',
+          status: err?.status,
+          code: err?.code,
+        },
+      }
+    }
   }
 
   const updatePassword = async (newPassword: string) => {

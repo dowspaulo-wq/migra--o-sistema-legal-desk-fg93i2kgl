@@ -108,7 +108,8 @@ export default function Login() {
 
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!email) {
+    const cleanEmail = email.trim()
+    if (!cleanEmail) {
       toast({
         title: 'Campo obrigatório',
         description: 'Por favor, informe seu email para recuperar a senha.',
@@ -118,22 +119,73 @@ export default function Login() {
     }
 
     setLoading(true)
-    const { error } = await resetPassword(email)
-    setLoading(false)
+    try {
+      const { error } = await resetPassword(cleanEmail)
 
-    if (error) {
-      console.error('Error requesting password reset:', error)
+      if (error) {
+        console.error('Error requesting password reset:', error)
+        // Extrai mensagem limpa do erro, evitando objetos crus ou descrições vazias
+        const rawMessage =
+          typeof error === 'string'
+            ? error
+            : error?.message ||
+              error?.error_description ||
+              (typeof error?.error === 'string' ? error.error : '') ||
+              ''
+        const rawCode = (error?.code || error?.status || '').toString().toLowerCase()
+        const lowerMsg = rawMessage.toLowerCase()
+
+        let userFriendlyMsg = 'Não foi possível enviar o link de recuperação. Tente novamente.'
+
+        if (
+          rawCode === 'over_email_send_rate_limit' ||
+          rawCode === '429' ||
+          lowerMsg.includes('rate limit') ||
+          lowerMsg.includes('too many') ||
+          lowerMsg.includes('for security purposes') ||
+          lowerMsg.includes('wait')
+        ) {
+          userFriendlyMsg =
+            'Muitas tentativas em pouco tempo. Por segurança, aguarde alguns minutos antes de tentar novamente.'
+        } else if (
+          lowerMsg.includes('tempo limite') ||
+          lowerMsg.includes('timeout') ||
+          lowerMsg.includes('network') ||
+          lowerMsg.includes('conectar')
+        ) {
+          userFriendlyMsg =
+            'Tempo limite de conexão excedido. Verifique sua internet e tente novamente.'
+        } else if (rawMessage && typeof rawMessage === 'string' && rawMessage.trim() !== '{}') {
+          userFriendlyMsg = rawMessage
+        }
+
+        toast({
+          title: 'Erro ao recuperar senha',
+          description: userFriendlyMsg,
+          variant: 'destructive',
+        })
+      } else {
+        toast({
+          title: 'Link enviado com sucesso!',
+          description: `Se o e-mail ${cleanEmail} estiver cadastrado no sistema, você receberá o link de recuperação em alguns instantes. Verifique também sua caixa de spam.`,
+        })
+        setIsResetMode(false)
+      }
+    } catch (err: any) {
+      console.error('Unexpected exception requesting password reset:', err)
+      const errText =
+        typeof err === 'string'
+          ? err
+          : err?.message && err.message !== '{}'
+            ? err.message
+            : 'Ocorreu uma falha inesperada ao enviar o link. Tente novamente.'
       toast({
         title: 'Erro ao recuperar senha',
-        description: error.message || 'Verifique se o e-mail está correto e tente novamente.',
+        description: errText,
         variant: 'destructive',
       })
-    } else {
-      toast({
-        title: 'Link enviado!',
-        description: 'Se este e-mail estiver cadastrado, você receberá um link em breve.',
-      })
-      setIsResetMode(false)
+    } finally {
+      setLoading(false)
     }
   }
 
