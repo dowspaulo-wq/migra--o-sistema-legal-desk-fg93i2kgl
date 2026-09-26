@@ -24,6 +24,12 @@ export default function Login() {
         description: 'Usuário inativo. Contate o administrador.',
         variant: 'destructive',
       })
+    } else if (searchParams.get('mismatch') === '1') {
+      toast({
+        title: 'Sessão reiniciada por segurança',
+        description: 'Foi detectada uma divergência de sessão. Por favor, faça login novamente.',
+        variant: 'destructive',
+      })
     }
   }, [searchParams])
 

@@ -19,6 +19,12 @@ export default function Layout() {
     )
   }
 
+  // Security check: if somehow user authenticated does not match currentUser, force logout
+  if (user && state.currentUser.id && state.currentUser.id !== user.id) {
+    console.error('Mismatch detected between auth user and loaded profile! Forcing logout...')
+    return <Navigate to="/login?mismatch=1" replace />
+  }
+
   if (!user) return <Navigate to="/login" replace />
 
   return (

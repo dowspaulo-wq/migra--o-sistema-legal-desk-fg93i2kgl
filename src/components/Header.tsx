@@ -82,6 +82,15 @@ export default function Header() {
     }
   }
 
+  const userInitials = useMemo(() => {
+    const name = state.currentUser.name || 'User'
+    const parts = name.trim().split(/\s+/)
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+    }
+    return name.substring(0, 2).toUpperCase()
+  }, [state.currentUser.name])
+
   return (
     <>
       {isOffline && (
@@ -118,16 +127,15 @@ export default function Header() {
                 style={{ borderColor: state.currentUser.color }}
               >
                 <Avatar className="h-full w-full">
-                  <AvatarImage
-                    src={
-                      state.currentUser.avatar_url ||
-                      `https://img.usecurling.com/ppl/thumbnail?gender=male&seed=${state.currentUser.id}`
-                    }
-                    alt="User"
-                    className="object-cover"
-                  />
-                  <AvatarFallback>
-                    {state.currentUser.name.substring(0, 2).toUpperCase()}
+                  {state.currentUser.avatar_url ? (
+                    <AvatarImage
+                      src={state.currentUser.avatar_url}
+                      alt={state.currentUser.name}
+                      className="object-cover"
+                    />
+                  ) : null}
+                  <AvatarFallback className="bg-primary/10 text-primary font-bold text-xs">
+                    {userInitials}
                   </AvatarFallback>
                 </Avatar>
               </Button>

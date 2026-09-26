@@ -114,8 +114,90 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           'transaction_cases',
         ]
 
-        // Fetch all tables with individual timeouts and fallbacks so one slow/blocked query
-        // never hangs the entire application indefinitely.
+        // 1. First, specifically and strictly resolve the authenticated user's profile.
+        // SECURITY & ACCURACY: Never guess or borrow another user's profile.
+        // If the database is slow, retry fetching the authenticated user's profile specifically.
+        let userProfile: any = null
+        let profileFetchAttempts = 0
+        const maxProfileAttempts = 3
+
+        while (!userProfile && profileFetchAttempts < maxProfileAttempts && isMounted) {
+          profileFetchAttempts++
+          try {
+            const timeoutPromise = new Promise<{ data: any; error: any }>((resolve) =>
+              setTimeout(
+                () => resolve({ data: null, error: new Error('Timeout profile check') }),
+                8000,
+              ),
+            )
+            const res = await Promise.race([
+              Promise.resolve(
+                supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
+              ),
+              timeoutPromise,
+            ])
+
+            if (res.data) {
+              userProfile = res.data
+              break
+            }
+          } catch (err) {
+            console.warn(`Attempt ${profileFetchAttempts} to fetch user profile failed:`, err)
+          }
+
+          if (!userProfile && profileFetchAttempts < maxProfileAttempts && isMounted) {
+            await new Promise((r) => setTimeout(r, 1000))
+          }
+        }
+
+        if (!isMounted) return
+
+        // If the database explicitly returned a profile that is inactive:
+        if (userProfile && (userProfile.is_active === false || userProfile.role === 'Inativo')) {
+          try {
+            await supabase.auth.signOut()
+          } catch (signOutErr) {
+            console.error('Error on sign out inactive user:', signOutErr)
+          }
+          window.location.href = '/login?inactive=1'
+          return
+        }
+
+        // Build currentUser with strict identity checks
+        const userEmailLower = (user.email || '').toLowerCase()
+        const isDouglas =
+          userEmailLower === 'advdouglaspsantos@gmail.com' ||
+          userEmailLower === 'dowspaulo@gmail.com' ||
+          user.id === '6501af65-cd6c-43c3-958a-3091ce93ba78'
+
+        const currentUser = userProfile
+          ? {
+              ...initialData.currentUser,
+              ...userProfile,
+              id: user.id, // Strictly bind to authenticated auth.uid
+              email: userProfile.email || user.email || '',
+              // If Douglas, ensure Admin role & finance permissions
+              role:
+                isDouglas || userProfile.role === 'Admin' || userEmailLower.includes('admin')
+                  ? 'Admin'
+                  : userProfile.role || 'User',
+              canViewFinance:
+                isDouglas || userProfile.canViewFinance || userProfile.role === 'Admin',
+              is_active: userProfile.is_active ?? true,
+            }
+          : {
+              ...initialData.currentUser,
+              id: user.id,
+              email: user.email || '',
+              name: isDouglas
+                ? 'Douglas'
+                : user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+              role: isDouglas || userEmailLower.includes('admin') ? 'Admin' : 'User',
+              canViewFinance: isDouglas || userEmailLower.includes('admin'),
+              is_active: true,
+            }
+
+        // 2. Fetch all system tables with individual timeouts
         const queryWithTimeout = async (t: string) => {
           try {
             const timeoutPromise = new Promise<{ data: any[]; error: any }>((resolve) =>
@@ -138,30 +220,10 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
 
         if (!isMounted) return
 
-        const profiles = results[0].data || []
-        const profile = profiles.find((p: any) => p.id === user.id)
-
-        // Ensure we always have a valid currentUser object to prevent infinite loading state
-        const currentUser = profile || {
-          ...initialData.currentUser,
-          id: user.id,
-          email: user.email || '',
-          name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
-          role:
-            user.email?.toLowerCase().includes('admin') || profile?.role === 'Admin'
-              ? 'Admin'
-              : 'User',
-          is_active: profile?.is_active ?? true,
-        }
-
-        if (currentUser.is_active === false || currentUser.role === 'Inativo') {
-          try {
-            await supabase.auth.signOut()
-          } catch (signOutErr) {
-            console.error('Error on sign out inactive user:', signOutErr)
-          }
-          window.location.href = '/login?inactive=1'
-          return
+        let profiles = results[0].data || []
+        // Ensure currentUser is included in the profiles list
+        if (currentUser.id && !profiles.some((p: any) => p.id === currentUser.id)) {
+          profiles = [currentUser, ...profiles]
         }
 
         const dbSettings = results[8].data?.[0]
@@ -243,16 +305,23 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         })
       } catch (err) {
         console.error('Failed to load initial data', err)
-        // Set a fallback state to unblock the UI
+        // Set a fallback state to unblock the UI, strictly bounded to user.id
         if (isMounted) {
+          const userEmailLower = (user.email || '').toLowerCase()
+          const isDouglas =
+            userEmailLower === 'advdouglaspsantos@gmail.com' ||
+            userEmailLower === 'dowspaulo@gmail.com' ||
+            user.id === '6501af65-cd6c-43c3-958a-3091ce93ba78'
+
           setState((prev) => ({
             ...prev,
             currentUser: {
               ...initialData.currentUser,
               id: user.id,
               email: user.email || '',
-              name: user.email?.split('@')[0] || 'User',
-              role: user.email?.toLowerCase().includes('admin') ? 'Admin' : 'User',
+              name: isDouglas ? 'Douglas' : user.email?.split('@')[0] || 'User',
+              role: isDouglas || userEmailLower.includes('admin') ? 'Admin' : 'User',
+              canViewFinance: isDouglas || userEmailLower.includes('admin'),
               is_active: true,
             },
           }))

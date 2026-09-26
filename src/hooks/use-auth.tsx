@@ -417,32 +417,53 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }
 
   const signOut = async () => {
-    const {
-      data: { user: currentUser },
-    } = await supabase.auth.getUser()
-    const userId = currentUser?.id || user?.id
+    try {
+      const {
+        data: { user: currentUser },
+      } = await supabase.auth.getUser().catch(() => ({ data: { user: null } }))
+      const userId = currentUser?.id || user?.id
 
-    if (userId) {
-      const sid = currentSessionIdRef.current
-      currentSessionIdRef.current = null
-      sessionPromiseRef.current = null
+      if (userId) {
+        const sid = currentSessionIdRef.current
+        currentSessionIdRef.current = null
+        sessionPromiseRef.current = null
 
-      if (sid) {
-        await closeSession(sid)
+        if (sid) {
+          await closeSession(sid).catch(() => {})
+        }
+        // Always make sure no open session lingers for this user.
+        await closeAllOpenSessions(userId).catch(() => {})
+
+        try {
+          await supabase.from('logs').insert({
+            action: 'LOGOUT',
+            entity: 'auth',
+            user: userId,
+            date: nowISO(),
+            details: 'Logout realizado',
+          })
+        } catch {
+          /* intentionally ignored */
+        }
       }
-      // Always make sure no open session lingers for this user.
-      await closeAllOpenSessions(userId)
+    } catch (err) {
+      console.warn('Non-blocking error during session cleanup on logout:', err)
+    }
 
-      await supabase.from('logs').insert({
-        action: 'LOGOUT',
-        entity: 'auth',
-        user: userId,
-        date: nowISO(),
-        details: 'Logout realizado',
-      })
+    // Clear local storage auth tokens to prevent stale / crossed sessions
+    try {
+      localStorage.removeItem(
+        'sb-' +
+          (import.meta.env.VITE_SUPABASE_URL || '').split('//')[1]?.split('.')[0] +
+          '-auth-token',
+      )
+    } catch {
+      /* intentionally ignored */
     }
 
     const { error } = await supabase.auth.signOut()
+    setUser(null)
+    setSession(null)
     return { error }
   }
 
