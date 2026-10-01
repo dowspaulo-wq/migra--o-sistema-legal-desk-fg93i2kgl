@@ -87,14 +87,17 @@ export default function Index() {
     ),
   ).map(([name, value]) => ({ name: name || 'N/I', value }))
 
-  const clientsPerUser = state.users
+  // No dashboard, considerar apenas colaboradores ativos
+  const activeUsers = state.users.filter((u: any) => u.is_active !== false && u.role !== 'Inativo')
+
+  const clientsPerUser = activeUsers
     .map((u) => ({
       name: u.name,
       value: state.clients.filter((c) => c.responsibleId === u.id).length,
     }))
     .filter((x) => x.value > 0)
 
-  const casesPerUser = state.users
+  const casesPerUser = activeUsers
     .map((u) => ({
       name: u.name,
       value: visibleCases.filter((c) => c.responsibleId === u.id).length,
@@ -134,7 +137,7 @@ export default function Index() {
   const todayAppts = state.appointments.filter((a) => a.date === todayStr)
 
   // Compute Task Management Dashboard stats
-  const userTasksStats = state.users
+  const userTasksStats = activeUsers
     .map((user) => {
       const userTasks = state.tasks.filter((t) => t.responsibleId === user.id)
       const total = userTasks.length
@@ -246,7 +249,7 @@ export default function Index() {
     .sort((a, b) => b.total - a.total)
 
   // Compute Agenda Management Dashboard stats
-  const userAgendaStats = state.users
+  const userAgendaStats = activeUsers
     .map((user) => {
       const userAppts = state.appointments.filter((a) => a.responsibleId === user.id)
       const todayCount = userAppts.filter((a) => a.date === todayStr).length
