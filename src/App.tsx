@@ -13,6 +13,7 @@ import Tasks from './pages/Tasks'
 import Finance from './pages/Finance'
 import FinancialDashboard from './pages/FinancialDashboard'
 import Petitions from './pages/Petitions'
+import Guide from './pages/Guide'
 import Logs from './pages/Logs'
 import Acessos from './pages/Acessos'
 import Backups from './pages/Backups'
@@ -67,6 +68,7 @@ const App = () => (
               <Route path="/financeiro" element={<Finance />} />
               <Route path="/dashboard-financeiro" element={<FinancialDashboard />} />
               <Route path="/peticoes" element={<Petitions />} />
+              <Route path="/guia" element={<Guide />} />
               {/* Rota /modelos desativada para todos os usuários */}
               <Route path="/modelos" element={<Navigate to="/" replace />} />
               <Route

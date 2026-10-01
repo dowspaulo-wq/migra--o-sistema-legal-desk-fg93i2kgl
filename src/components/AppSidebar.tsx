@@ -15,6 +15,7 @@ import {
   Files,
   KeyRound,
   Database,
+  HelpCircle,
 } from 'lucide-react'
 import {
   Sidebar,
@@ -39,6 +40,7 @@ const navigation = [
   { name: 'Financeiro', href: '/financeiro', icon: DollarSign },
   { name: 'Dashboard Financeiro', href: '/dashboard-financeiro', icon: Wallet },
   { name: 'Petições', href: '/peticoes', icon: FileText },
+  { name: 'Guia do Sistema', href: '/guia', icon: HelpCircle },
   { name: 'Logs', href: '/logs', icon: History },
   { name: 'Acessos', href: '/acessos', icon: KeyRound },
   { name: 'Backups', href: '/backups', icon: Database },
