@@ -39,7 +39,7 @@ export default function Login() {
     e.preventDefault()
     setLoading(true)
     try {
-      // 15 second client-side safety guard in case of extreme network/hang situations
+      // Safety guard (25s) allowing for the initial 10s attempt, 1.5s pause, and 10s retry attempt
       const loginPromise = signIn(email.trim(), password)
       const timeoutPromise = new Promise<{ error: any }>((resolve) =>
         setTimeout(
@@ -50,7 +50,7 @@ export default function Login() {
                   'Tempo limite de conexão excedido ao tentar entrar. Verifique sua conexão e tente novamente.',
               },
             }),
-          15000,
+          25000,
         ),
       )
 

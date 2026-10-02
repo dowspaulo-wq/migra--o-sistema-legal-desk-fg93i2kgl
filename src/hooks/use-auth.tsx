@@ -335,12 +335,38 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [user])
 
   const signIn = async (email: string, password: string) => {
+    const isTimeoutError = (err: any) => {
+      if (!err) return false
+      const name = String(err?.name || '').toLowerCase()
+      const msg = String(err?.message || '').toLowerCase()
+      return (
+        name.includes('aborterror') ||
+        name.includes('timeout') ||
+        msg.includes('10000ms') ||
+        msg.includes('tempo limite') ||
+        msg.includes('timeout') ||
+        msg.includes('aborted')
+      )
+    }
+
     try {
       // 1. Authenticate with Supabase Auth with a 10s safety timeout
-      const authResult = await withTimeout(
-        supabase.auth.signInWithPassword({ email, password }),
-        10000,
-      )
+      // Se falhar por timeout, faz automaticamente UMA segunda tentativa após breve pausa (~1,5s).
+      let authResult: any
+      try {
+        authResult = await withTimeout(supabase.auth.signInWithPassword({ email, password }), 10000)
+      } catch (firstErr: any) {
+        if (isTimeoutError(firstErr)) {
+          console.warn('Login timeout na 1ª tentativa. Tentando novamente em 1,5s...')
+          await new Promise((resolve) => setTimeout(resolve, 1500))
+          authResult = await withTimeout(
+            supabase.auth.signInWithPassword({ email, password }),
+            10000,
+          )
+        } else {
+          throw firstErr
+        }
+      }
 
       const { data, error } = authResult
       if (error) {

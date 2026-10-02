@@ -1,9 +1,13 @@
-/* Typescript config for the browser frontend react app: https://www.typescriptlang.org/tsconfig/ */
 {
   "compilerOptions": {
     "target": "ES2020",
     "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM", "DOM.Iterable", "ESNext"],
+    "lib": [
+      "ES2020",
+      "DOM",
+      "DOM.Iterable",
+      "ESNext"
+    ],
     "module": "ESNext",
     "skipLibCheck": true,
     "moduleResolution": "bundler",
@@ -18,9 +22,14 @@
     "noImplicitAny": false,
     "noFallthroughCasesInSwitch": false,
     "paths": {
-      "*/*": ["./*"],
-      "@/*": ["./src/*"]
+      "@/*": [
+        "./src/*"
+      ]
     }
   },
-  "include": ["src", "tailwind.config.ts", "*.tsx"]
+  "include": [
+    "src",
+    "tailwind.config.ts",
+    "*.tsx"
+  ]
 }
