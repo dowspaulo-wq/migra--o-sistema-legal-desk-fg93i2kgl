@@ -28,6 +28,13 @@ export interface Client {
   phone_na?: boolean
   email_na?: boolean
   hide_birthday?: boolean
+  cep?: string
+  street?: string
+  number?: string
+  complement?: string
+  neighborhood?: string
+  city?: string
+  state?: string
 }
 export interface Case {
   id: string
@@ -47,6 +54,7 @@ export interface Case {
   updatedAt: string
   isSpecial: boolean
   isProblematic?: boolean
+  isRestricted?: boolean
   description: string
   internalNotes: string
   alerts: string
@@ -93,6 +101,7 @@ export interface Transaction {
   date: string
   clientId?: string
   processId?: string
+  asaas_id?: string
 }
 export interface Log {
   id: string
@@ -127,6 +136,10 @@ export interface Settings {
   taskStatuses: string[]
   taskTypes: string[]
   captacaoOptions: string[]
+  transactionCategories?: string[]
+  bankAccounts?: any[]
+  clientPositions?: string[]
+  subprocessTypes?: string[]
 }
 export interface WhatsAppMessage {
   id: string

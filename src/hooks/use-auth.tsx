@@ -351,7 +351,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     try {
       // 1. Authenticate with Supabase Auth with a 10s safety timeout
-      // Se falhar por timeout, faz automaticamente UMA segunda tentativa após breve pausa (~1,5s).
+      // Se falhar por timeout/AbortError, faz automaticamente UMA única segunda tentativa após breve pausa (~1,5s).
+      // Erros de credenciais inválidas ou usuário inativo NÃO entram no fluxo de retry.
       let authResult: any
       try {
         authResult = await withTimeout(supabase.auth.signInWithPassword({ email, password }), 10000)
@@ -480,7 +481,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       localStorage.removeItem(
         'sb-' +
-          (import.meta.env.VITE_SUPABASE_URL || '').split('//')[1]?.split('.')[0] +
+          ((import.meta as any).env?.VITE_SUPABASE_URL || '').split('//')[1]?.split('.')[0] +
           '-auth-token',
       )
     } catch {

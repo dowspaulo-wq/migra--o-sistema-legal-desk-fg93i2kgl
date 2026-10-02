@@ -40,7 +40,7 @@ const SettingsWrapper = () => (
 const App = () => (
   <AuthProvider>
     <LegalStoreProvider>
-      <BrowserRouter future={{ v7_startTransition: false, v7_relativeSplatPath: false }}>
+      <BrowserRouter>
         <TooltipProvider>
           <SystemIconOverlay />
           <Toaster />
