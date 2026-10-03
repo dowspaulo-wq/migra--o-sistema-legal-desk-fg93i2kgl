@@ -37,26 +37,48 @@ export default function Login() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (loading) return
+
+    const cleanEmail = email.trim()
+    if (!cleanEmail || !password) {
+      toast({
+        title: 'Campos incompletos',
+        description: 'Por favor, preencha seu e-mail e sua senha.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     setLoading(true)
     try {
-      // Safety guard (25s) allowing for the initial 10s attempt, 1.5s pause, and 10s retry attempt
-      const loginPromise = signIn(email.trim(), password)
+      // Safety guard (30s) allowing for initial 12s attempt, 1.5s pause, 12s retry attempt + leeway
+      const loginPromise = signIn(cleanEmail, password)
       const timeoutPromise = new Promise<{ error: any }>((resolve) =>
         setTimeout(
           () =>
             resolve({
               error: {
+                code: 'TIMEOUT',
                 message:
-                  'Tempo limite de conexão excedido ao tentar entrar. Verifique sua conexão e tente novamente.',
+                  'Tempo limite de conexão excedido ao tentar entrar. O servidor pode estar com alta latência. Tente novamente.',
               },
             }),
-          25000,
+          30000,
         ),
       )
 
       const { error } = await Promise.race([loginPromise, timeoutPromise])
       if (error) {
-        const errorMsg = (error.message || '').toLowerCase()
+        // Extrai mensagem limpa evitando strings vazias ou '{}'
+        const rawMsg =
+          typeof error === 'string'
+            ? error
+            : error?.message ||
+              error?.error_description ||
+              (typeof error?.error === 'string' ? error.error : '') ||
+              ''
+        const errorMsg = rawMsg.toLowerCase()
+
         if (
           error.code === 'USER_INACTIVE' ||
           errorMsg.includes('usuário inativo') ||
@@ -86,10 +108,27 @@ export default function Login() {
             description: 'E-mail ou senha incorretos. Verifique suas credenciais.',
             variant: 'destructive',
           })
+        } else if (
+          errorMsg.includes('tempo limite') ||
+          errorMsg.includes('timeout') ||
+          errorMsg.includes('aborterror') ||
+          errorMsg.includes('failed to fetch') ||
+          errorMsg.includes('network')
+        ) {
+          toast({
+            title: 'Instabilidade de conexão',
+            description:
+              'O servidor demorou para responder ou está com instabilidade temporária. Por favor, tente novamente.',
+            variant: 'destructive',
+          })
         } else {
+          const displayMsg =
+            rawMsg && rawMsg.trim() !== '' && rawMsg.trim() !== '{}'
+              ? rawMsg
+              : 'Não foi possível realizar o login devido a uma falha de comunicação com o servidor. Tente novamente.'
           toast({
             title: 'Erro ao entrar',
-            description: error.message || 'Não foi possível realizar o login. Tente novamente.',
+            description: displayMsg,
             variant: 'destructive',
           })
         }
@@ -102,9 +141,15 @@ export default function Login() {
       }
     } catch (err: any) {
       console.error('Login submit error:', err)
+      const errText =
+        typeof err === 'string'
+          ? err
+          : err?.message && err.message !== '{}'
+            ? err.message
+            : 'Falha na conexão com o servidor. Tente novamente.'
       toast({
         title: 'Erro inesperado',
-        description: err?.message || 'Falha na conexão. Tente novamente.',
+        description: errText,
         variant: 'destructive',
       })
     } finally {
@@ -203,12 +248,12 @@ export default function Login() {
             <Scale className="h-8 w-8 text-primary" />
           </div>
           <CardTitle className="text-2xl font-bold text-slate-800">
-            {isResetMode ? 'Recuperar Senha' : 'SBJur System'}
+            {isResetMode ? 'Recuperar Senha' : 'DPSjur'}
           </CardTitle>
           <CardDescription>
             {isResetMode
               ? 'Informe seu email para receber um link de recuperação.'
-              : 'Acesse a plataforma de gestão jurídica.'}
+              : 'Acesse a plataforma de gestão jurídica DPSjur.'}
           </CardDescription>
         </CardHeader>
         <CardContent>

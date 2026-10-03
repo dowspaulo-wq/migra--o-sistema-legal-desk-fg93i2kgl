@@ -100,9 +100,9 @@ export default function Agenda() {
   const sortedCases = [...state.cases].sort((a, b) => a.number.localeCompare(b.number))
 
   const allTypes = useMemo(() => {
-    const types = new Set(['Aniversário'])
-    for (const t of state.settings.appointmentTypes || []) {
-      types.add(typeof t === 'string' ? t : t.label)
+    const types = new Set<string>(['Aniversário'])
+    for (const t of (state.settings.appointmentTypes as any[]) || []) {
+      types.add(typeof t === 'string' ? t : t?.label || '')
     }
     return Array.from(types).sort((a, b) => a.localeCompare(b))
   }, [state.settings.appointmentTypes])
@@ -539,11 +539,11 @@ export default function Agenda() {
               const isFeriado = item.type === 'Feriado'
 
               let typeColor = ''
-              const appTypes = state.settings.appointmentTypes || []
+              const appTypes = (state.settings.appointmentTypes as any[]) || []
               const tObj = appTypes.find(
-                (t: any) => (typeof t === 'string' ? t : t.label) === item.type,
+                (t: any) => (typeof t === 'string' ? t : t?.label) === item.type,
               )
-              if (tObj && typeof tObj === 'object' && tObj.color) {
+              if (tObj && typeof tObj === 'object' && 'color' in tObj && tObj.color) {
                 typeColor = tObj.color
               }
 
@@ -584,10 +584,14 @@ export default function Agenda() {
                     >
                       {(item as any).time}
                       {(item as any).modality === 'Presencial' && (
-                        <MapPin className="h-2.5 w-2.5 text-green-600" title="Presencial" />
+                        <span title="Presencial">
+                          <MapPin className="h-2.5 w-2.5 text-green-600" />
+                        </span>
                       )}
                       {(item as any).modality === 'Virtual' && (
-                        <Video className="h-2.5 w-2.5 text-purple-600" title="Virtual" />
+                        <span title="Virtual">
+                          <Video className="h-2.5 w-2.5 text-purple-600" />
+                        </span>
                       )}
                     </span>
                   </div>
@@ -616,12 +620,14 @@ export default function Agenda() {
               const isDone = a.status === 'Concluído'
               const isBirthday = a.type === 'Aniversário'
 
-              const appTypes = state.settings.appointmentTypes || []
+              const appTypes = (state.settings.appointmentTypes as any[]) || []
               const tObj = appTypes.find(
-                (t: any) => (typeof t === 'string' ? t : t.label) === a.type,
+                (t: any) => (typeof t === 'string' ? t : t?.label) === a.type,
               )
               const typeColor =
-                tObj && typeof tObj === 'object' && tObj.color ? tObj.color : undefined
+                tObj && typeof tObj === 'object' && 'color' in tObj && tObj.color
+                  ? tObj.color
+                  : undefined
 
               return (
                 <Card
@@ -670,10 +676,14 @@ export default function Agenda() {
                           {a.title}
                           {isBirthday && <Gift className="h-4 w-4 text-pink-500" />}
                           {a.modality === 'Presencial' && (
-                            <MapPin className="h-4 w-4 text-green-600" title="Presencial" />
+                            <span title="Presencial">
+                              <MapPin className="h-4 w-4 text-green-600" />
+                            </span>
                           )}
                           {a.modality === 'Virtual' && (
-                            <Video className="h-4 w-4 text-purple-600" title="Virtual" />
+                            <span title="Virtual">
+                              <Video className="h-4 w-4 text-purple-600" />
+                            </span>
                           )}
                           <Badge
                             variant="outline"

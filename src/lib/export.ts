@@ -9,8 +9,13 @@ export function downloadMultiCSV(datasets: { name: string; data: any[] }[], file
       continue
     }
 
-    const headers = Array.from(
-      new Set(dataset.data.reduce((acc, row) => acc.concat(Object.keys(row)), [] as string[])),
+    const headers: string[] = Array.from(
+      new Set(
+        dataset.data.reduce(
+          (acc: string[], row: any) => acc.concat(Object.keys(row)),
+          [] as string[],
+        ),
+      ),
     )
 
     csvRows.push(headers.join(','))
@@ -39,8 +44,8 @@ export function downloadMultiCSV(datasets: { name: string; data: any[] }[], file
 export function downloadCSV(data: any[], filename: string) {
   if (!data || data.length === 0) return
 
-  const headers = Array.from(
-    new Set(data.reduce((acc, row) => acc.concat(Object.keys(row)), [] as string[])),
+  const headers: string[] = Array.from(
+    new Set(data.reduce((acc: string[], row: any) => acc.concat(Object.keys(row)), [] as string[])),
   )
 
   const csvRows = []

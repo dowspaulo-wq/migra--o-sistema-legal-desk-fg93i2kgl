@@ -265,11 +265,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         closeSession(sid).then()
       }
     })
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      setUser(session?.user ?? null)
-      setLoading(false)
-    })
+    // Fetch initial session with a safe 5s timeout so loading never stays true indefinitely
+    withTimeout(supabase.auth.getSession(), 5000, { data: { session: null }, error: null } as any)
+      .then((res: any) => {
+        const sess = res?.data?.session ?? null
+        setSession(sess)
+        setUser(sess?.user ?? null)
+        setLoading(false)
+      })
+      .catch(() => {
+        setLoading(false)
+      })
     return () => subscription.unsubscribe()
   }, [])
 
@@ -335,34 +341,87 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [user])
 
   const signIn = async (email: string, password: string) => {
-    const isTimeoutError = (err: any) => {
+    const isTimeoutOrNetworkError = (err: any) => {
       if (!err) return false
       const name = String(err?.name || '').toLowerCase()
       const msg = String(err?.message || '').toLowerCase()
+      const status = err?.status || err?.code
+      // Erros definitivos de credenciais ou autorização NUNCA devem ter retry
+      if (
+        status === 400 ||
+        status === '400' ||
+        status === 401 ||
+        status === '401' ||
+        msg.includes('invalid login credentials') ||
+        msg.includes('invalid credentials') ||
+        msg.includes('credenciais inválidas') ||
+        msg.includes('user not found') ||
+        msg.includes('usuário não encontrado') ||
+        msg.includes('email not confirmed') ||
+        msg.includes('not confirmed') ||
+        msg.includes('user_inactive') ||
+        msg.includes('usuário inativo')
+      ) {
+        return false
+      }
+
       return (
         name.includes('aborterror') ||
         name.includes('timeout') ||
-        msg.includes('10000ms') ||
+        name.includes('typeerror') ||
         msg.includes('tempo limite') ||
         msg.includes('timeout') ||
-        msg.includes('aborted')
+        msg.includes('aborted') ||
+        msg.includes('failed to fetch') ||
+        msg.includes('networkerror') ||
+        msg.includes('network request failed') ||
+        msg.includes('connection refused') ||
+        msg.includes('connection terminated') ||
+        msg.includes('load failed') ||
+        msg.includes('gateway timeout') ||
+        msg.includes('bad gateway') ||
+        status === 504 ||
+        status === '504' ||
+        status === 502 ||
+        status === '502' ||
+        status === 503 ||
+        status === '503'
       )
     }
-
     try {
-      // 1. Authenticate with Supabase Auth with a 10s safety timeout
-      // Se falhar por timeout/AbortError, faz automaticamente UMA única segunda tentativa após breve pausa (~1,5s).
-      // Erros de credenciais inválidas ou usuário inativo NÃO entram no fluxo de retry.
+      // 1. Authenticate with Supabase Auth with a 12s safety timeout
+      // Se falhar por timeout ou erro transitório de rede, faz automaticamente UMA única segunda tentativa após breve pausa (~1,5s).
+      // Erros de credenciais inválidas ou usuário inativo NUNCA entram no fluxo de retry.
       let authResult: any
       try {
-        authResult = await withTimeout(supabase.auth.signInWithPassword({ email, password }), 10000)
-      } catch (firstErr: any) {
-        if (isTimeoutError(firstErr)) {
-          console.warn('Login timeout na 1ª tentativa. Tentando novamente em 1,5s...')
+        const firstTry = await withTimeout(
+          supabase.auth.signInWithPassword({ email, password }),
+          12000,
+        )
+        // Se a API do Supabase retornar erro transitório (502, 503, 504) dentro do resultado
+        if (firstTry.error && isTimeoutOrNetworkError(firstTry.error)) {
+          console.warn(
+            'Login erro de rede/timeout na resposta da 1ª tentativa. Tentando novamente em 1,5s...',
+            firstTry.error,
+          )
           await new Promise((resolve) => setTimeout(resolve, 1500))
           authResult = await withTimeout(
             supabase.auth.signInWithPassword({ email, password }),
-            10000,
+            12000,
+          )
+        } else {
+          authResult = firstTry
+        }
+      } catch (firstErr: any) {
+        if (isTimeoutOrNetworkError(firstErr)) {
+          console.warn(
+            'Login timeout/rede na 1ª tentativa. Tentando novamente em 1,5s...',
+            firstErr,
+          )
+          await new Promise((resolve) => setTimeout(resolve, 1500))
+          authResult = await withTimeout(
+            supabase.auth.signInWithPassword({ email, password }),
+            12000,
           )
         } else {
           throw firstErr
@@ -375,19 +434,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
 
       if (data?.user) {
-        // 2. Check if user profile is inactive (using maybeSingle and 6s timeout)
+        // 2. Check if user profile is inactive (using maybeSingle and 5s timeout)
         let profile: { is_active?: boolean | null } | null = null
         try {
           const profileRes = await withTimeout(
             Promise.resolve(
               supabase.from('profiles').select('is_active').eq('id', data.user.id).maybeSingle(),
             ),
-            6000,
+            5000,
             { data: null, error: null } as any,
           )
           profile = profileRes.data
         } catch (profileErr) {
-          console.warn('Could not check profile is_active in time:', profileErr)
+          console.warn(
+            'Could not check profile is_active in time (proceeding with caution):',
+            profileErr,
+          )
         }
 
         if (profile && profile.is_active === false) {
@@ -434,10 +496,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return { error: null }
     } catch (err: any) {
       console.error('Unexpected signIn error:', err)
+      let message = 'Não foi possível autenticar. Verifique sua conexão e tente novamente.'
+      if (isTimeoutOrNetworkError(err)) {
+        message =
+          'O servidor demorou muito para responder (tempo limite esgotado). Por favor, tente novamente.'
+      } else if (
+        err?.message &&
+        typeof err.message === 'string' &&
+        err.message.trim() !== '' &&
+        err.message.trim() !== '{}'
+      ) {
+        message = err.message
+      }
       return {
         error: {
-          message:
-            err?.message || 'Não foi possível autenticar. Verifique sua conexão e tente novamente.',
+          code: err?.code || 'AUTH_ERROR',
+          message,
         },
       }
     }

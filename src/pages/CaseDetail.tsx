@@ -385,7 +385,9 @@ export default function CaseDetail() {
               })()}
               {c.number}
               {c.isSpecial && (
-                <Star className="h-6 w-6 fill-yellow-400 text-yellow-400" title="Especial" />
+                <span title="Especial">
+                  <Star className="h-6 w-6 fill-yellow-400 text-yellow-400" />
+                </span>
               )}
               {c.isProblematic && (
                 <span className="text-2xl" title="Problemático">
@@ -1139,11 +1141,12 @@ export default function CaseDetail() {
                               <Badge
                                 variant="outline"
                                 className={
-                                  t.status === 'Pago' || t.status === 'Realizado'
+                                  (t.status as string) === 'Pago' ||
+                                  (t.status as string) === 'Realizado'
                                     ? 'border-green-200 text-green-700 bg-green-50'
-                                    : t.status === 'Atrasado'
+                                    : (t.status as string) === 'Atrasado'
                                       ? 'border-red-200 text-red-700 bg-red-50'
-                                      : t.status === 'Êxito'
+                                      : (t.status as string) === 'Êxito'
                                         ? 'border-purple-200 text-purple-700 bg-purple-50'
                                         : 'border-orange-200 text-orange-700 bg-orange-50'
                                 }

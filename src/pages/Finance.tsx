@@ -634,9 +634,9 @@ export default function Finance() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Todas">Todas</SelectItem>
-                        {categories.map((c) => (
-                          <SelectItem key={c} value={c}>
-                            {c}
+                        {categories.map((c: any) => (
+                          <SelectItem key={String(c)} value={String(c)}>
+                            {String(c)}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -705,7 +705,7 @@ export default function Finance() {
                         axisLine={false}
                         width={80}
                       />
-                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <ChartTooltip content={(props: any) => <ChartTooltipContent {...props} />} />
                       <Bar
                         dataKey="income"
                         fill="var(--color-income)"

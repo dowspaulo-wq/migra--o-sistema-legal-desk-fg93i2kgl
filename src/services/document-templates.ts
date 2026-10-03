@@ -13,7 +13,7 @@ export async function fetchDocumentTemplates() {
     .from('document_templates' as any)
     .select('*')
     .order('created_at', { ascending: false })
-  return { data: (data as DocumentTemplate[]) || [], error }
+  return { data: (data as unknown as DocumentTemplate[]) || [], error }
 }
 
 export async function uploadDocumentTemplate(file: File, category: string) {
@@ -39,7 +39,7 @@ export async function uploadDocumentTemplate(file: File, category: string) {
     .select()
     .single()
 
-  return { data: data as DocumentTemplate, error }
+  return { data: data as unknown as DocumentTemplate, error }
 }
 
 export async function deleteDocumentTemplate(id: string, filePath: string) {

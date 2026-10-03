@@ -75,6 +75,7 @@ interface LegalContextType {
     installments?: number
     paymentMethod?: string
     feeType?: string
+    percentage?: number
   }) => Promise<void>
   updateUser: (id: string, changes: Partial<User>) => void
   addUser: (user: any) => void
@@ -207,7 +208,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
               ),
             )
             return await Promise.race([
-              Promise.resolve(supabase.from(t).select('*')),
+              Promise.resolve(supabase.from(t as any).select('*')),
               timeoutPromise,
             ])
           } catch (e) {
@@ -407,9 +408,10 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           const { data } = await supabase
             .from(table as any)
             .insert(changes as any)
-            .select()
+            .select('id')
             .single()
-          if (data) setState((prev) => ({ ...prev, settings: { ...prev.settings, id: data.id } }))
+          if (data && 'id' in data)
+            setState((prev) => ({ ...prev, settings: { ...prev.settings, id: (data as any).id } }))
         }
       } else {
         let finalChanges = { ...changes }
@@ -514,7 +516,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       .select()
       .single()
     if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
-    setState((prev) => ({ ...prev, clients: [data, ...prev.clients] }))
+    setState((prev) => ({ ...prev, clients: [data as any, ...prev.clients] }))
     toast({ title: 'Cliente adicionado' })
   }, [])
 
@@ -599,7 +601,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         if (tData && !tErr) {
           setState((prev) => ({
             ...prev,
-            transactions: [...tData, ...prev.transactions].sort(
+            transactions: ([...tData, ...prev.transactions] as any[]).sort(
               (a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime(),
             ),
           }))
@@ -658,7 +660,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       if (data) {
         setState((prev) => ({
           ...prev,
-          transactions: [...data, ...prev.transactions].sort(
+          transactions: ([...data, ...prev.transactions] as any[]).sort(
             (a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime(),
           ),
         }))
@@ -784,12 +786,14 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         .insert(transactionsToInsert)
         .select()
 
-      if (txnError)
-        return toast({ title: 'Erro', description: txnError.message, variant: 'destructive' })
+      if (txnError) {
+        toast({ title: 'Erro', description: txnError.message, variant: 'destructive' })
+        return
+      }
 
       setState((prev) => ({
         ...prev,
-        transactions: [...txnData, ...prev.transactions].sort(
+        transactions: ([...txnData, ...prev.transactions] as any[]).sort(
           (a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime(),
         ),
       }))

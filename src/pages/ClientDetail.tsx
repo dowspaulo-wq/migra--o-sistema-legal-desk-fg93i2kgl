@@ -599,10 +599,9 @@ export default function ClientDetail() {
                               {c.number}
                             </Link>
                             {c.isSpecial && (
-                              <Star
-                                className="h-4 w-4 fill-yellow-400 text-yellow-400 shrink-0"
-                                title="Especial"
-                              />
+                              <span title="Especial">
+                                <Star className="h-4 w-4 fill-yellow-400 text-yellow-400 shrink-0" />
+                              </span>
                             )}
                           </div>
                         </div>
@@ -682,10 +681,9 @@ export default function ClientDetail() {
                                     {sub.number}
                                   </Link>
                                   {sub.isSpecial && (
-                                    <Star
-                                      className="h-3 w-3 fill-yellow-400 text-yellow-400 shrink-0"
-                                      title="Especial"
-                                    />
+                                    <span title="Especial">
+                                      <Star className="h-3 w-3 fill-yellow-400 text-yellow-400 shrink-0" />
+                                    </span>
                                   )}
                                 </div>
                               </div>
@@ -862,7 +860,7 @@ export default function ClientDetail() {
                         </span>
                         <Badge
                           variant={
-                            t.status === 'Pago' || t.status === 'Realizado'
+                            (t.status as string) === 'Pago' || (t.status as string) === 'Realizado'
                               ? 'secondary'
                               : 'default'
                           }
@@ -978,9 +976,10 @@ export default function ClientDetail() {
                             <Badge
                               variant="outline"
                               className={
-                                t.status === 'Pago' || t.status === 'Realizado'
+                                (t.status as string) === 'Pago' ||
+                                (t.status as string) === 'Realizado'
                                   ? 'border-green-200 text-green-700 bg-green-50'
-                                  : t.status === 'Atrasado'
+                                  : (t.status as string) === 'Atrasado'
                                     ? 'border-red-200 text-red-700 bg-red-50'
                                     : 'border-orange-200 text-orange-700 bg-orange-50'
                               }

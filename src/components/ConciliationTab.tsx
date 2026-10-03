@@ -155,7 +155,10 @@ export function ConciliationTab({
             pendente_vinculo: false,
           }
 
-    const { error } = await supabase.from('transactions').update(changes).eq('id', transactionId)
+    const { error } = await supabase
+      .from('transactions')
+      .update(changes as any)
+      .eq('id', transactionId)
 
     if (error) {
       toast({
@@ -190,7 +193,10 @@ export function ConciliationTab({
       pendente_vinculo: false,
     }
 
-    const { error } = await supabase.from('transactions').update(changes).eq('id', transactionId)
+    const { error } = await supabase
+      .from('transactions')
+      .update(changes as any)
+      .eq('id', transactionId)
 
     if (error) {
       toast({
