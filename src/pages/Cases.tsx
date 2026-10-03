@@ -45,17 +45,12 @@ import { CaseDialog } from '@/components/CaseDialog'
 import { normalizeStr, normalizeProcessNumber, getDetailedDuration, stripHtml } from '@/lib/utils'
 import { downloadCSV } from '@/lib/export'
 import { Download } from 'lucide-react'
-
-const getAlertLabel = (alert: string) => {
-  const trimmed = alert.trim()
-  if (trimmed === 'Cobrar astreites' || trimmed === '💸 Cobrar astreites')
-    return '💸 Cobrar astreites'
-  if (trimmed === 'Litigância de má-fé' || trimmed === '🛑 Litigância de má-fé')
-    return '🛑 Litigância de má-fé'
-  if (trimmed === 'Segredo de Justiça' || trimmed === '🕵️ Segredo de Justiça')
-    return '🕵️ Segredo de Justiça'
-  return trimmed
-}
+import {
+  getCaseStatusColor,
+  getCaseStatusStyle,
+  getCaseTypeColor,
+  getCaseAlertLabel as getAlertLabel,
+} from '@/lib/case-status'
 
 const initialFilters = {
   numero: '',
@@ -176,29 +171,11 @@ export default function Cases() {
   })
 
   const getStatusColor = (status: string) => {
-    const s = caseStatusesSettings.find(
-      (x: any) => (typeof x === 'string' ? x : x.label) === status,
-    ) as any
-    if (typeof s === 'object' && s.color) return s.color
-
-    const lower = status.toLowerCase()
-    if (lower === 'em andamento') return '#22c55e'
-    if (lower === 'concluído' || lower === 'concluido') return '#f1f5f9'
-    if (lower === 'suspenso') return '#eab308'
-    if (lower === 'aguardando documentos') return '#ef4444'
-    if (lower === 'pendente') return '#f97316'
-
-    return '#cbd5e1'
+    return getCaseStatusColor(status, caseStatusesSettings)
   }
 
   const getStatusStyle = (status: string | null | undefined) => {
-    if (!status) return {}
-    const color = getStatusColor(status)
-    const isVeryLight = color.toLowerCase() === '#f1f5f9' || color.toLowerCase() === '#ffffff'
-    return {
-      backgroundColor: isVeryLight ? color : color + '15',
-      borderLeft: `4px solid ${color}`,
-    }
+    return getCaseStatusStyle(status, caseStatusesSettings)
   }
 
   const filtered = state.cases.filter((c) => {
@@ -262,10 +239,7 @@ export default function Cases() {
   }
 
   const getTypeColor = (type: string) => {
-    const t = caseTypesSettings.find(
-      (x: any) => (typeof x === 'string' ? x : x.label) === type,
-    ) as any
-    return typeof t === 'object' ? t.color : '#94a3b8'
+    return getCaseTypeColor(type, caseTypesSettings)
   }
 
   return (

@@ -50,7 +50,13 @@ import { TransactionDialog } from '@/components/TransactionDialog'
 import { LinkTransactionToCaseDialog } from '@/components/LinkTransactionToCaseDialog'
 import { formatSafeLocalDate, formatPhone, getWhatsAppPhone } from '@/lib/utils'
 import { supabase } from '@/lib/supabase/client'
-import { getCaseStatusColor, getCaseStatusStyle } from '@/lib/case-status'
+import {
+  getCaseStatusColor,
+  getCaseStatusStyle,
+  getCaseTypeColor,
+  getCaseAlertLabel,
+} from '@/lib/case-status'
+import { getDetailedDuration, stripHtml, normalizeStr } from '@/lib/utils'
 import { useClientFeesFormStore } from '@/stores/useClientFeesFormStore'
 
 export default function ClientDetail() {
@@ -79,6 +85,8 @@ export default function ClientDetail() {
   const [feeDeleteError, setFeeDeleteError] = useState<string | null>(null)
   const [syncingFeeId, setSyncingFeeId] = useState<string | null>(null)
   const [bulkSyncing, setBulkSyncing] = useState(false)
+  const [editingCase, setEditingCase] = useState<any>(null)
+  const [isEditCaseOpen, setIsEditCaseOpen] = useState(false)
   const [linkingTx, setLinkingTx] = useState<any>(null)
 
   const client = state.clients.find((c) => c.id === id)
@@ -317,6 +325,25 @@ export default function ClientDetail() {
         data={{ clientId: client.id, isNew: true }}
         lockedClientId={client.id}
         onSave={(d: any) => addCase(d)}
+        users={state.users}
+        clients={state.clients}
+        settings={state.settings}
+      />
+
+      <CaseDialog
+        open={isEditCaseOpen}
+        onOpenChange={(openState) => {
+          setIsEditCaseOpen(openState)
+          if (!openState) setEditingCase(null)
+        }}
+        data={editingCase}
+        lockedClientId={client.id}
+        onSave={(d: any) => {
+          if (editingCase?.id) {
+            updateItem('cases', editingCase.id, d)
+            toast({ title: 'Processo atualizado com sucesso' })
+          }
+        }}
         users={state.users}
         clients={state.clients}
         settings={state.settings}
@@ -575,154 +602,352 @@ export default function ClientDetail() {
         </Card>
 
         <Card className="md:col-span-2 shadow-sm">
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-lg flex items-center gap-2">
               <FileText className="h-5 w-5" /> Processos Vinculados ({mainCases.length})
             </CardTitle>
+            <Button variant="outline" size="sm" onClick={() => setIsCreatingCase(true)}>
+              <Plus className="h-4 w-4 mr-2" /> Novo Processo
+            </Button>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               {mainCases.map((c) => {
                 const subCases = allCases.filter((sub) => sub.parentId === c.id)
+                const resp = state.users.find((u) => u.id === c.responsibleId)
+                const typeColor = getCaseTypeColor(c.type, state.settings.caseTypes || [])
+
                 return (
                   <div key={c.id} className="space-y-2">
-                    <div className="flex flex-col border p-4 rounded-lg hover:bg-slate-50 gap-3 transition-colors bg-white">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 w-full">
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1">Número do Processo</p>
-                          <div className="flex items-center gap-1">
-                            <Link
-                              to={`/processos/${c.id}`}
-                              className="font-bold text-primary hover:underline block truncate"
-                              title={c.number}
-                            >
-                              {c.number}
-                            </Link>
-                            {c.isSpecial && (
-                              <span title="Especial">
-                                <Star className="h-4 w-4 fill-yellow-400 text-yellow-400 shrink-0" />
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1">Parte Adversa</p>
-                          <p className="text-sm font-medium truncate" title={c.adverseParty || ''}>
-                            {c.adverseParty || 'Não informada'}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1">Assunto / Tipo</p>
-                          <p className="text-sm font-medium truncate" title={c.type || ''}>
-                            {c.type || 'Não informado'}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1">Status</p>
-                          <Badge
-                            variant="outline"
-                            style={{
-                              borderColor: getCaseStatusColor(
-                                c.status,
-                                state.settings.caseStatuses || [],
-                              ),
-                              color: getCaseStatusColor(
-                                c.status,
-                                state.settings.caseStatuses || [],
-                              ),
-                            }}
+                    <div
+                      className="border p-4 rounded-lg flex flex-col md:flex-row justify-between gap-4 hover:opacity-90 transition-colors bg-card"
+                      style={getCaseStatusStyle(c.status, state.settings.caseStatuses || [])}
+                    >
+                      <div className="w-full">
+                        <div
+                          className="flex items-center gap-2 mb-1 flex-wrap"
+                          data-native-system-icon="true"
+                        >
+                          <Link
+                            to={`/processos/${c.id}`}
+                            className="text-lg font-bold text-primary hover:underline flex items-center gap-2"
                           >
-                            {c.status}
-                          </Badge>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1">Classificação</p>
-                          <Badge variant="secondary">{c.classification || 'SB'}</Badge>
-                        </div>
-                      </div>
-                      {c.alerts && (
-                        <div className="flex gap-1 flex-wrap pt-2 border-t border-slate-100">
-                          {c.alerts.split(',').map((a) => (
-                            <Badge
-                              key={a}
-                              variant="secondary"
-                              className="text-[10px] bg-red-50 text-red-700 border-red-200"
+                            {(() => {
+                              const sys = state.caseSystems?.find((s) => s.name === c.system)
+                              if (sys?.image_url) {
+                                return (
+                                  <img
+                                    src={sys.image_url}
+                                    alt={sys.name}
+                                    className="w-5 h-5 object-contain shrink-0"
+                                    title={sys.name}
+                                  />
+                                )
+                              }
+                              return null
+                            })()}
+                            {c.number}
+                          </Link>{' '}
+                          {c.isSpecial && (
+                            <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                          )}
+                          {c.isProblematic && (
+                            <span className="text-base leading-none" title="Problemático">
+                              💩
+                            </span>
+                          )}
+                          {c.isRestricted && (
+                            <span
+                              className="text-base leading-none"
+                              title="Visibilidade Interna Restrita"
                             >
-                              {a.trim()}
+                              🔒
+                            </span>
+                          )}
+                          <Badge variant="outline">{c.status}</Badge>
+                          <Badge variant="secondary" className="text-[10px]">
+                            {c.classification || 'SB'}
+                          </Badge>
+                          <Badge
+                            style={{ backgroundColor: typeColor }}
+                            className="text-white border-0 hover:opacity-90"
+                          >
+                            {c.type}
+                          </Badge>
+                          {c.parentId && (
+                            <Badge variant="secondary" className="text-[10px]">
+                              Subprocesso
                             </Badge>
-                          ))}
+                          )}
                         </div>
-                      )}
+                        <p className="text-sm font-medium mt-1">
+                          <span className="text-muted-foreground text-xs">
+                            ({c.position || 'Autor'})
+                          </span>{' '}
+                          {c.adverseParty ? `x ${c.adverseParty}` : ''}
+                        </p>
+                        <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                          <p>
+                            Vara: {c.court || 'Não informada'} •{' '}
+                            {c.status && normalizeStr(c.status).includes('concluido')
+                              ? `Tramitou durante ${getDetailedDuration(c.startDate, c.updatedAt, c.status)}`
+                              : `Tramitando há ${getDetailedDuration(c.startDate, c.updatedAt, c.status)}`}
+                          </p>
+                          {resp && (
+                            <span
+                              className="px-2 py-0.5 rounded-full font-medium ml-auto"
+                              style={{
+                                backgroundColor: `${resp.color}20`,
+                                color: resp.color,
+                                border: `1px solid ${resp.color}40`,
+                              }}
+                            >
+                              Resp: {resp.name.split(' ')[0]}
+                            </span>
+                          )}
+                        </div>
+                        {c.description && (
+                          <p
+                            className="text-sm text-muted-foreground mt-2 line-clamp-2"
+                            title={stripHtml(c.description)}
+                          >
+                            {stripHtml(c.description)}
+                          </p>
+                        )}
+                        {c.alerts && (
+                          <div className="flex gap-1 flex-wrap mt-2">
+                            {c.alerts.split(',').map((a) => (
+                              <Badge
+                                key={a}
+                                variant="secondary"
+                                className="text-[10px] bg-red-50 text-red-700 border-red-200"
+                              >
+                                {getCaseAlertLabel(a)}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 self-start md:self-center shrink-0">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setEditingCase(c)
+                            setIsEditCaseOpen(true)
+                          }}
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        {state.currentUser.role === 'Admin' && (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-red-500 hover:bg-red-50 bg-white"
+                                title="Excluir"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Excluir Processo?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Esta ação não pode ser desfeita. Isso excluirá o processo
+                                  permanentemente, além de tarefas e compromissos atrelados.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                <AlertDialogAction
+                                  className="bg-red-600 hover:bg-red-700"
+                                  onClick={() => deleteItem('cases', c.id)}
+                                >
+                                  Excluir
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )}
+                      </div>
                     </div>
 
                     {subCases.length > 0 && (
-                      <div className="pl-8 space-y-2 relative before:absolute before:inset-y-0 before:left-4 before:w-px before:bg-slate-200">
-                        {subCases.map((sub) => (
-                          <div
-                            key={sub.id}
-                            className="flex flex-col border border-slate-100 p-3 rounded-lg hover:bg-slate-50 gap-2 transition-colors bg-slate-50/50 relative"
-                            style={getCaseStatusStyle(
-                              sub.status,
-                              state.settings.caseStatuses || [],
-                            )}
-                          >
-                            <div className="absolute top-1/2 -left-4 w-4 h-px bg-slate-200" />
-                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 w-full">
-                              <div>
-                                <p className="text-[10px] text-muted-foreground mb-1">
-                                  Nº do Subprocesso
-                                </p>
-                                <div className="flex items-center gap-1">
+                      <div className="pl-6 space-y-2 relative before:absolute before:inset-y-0 before:left-3 before:w-px before:bg-slate-200">
+                        {subCases.map((sub) => {
+                          const subResp = state.users.find((u) => u.id === sub.responsibleId)
+                          const subTypeColor = getCaseTypeColor(
+                            sub.type,
+                            state.settings.caseTypes || [],
+                          )
+
+                          return (
+                            <div
+                              key={sub.id}
+                              className="border p-3.5 rounded-lg flex flex-col md:flex-row justify-between gap-3 hover:opacity-90 transition-colors bg-card relative"
+                              style={getCaseStatusStyle(
+                                sub.status,
+                                state.settings.caseStatuses || [],
+                              )}
+                            >
+                              <div className="absolute top-1/2 -left-3 w-3 h-px bg-slate-200" />
+                              <div className="w-full">
+                                <div
+                                  className="flex items-center gap-2 mb-1 flex-wrap"
+                                  data-native-system-icon="true"
+                                >
                                   <Link
                                     to={`/processos/${sub.id}`}
-                                    className="font-bold text-sm text-primary hover:underline block truncate"
-                                    title={sub.number}
+                                    className="text-base font-bold text-primary hover:underline flex items-center gap-2"
                                   >
+                                    {(() => {
+                                      const sys = state.caseSystems?.find(
+                                        (s) => s.name === sub.system,
+                                      )
+                                      if (sys?.image_url) {
+                                        return (
+                                          <img
+                                            src={sys.image_url}
+                                            alt={sys.name}
+                                            className="w-4 h-4 object-contain shrink-0"
+                                            title={sys.name}
+                                          />
+                                        )
+                                      }
+                                      return null
+                                    })()}
                                     {sub.number}
-                                  </Link>
+                                  </Link>{' '}
                                   {sub.isSpecial && (
-                                    <span title="Especial">
-                                      <Star className="h-3 w-3 fill-yellow-400 text-yellow-400 shrink-0" />
+                                    <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
+                                  )}
+                                  {sub.isProblematic && (
+                                    <span className="text-sm leading-none" title="Problemático">
+                                      💩
+                                    </span>
+                                  )}
+                                  {sub.isRestricted && (
+                                    <span
+                                      className="text-sm leading-none"
+                                      title="Visibilidade Interna Restrita"
+                                    >
+                                      🔒
+                                    </span>
+                                  )}
+                                  <Badge variant="outline" className="text-[10px]">
+                                    {sub.status}
+                                  </Badge>
+                                  <Badge variant="secondary" className="text-[10px]">
+                                    {sub.classification || 'SB'}
+                                  </Badge>
+                                  <Badge
+                                    style={{ backgroundColor: subTypeColor }}
+                                    className="text-white border-0 hover:opacity-90 text-[10px]"
+                                  >
+                                    {sub.type}
+                                  </Badge>
+                                  <Badge variant="secondary" className="text-[10px]">
+                                    Subprocesso
+                                  </Badge>
+                                </div>
+                                <p className="text-xs font-medium mt-1">
+                                  <span className="text-muted-foreground">
+                                    ({sub.position || 'Autor'})
+                                  </span>{' '}
+                                  {sub.adverseParty ? `x ${sub.adverseParty}` : ''}
+                                </p>
+                                <div className="flex items-center gap-2 mt-1.5 text-[11px] text-muted-foreground">
+                                  <p>
+                                    Vara: {sub.court || 'Não informada'} •{' '}
+                                    {sub.status && normalizeStr(sub.status).includes('concluido')
+                                      ? `Tramitou durante ${getDetailedDuration(sub.startDate, sub.updatedAt, sub.status)}`
+                                      : `Tramitando há ${getDetailedDuration(sub.startDate, sub.updatedAt, sub.status)}`}
+                                  </p>
+                                  {subResp && (
+                                    <span
+                                      className="px-2 py-0.5 rounded-full font-medium ml-auto text-[10px]"
+                                      style={{
+                                        backgroundColor: `${subResp.color}20`,
+                                        color: subResp.color,
+                                        border: `1px solid ${subResp.color}40`,
+                                      }}
+                                    >
+                                      Resp: {subResp.name.split(' ')[0]}
                                     </span>
                                   )}
                                 </div>
+                                {sub.description && (
+                                  <p
+                                    className="text-xs text-muted-foreground mt-1.5 line-clamp-2"
+                                    title={stripHtml(sub.description)}
+                                  >
+                                    {stripHtml(sub.description)}
+                                  </p>
+                                )}
+                                {sub.alerts && (
+                                  <div className="flex gap-1 flex-wrap mt-1.5">
+                                    {sub.alerts.split(',').map((a) => (
+                                      <Badge
+                                        key={a}
+                                        variant="secondary"
+                                        className="text-[10px] bg-red-50 text-red-700 border-red-200"
+                                      >
+                                        {getCaseAlertLabel(a)}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
-                              <div>
-                                <p className="text-[10px] text-muted-foreground mb-1">Tipo</p>
-                                <p className="text-sm font-medium truncate" title={sub.type || ''}>
-                                  {sub.type || 'Não informado'}
-                                </p>
-                              </div>
-                              <div>
-                                <p className="text-[10px] text-muted-foreground mb-1">Status</p>
-                                <Badge
+                              <div className="flex items-center gap-1 self-start md:self-center shrink-0">
+                                <Button
                                   variant="outline"
-                                  className="text-[10px]"
-                                  style={{
-                                    borderColor: getCaseStatusColor(
-                                      sub.status,
-                                      state.settings.caseStatuses || [],
-                                    ),
-                                    color: getCaseStatusColor(
-                                      sub.status,
-                                      state.settings.caseStatuses || [],
-                                    ),
+                                  size="sm"
+                                  className="h-8 w-8 p-0"
+                                  onClick={() => {
+                                    setEditingCase(sub)
+                                    setIsEditCaseOpen(true)
                                   }}
                                 >
-                                  {sub.status}
-                                </Badge>
-                              </div>
-                              <div>
-                                <p className="text-[10px] text-muted-foreground mb-1">
-                                  Classificação
-                                </p>
-                                <Badge variant="secondary" className="text-[10px]">
-                                  {sub.classification || 'SB'}
-                                </Badge>
+                                  <Edit className="h-3.5 w-3.5" />
+                                </Button>
+                                {state.currentUser.role === 'Admin' && (
+                                  <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-8 w-8 p-0 text-red-500 hover:bg-red-50 bg-white"
+                                        title="Excluir"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                      <AlertDialogHeader>
+                                        <AlertDialogTitle>Excluir Subprocesso?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                          Esta ação não pode ser desfeita. Isso excluirá o
+                                          subprocesso permanentemente.
+                                        </AlertDialogDescription>
+                                      </AlertDialogHeader>
+                                      <AlertDialogFooter>
+                                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                        <AlertDialogAction
+                                          className="bg-red-600 hover:bg-red-700"
+                                          onClick={() => deleteItem('cases', sub.id)}
+                                        >
+                                          Excluir
+                                        </AlertDialogAction>
+                                      </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                  </AlertDialog>
+                                )}
                               </div>
                             </div>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     )}
                   </div>
