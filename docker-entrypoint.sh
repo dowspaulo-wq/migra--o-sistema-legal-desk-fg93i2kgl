@@ -1,0 +1,40 @@
+#!/bin/sh
+set -e
+
+# Gera o arquivo /usr/share/nginx/html/env.js dinamicamente em runtime
+# com base nas variáveis de ambiente injetadas no contêiner (ex: pelo EasyPanel)
+TARGET_DIR="/usr/share/nginx/html"
+TARGET_FILE="$TARGET_DIR/env.js"
+
+mkdir -p "$TARGET_DIR"
+
+# Função utilitária para sanitizar valores JS (escapar barras invertidas e aspas)
+sanitize_val() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+SAFE_SUPABASE_URL=$(sanitize_val "${VITE_SUPABASE_URL:-}")
+SAFE_SUPABASE_KEY=$(sanitize_val "${VITE_SUPABASE_PUBLISHABLE_KEY:-}")
+
+cat <<EOF > "$TARGET_FILE"
+window.__ENV__ = {
+  "VITE_SUPABASE_URL": "$SAFE_SUPABASE_URL",
+  "VITE_SUPABASE_PUBLISHABLE_KEY": "$SAFE_SUPABASE_KEY"
+};
+EOF
+
+echo "[DPSjur Entrypoint] env.js gerado com sucesso em $TARGET_FILE"
+if [ -n "$SAFE_SUPABASE_URL" ]; then
+  echo "[DPSjur Entrypoint] VITE_SUPABASE_URL configurada: $SAFE_SUPABASE_URL"
+else
+  echo "[DPSjur Entrypoint] ⚠️ ATENÇÃO: VITE_SUPABASE_URL está vazia nas variáveis de ambiente do contêiner!"
+fi
+
+if [ -n "$SAFE_SUPABASE_KEY" ]; then
+  echo "[DPSjur Entrypoint] VITE_SUPABASE_PUBLISHABLE_KEY configurada (tamanho: ${#SAFE_SUPABASE_KEY} chars)"
+else
+  echo "[DPSjur Entrypoint] ⚠️ ATENÇÃO: VITE_SUPABASE_PUBLISHABLE_KEY está vazia nas variáveis de ambiente do contêiner!"
+fi
+
+# Executa o comando passado como argumento (ex: nginx -g "daemon off;")
+exec "$@"

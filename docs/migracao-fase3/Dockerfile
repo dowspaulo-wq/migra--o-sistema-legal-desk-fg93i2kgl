@@ -40,6 +40,10 @@ COPY docs/migracao-fase3/nginx.conf /etc/nginx/conf.d/default.conf
 # Copia os artefatos compilados do estágio anterior
 COPY --from=builder /app/dist /usr/share/nginx/html
 
+# Copia e concede permissão de execução ao script de entrypoint para gerar env.js em runtime
+COPY docs/migracao-fase3/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
 # Porta HTTP exposta
 EXPOSE 80
 
@@ -47,4 +51,5 @@ EXPOSE 80
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
   CMD wget --quiet --tries=1 --spider http://127.0.0.1:80/ || exit 1
 
+ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["nginx", "-g", "daemon off;"]

@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, useRef, ReactNode } from 'react'
 import { User, Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase/client'
+import { SUPABASE_URL } from '@/lib/env'
 
 interface AuthContextType {
   user: User | null
@@ -553,11 +554,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     // Clear local storage auth tokens to prevent stale / crossed sessions
     try {
-      localStorage.removeItem(
-        'sb-' +
-          ((import.meta as any).env?.VITE_SUPABASE_URL || '').split('//')[1]?.split('.')[0] +
-          '-auth-token',
-      )
+      const projectId = (SUPABASE_URL || '').split('//')[1]?.split('.')[0]
+      if (projectId) {
+        localStorage.removeItem(`sb-${projectId}-auth-token`)
+      }
     } catch {
       /* intentionally ignored */
     }

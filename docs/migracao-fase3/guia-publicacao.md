@@ -242,8 +242,8 @@ Se a resposta mostrar o IP `2.25.181.69`, a propagação está concluída!
 
 ### 3. Tela em branco após carregar o site
 
-- **Causa:** Alguma variável de ambiente do Vite faltou durante o build ou foi digitada com espaço no final.
-- **O que fazer:** Confira na aba **Environment** se `VITE_SUPABASE_URL` e `VITE_SUPABASE_PUBLISHABLE_KEY` estão salvas corretamente, sem aspas e sem espaços extras. Após corrigir, clique em **Deploy** novamente para recompilar.
+- **Causa:** Alguma variável de ambiente do Supabase (`VITE_SUPABASE_URL` ou `VITE_SUPABASE_PUBLISHABLE_KEY`) não foi configurada na aba Environment ou foi digitada com erro/espaços extras.
+- **O que fazer:** O sistema possui suporte a injeção em runtime via `/env.js`. Confira na aba **Environment** do serviço no EasyPanel se `VITE_SUPABASE_URL` e `VITE_SUPABASE_PUBLISHABLE_KEY` estão cadastradas corretamente, sem aspas e sem espaços extras. Não é necessário configurar build-args. Após salvar ou conferir as variáveis, basta reiniciar ou clicar em **Deploy**.
 
 ### 4. O site institucional `advdouglaspsantos.com.br` pode cair?
 
