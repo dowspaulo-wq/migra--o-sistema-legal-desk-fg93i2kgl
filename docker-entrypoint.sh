@@ -13,8 +13,8 @@ sanitize_val() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
-SAFE_SUPABASE_URL=$(sanitize_val "${VITE_SUPABASE_URL:-}")
-SAFE_SUPABASE_KEY=$(sanitize_val "${VITE_SUPABASE_PUBLISHABLE_KEY:-}")
+SAFE_SUPABASE_URL=$(sanitize_val "${VITE_SUPABASE_URL:-https://cpcafthwnqazopqftemj.supabase.co}")
+SAFE_SUPABASE_KEY=$(sanitize_val "${VITE_SUPABASE_PUBLISHABLE_KEY:-sb_publishable_n8rNjvEg6i-Sjme1-5Yhug_mNwxBRwO}")
 
 cat <<EOF > "$TARGET_FILE"
 window.__ENV__ = {
@@ -24,16 +24,16 @@ window.__ENV__ = {
 EOF
 
 echo "[DPSjur Entrypoint] env.js gerado com sucesso em $TARGET_FILE"
-if [ -n "$SAFE_SUPABASE_URL" ]; then
-  echo "[DPSjur Entrypoint] VITE_SUPABASE_URL configurada: $SAFE_SUPABASE_URL"
+if [ -n "$VITE_SUPABASE_URL" ]; then
+  echo "[DPSjur Entrypoint] VITE_SUPABASE_URL obtida do ambiente: $SAFE_SUPABASE_URL"
 else
-  echo "[DPSjur Entrypoint] ⚠️ ATENÇÃO: VITE_SUPABASE_URL está vazia nas variáveis de ambiente do contêiner!"
+  echo "[DPSjur Entrypoint] VITE_SUPABASE_URL vazia no ambiente; usando fallback padrão: $SAFE_SUPABASE_URL"
 fi
 
-if [ -n "$SAFE_SUPABASE_KEY" ]; then
-  echo "[DPSjur Entrypoint] VITE_SUPABASE_PUBLISHABLE_KEY configurada (tamanho: ${#SAFE_SUPABASE_KEY} chars)"
+if [ -n "$VITE_SUPABASE_PUBLISHABLE_KEY" ]; then
+  echo "[DPSjur Entrypoint] VITE_SUPABASE_PUBLISHABLE_KEY obtida do ambiente (tamanho: ${#SAFE_SUPABASE_KEY} chars)"
 else
-  echo "[DPSjur Entrypoint] ⚠️ ATENÇÃO: VITE_SUPABASE_PUBLISHABLE_KEY está vazia nas variáveis de ambiente do contêiner!"
+  echo "[DPSjur Entrypoint] VITE_SUPABASE_PUBLISHABLE_KEY vazia no ambiente; usando fallback padrão (tamanho: ${#SAFE_SUPABASE_KEY} chars)"
 fi
 
 # Executa o comando passado como argumento (ex: nginx -g "daemon off;")
