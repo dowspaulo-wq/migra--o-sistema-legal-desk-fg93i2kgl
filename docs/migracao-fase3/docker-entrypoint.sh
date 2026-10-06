@@ -14,7 +14,7 @@ sanitize_val() {
 }
 
 SAFE_SUPABASE_URL=$(sanitize_val "${VITE_SUPABASE_URL:-https://cpcafthwnqazopqftemj.supabase.co}")
-SAFE_SUPABASE_KEY=$(sanitize_val "${VITE_SUPABASE_PUBLISHABLE_KEY:-sb_publishable_n8rNjvEg6i-Sjme1-5Yhug_mNwxBRwO}")
+SAFE_SUPABASE_KEY=$(sanitize_val "${VITE_SUPABASE_PUBLISHABLE_KEY:-sb_publishable_n8rNjvEg6i-Sjme1-5Yhug_nNwxBRwO}")
 
 cat <<EOF > "$TARGET_FILE"
 window.__ENV__ = {

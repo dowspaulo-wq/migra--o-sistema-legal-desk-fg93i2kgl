@@ -23,7 +23,7 @@ declare global {
 
 const DEFAULT_FALLBACKS: Record<'VITE_SUPABASE_URL' | 'VITE_SUPABASE_PUBLISHABLE_KEY', string> = {
   VITE_SUPABASE_URL: 'https://cpcafthwnqazopqftemj.supabase.co',
-  VITE_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_n8rNjvEg6i-Sjme1-5Yhug_mNwxBRwO',
+  VITE_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_n8rNjvEg6i-Sjme1-5Yhug_nNwxBRwO',
 }
 
 export function resolveEnvVar(key: 'VITE_SUPABASE_URL' | 'VITE_SUPABASE_PUBLISHABLE_KEY'): string {
