@@ -1,0 +1,274 @@
+[
+  {
+    "bucket_id": "avatars",
+    "name": "4ad65234-19ac-4b8d-aec5-fb0ad9ffdeaf-0.25634000655999467.jpeg",
+    "bytes": 5865,
+    "mime_type": "image/jpeg",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/avatars/4ad65234-19ac-4b8d-aec5-fb0ad9ffdeaf-0.25634000655999467.jpeg",
+    "description": "Foto de perfil Guilherme Almeida (ícone balança)"
+  },
+  {
+    "bucket_id": "avatars",
+    "name": "4ad65234-19ac-4b8d-aec5-fb0ad9ffdeaf-0.34684794134325625.jpg",
+    "bytes": 497677,
+    "mime_type": "image/jpeg",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/avatars/4ad65234-19ac-4b8d-aec5-fb0ad9ffdeaf-0.34684794134325625.jpg",
+    "description": "Foto de perfil Guilherme Almeida (alta resolução)"
+  },
+  {
+    "bucket_id": "avatars",
+    "name": "6501af65-cd6c-43c3-958a-3091ce93ba78-0.2806617070811477.jpg",
+    "bytes": 89039,
+    "mime_type": "image/jpeg",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/avatars/6501af65-cd6c-43c3-958a-3091ce93ba78-0.2806617070811477.jpg",
+    "description": "Foto de perfil Douglas (histórica)"
+  },
+  {
+    "bucket_id": "avatars",
+    "name": "6501af65-cd6c-43c3-958a-3091ce93ba78-0.3970545073819589.jpg",
+    "bytes": 3311432,
+    "mime_type": "image/jpeg",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/avatars/6501af65-cd6c-43c3-958a-3091ce93ba78-0.3970545073819589.jpg",
+    "description": "Foto de perfil atual Douglas (3.3 MB)"
+  },
+  {
+    "bucket_id": "avatars",
+    "name": "8914e17d-64ce-4acc-88ab-5fc04f11ac24-0.6034897410318099.png",
+    "bytes": 1790978,
+    "mime_type": "image/png",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/avatars/8914e17d-64ce-4acc-88ab-5fc04f11ac24-0.6034897410318099.png",
+    "description": "Foto de perfil Eduardo (1.8 MB)"
+  },
+  {
+    "bucket_id": "avatars",
+    "name": "97971288-d3cf-4d66-a48f-8691ab0b40a4-0.009296859819198255.jpeg",
+    "bytes": 107977,
+    "mime_type": "image/jpeg",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/avatars/97971288-d3cf-4d66-a48f-8691ab0b40a4-0.009296859819198255.jpeg",
+    "description": "Foto de perfil atual Guilherme Filippini"
+  },
+  {
+    "bucket_id": "avatars",
+    "name": "97971288-d3cf-4d66-a48f-8691ab0b40a4-0.15838918068529484.png",
+    "bytes": 528619,
+    "mime_type": "image/png",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/avatars/97971288-d3cf-4d66-a48f-8691ab0b40a4-0.15838918068529484.png",
+    "description": "Foto de perfil anterior Guilherme Filippini"
+  },
+  {
+    "bucket_id": "avatars",
+    "name": "b700846f-fc9e-4f3c-a48e-86a8e5e83f12-0.07716052849733024.jpeg",
+    "bytes": 49390,
+    "mime_type": "image/jpeg",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/avatars/b700846f-fc9e-4f3c-a48e-86a8e5e83f12-0.07716052849733024.jpeg",
+    "description": "Foto de perfil Fernanda Regis (versão 1)"
+  },
+  {
+    "bucket_id": "avatars",
+    "name": "b700846f-fc9e-4f3c-a48e-86a8e5e83f12-0.25608810045272723.jpeg",
+    "bytes": 51944,
+    "mime_type": "image/jpeg",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/avatars/b700846f-fc9e-4f3c-a48e-86a8e5e83f12-0.25608810045272723.jpeg",
+    "description": "Foto de perfil Fernanda Regis (versão 2)"
+  },
+  {
+    "bucket_id": "avatars",
+    "name": "b700846f-fc9e-4f3c-a48e-86a8e5e83f12-0.4782258744095581.jpeg",
+    "bytes": 124521,
+    "mime_type": "image/jpeg",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/avatars/b700846f-fc9e-4f3c-a48e-86a8e5e83f12-0.4782258744095581.jpeg",
+    "description": "Foto de perfil Fernanda Regis (versão 3)"
+  },
+  {
+    "bucket_id": "avatars",
+    "name": "b700846f-fc9e-4f3c-a48e-86a8e5e83f12-0.5471863503630024.jpeg",
+    "bytes": 51944,
+    "mime_type": "image/jpeg",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/avatars/b700846f-fc9e-4f3c-a48e-86a8e5e83f12-0.5471863503630024.jpeg",
+    "description": "Foto de perfil Fernanda Regis (versão 4)"
+  },
+  {
+    "bucket_id": "avatars",
+    "name": "b700846f-fc9e-4f3c-a48e-86a8e5e83f12-0.7322693909650941.jpeg",
+    "bytes": 43847,
+    "mime_type": "image/jpeg",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/avatars/b700846f-fc9e-4f3c-a48e-86a8e5e83f12-0.7322693909650941.jpeg",
+    "description": "Foto de perfil atual Fernanda Regis"
+  },
+  {
+    "bucket_id": "case-systems",
+    "name": "0.1710385136882614.bmp",
+    "bytes": 12626,
+    "mime_type": "image/bmp",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/case-systems/0.1710385136882614.bmp",
+    "description": "Ícone SEEU"
+  },
+  {
+    "bucket_id": "case-systems",
+    "name": "0.38107057149783896.bmp",
+    "bytes": 109810,
+    "mime_type": "image/bmp",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/case-systems/0.38107057149783896.bmp",
+    "description": "Ícone JPE"
+  },
+  {
+    "bucket_id": "case-systems",
+    "name": "0.584555652725446.bmp",
+    "bytes": 88379,
+    "mime_type": "image/bmp",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/case-systems/0.584555652725446.bmp",
+    "description": "Ícone Outro"
+  },
+  {
+    "bucket_id": "case-systems",
+    "name": "0.7340156072577102.bmp",
+    "bytes": 42394,
+    "mime_type": "image/bmp",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/case-systems/0.7340156072577102.bmp",
+    "description": "Ícone e-SAJ"
+  },
+  {
+    "bucket_id": "case-systems",
+    "name": "0.7792231130266362.bmp",
+    "bytes": 25976,
+    "mime_type": "image/bmp",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/case-systems/0.7792231130266362.bmp",
+    "description": "Ícone Projudi"
+  },
+  {
+    "bucket_id": "case-systems",
+    "name": "0.8777420576239596.bmp",
+    "bytes": 31372,
+    "mime_type": "image/bmp",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/case-systems/0.8777420576239596.bmp",
+    "description": "Ícone Eproc"
+  },
+  {
+    "bucket_id": "case-systems",
+    "name": "0.9744052893612097.bmp",
+    "bytes": 21192,
+    "mime_type": "image/bmp",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/case-systems/0.9744052893612097.bmp",
+    "description": "Ícone PJe"
+  },
+  {
+    "bucket_id": "case-systems",
+    "name": "0.9756833351919669.bmp",
+    "bytes": 156542,
+    "mime_type": "image/bmp",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/case-systems/0.9756833351919669.bmp",
+    "description": "Ícone Creta"
+  },
+  {
+    "bucket_id": "document_templates",
+    "name": "1783792994284_Contrato prestacao de servicos INDENIZATORIA 2025.08.08.docx",
+    "bytes": 853396,
+    "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/document_templates/1783792994284_Contrato%20prestacao%20de%20servicos%20INDENIZATORIA%202025.08.08.docx",
+    "description": "Modelo Word DOCX oficial de Contrato Indenizatório (853 KB)"
+  },
+  {
+    "bucket_id": "signature_documents",
+    "name": "contrato_3c8a2a60-50a2-44b4-9307-318b7516e0aa_1785849055679.html",
+    "bytes": 599,
+    "mime_type": "text/html",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/signature_documents/contrato_3c8a2a60-50a2-44b4-9307-318b7516e0aa_1785849055679.html",
+    "description": "Contrato HTML Douglas Leite Ferreira"
+  },
+  {
+    "bucket_id": "signature_documents",
+    "name": "hipossuficiencia_3c8a2a60-50a2-44b4-9307-318b7516e0aa_1785840293465.html",
+    "bytes": 718,
+    "mime_type": "text/html",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/signature_documents/hipossuficiencia_3c8a2a60-50a2-44b4-9307-318b7516e0aa_1785840293465.html",
+    "description": "Declaração de Hipossuficiência HTML Douglas Leite Ferreira"
+  },
+  {
+    "bucket_id": "signature_documents",
+    "name": "procuracao_3c8a2a60-50a2-44b4-9307-318b7516e0aa_1785838666890.html",
+    "bytes": 749,
+    "mime_type": "text/html",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/signature_documents/procuracao_3c8a2a60-50a2-44b4-9307-318b7516e0aa_1785838666890.html",
+    "description": "Procuração Ad Judicia HTML Douglas Leite Ferreira (v1)"
+  },
+  {
+    "bucket_id": "signature_documents",
+    "name": "procuracao_3c8a2a60-50a2-44b4-9307-318b7516e0aa_1785840257582.html",
+    "bytes": 749,
+    "mime_type": "text/html",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/signature_documents/procuracao_3c8a2a60-50a2-44b4-9307-318b7516e0aa_1785840257582.html",
+    "description": "Procuração Ad Judicia HTML Douglas Leite Ferreira (v2)"
+  },
+  {
+    "bucket_id": "signature_documents",
+    "name": "procuracao_3c8a2a60-50a2-44b4-9307-318b7516e0aa_1785840284785.html",
+    "bytes": 749,
+    "mime_type": "text/html",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/signature_documents/procuracao_3c8a2a60-50a2-44b4-9307-318b7516e0aa_1785840284785.html",
+    "description": "Procuração Ad Judicia HTML Douglas Leite Ferreira (v3)"
+  },
+  {
+    "bucket_id": "signature_drawings",
+    "name": "signature_99ff00af-2b93-4ca0-9714-20e2c3b20d5e_1785852915793.png",
+    "bytes": 9238,
+    "mime_type": "image/png",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/signature_drawings/signature_99ff00af-2b93-4ca0-9714-20e2c3b20d5e_1785852915793.png",
+    "description": "Assinatura manuscrita em rubrica PNG"
+  },
+  {
+    "bucket_id": "signature_photos",
+    "name": "05dd2890-4e2d-44d1-b63f-677e61ada290/selfie.jpg",
+    "bytes": 0,
+    "mime_type": "image/jpeg",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/signature_photos/05dd2890-4e2d-44d1-b63f-677e61ada290/selfie.jpg",
+    "description": "Selfie 0 bytes (placeholder histórico)"
+  },
+  {
+    "bucket_id": "signature_photos",
+    "name": "91710e61-5dd4-4cf3-81b9-7029e19fa312/selfie.jpg",
+    "bytes": 26990,
+    "mime_type": "image/jpeg",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/signature_photos/91710e61-5dd4-4cf3-81b9-7029e19fa312/selfie.jpg",
+    "description": "Foto de selfie de assinatura (26 KB)"
+  },
+  {
+    "bucket_id": "signature_photos",
+    "name": "selfie_99ff00af-2b93-4ca0-9714-20e2c3b20d5e_1785852915793.png",
+    "bytes": 472803,
+    "mime_type": "image/png",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/signature_photos/selfie_99ff00af-2b93-4ca0-9714-20e2c3b20d5e_1785852915793.png",
+    "description": "Selfie PNG com documento (472 KB)"
+  },
+  {
+    "bucket_id": "signed_documents",
+    "name": "05dd2890-4e2d-44d1-b63f-677e61ada290/procuracao.html",
+    "bytes": 1606,
+    "mime_type": "text/html",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/signed_documents/05dd2890-4e2d-44d1-b63f-677e61ada290/procuracao.html",
+    "description": "Procuração assinada Graciele da Silva Dias"
+  },
+  {
+    "bucket_id": "signed_documents",
+    "name": "91710e61-5dd4-4cf3-81b9-7029e19fa312/hipossuficiencia.html",
+    "bytes": 1446,
+    "mime_type": "text/html",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/public/signed_documents/91710e61-5dd4-4cf3-81b9-7029e19fa312/hipossuficiencia.html",
+    "description": "Hipossuficiência assinada Graciele da Silva Dias"
+  },
+  {
+    "bucket_id": "backups",
+    "name": "backup-2026-10-01-2026-10-01T11-50-12-166Z.json",
+    "bytes": 3183652,
+    "mime_type": "application/json",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/authenticated/backups/backup-2026-10-01-2026-10-01T11-50-12-166Z.json",
+    "description": "Dump completo JSON de produção (15 tabelas, 3.18 MB)"
+  },
+  {
+    "bucket_id": "backups",
+    "name": "backup-2026-10-01-2026-10-01T11-50-12-166Z.sql",
+    "bytes": 1685570,
+    "mime_type": "application/sql",
+    "public_url": "https://cpcafthwnqazopqftemj.supabase.co/storage/v1/object/authenticated/backups/backup-2026-10-01-2026-10-01T11-50-12-166Z.sql",
+    "description": "Dump completo SQL INSERTs de produção (15 tabelas, 1.68 MB)"
+  }
+]
