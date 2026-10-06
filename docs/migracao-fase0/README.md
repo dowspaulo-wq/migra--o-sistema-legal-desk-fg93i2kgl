@@ -114,21 +114,21 @@ Para dar início à **Fase 1 (Configuração do VPS)**, o Douglas precisará dis
   - [x] Documento oficial de migração (`README.md`)
   - [x] Nenhuma alteração no sistema ativo em produção.
 
-- [ ] **FASE 1: Configuração do VPS Hostinger KVM 1**
-  - [ ] Acesso SSH e hardening básico do Ubuntu 24.04 (UFW firewall, fail2ban).
-  - [ ] Instalação do Docker e Docker Compose.
-  - [ ] Provisionamento dos containers:
-    - PostgreSQL 16 (com persistência em volume seguro e backup diário local).
-    - PostgREST ou API Gateway Node.js (compatível com os endpoints existentes).
-    - Traefik ou Nginx com SSL/HTTPS automático (Let's Encrypt).
-    - MinIO ou serviço de armazenamento estático compatível com S3 para os buckets de storage.
-  - [ ] Reescrita/adaptação das Edge Functions para microsserviços Node.js/Express conteinerizados.
+- [x] **FASE 1: Configuração do VPS Hostinger KVM 1 & EasyPanel (CONCLUÍDA)**
+  - [x] VPS Hostinger ativo (srv1737667.hstgr.cloud / IP 2.25.181.69) com EasyPanel instalado.
+  - [x] Projeto "dpsjur" configurado no EasyPanel.
+  - [x] Serviço PostgreSQL 16.6 (`dpsjur-db`) rodando com sucesso.
+  - [x] Banco de dados `dpsjur` criado, usuário `Doug`, host interno `dpsjur_dpsjur-db:5432`.
+  - [x] Kit de importação e auditoria gerado em `docs/migracao-fase1/`:
+    - `01-import-consolidado.sql` (DDL + seed + triggers + RLS + compatibilidade Supabase roles)
+    - `conferencia-pos-importacao.sql` (queries comparativas com status OK/DIVERGÊNCIA)
+    - `guia-importacao.md` (manual passo a passo para o Douglas executar via terminal do navegador)
 
-- [ ] **FASE 2: Migração e Restauração dos Dados**
-  - [ ] Execução do DDL no PostgreSQL do VPS.
-  - [ ] Importação de todos os 7.828 registros.
+- [ ] **FASE 2: Migração e Restauração dos Dados (EM ANDAMENTO / PRONTA PARA EXECUÇÃO)**
+  - [ ] Execução do script consolidado no container PostgreSQL (`dpsjur-db`) no VPS via `guia-importacao.md`.
+  - [ ] Carga dos 7.828 registros a partir do dump SQL do bucket `backups`.
+  - [ ] Execução do script de conferência (`conferencia-pos-importacao.sql`) validando 100% dos dados.
   - [ ] Upload dos 34 arquivos do storage para o servidor de arquivos do VPS.
-  - [ ] Conferência de integridade: bater registro por registro com a tabela da Fase 0.
 
 - [ ] **FASE 3: Homologação e Testes E2E em Ambiente Espelho**
   - [ ] Teste de login dos usuários e redefinição de senhas.
@@ -149,23 +149,17 @@ Para dar início à **Fase 1 (Configuração do VPS)**, o Douglas precisará dis
 
 ---
 
-## 7. Como Restaurar Este Backup no Ambiente Novo
+## 7. Como Restaurar Este Backup no Ambiente Novo (EasyPanel)
 
-### 7.1 Criação do Banco e Schemas
-```bash
-# No terminal do VPS ou container PostgreSQL:
-psql -U postgres -d dpsjur -f docs/migracao-fase0/01-schema-ddl.sql
-psql -U postgres -d dpsjur -f docs/migracao-fase0/02-rls-policies.sql
-```
+O processo de importação foi simplificado e consolidado para execução direta no container do EasyPanel pelo Douglas.
 
-### 7.2 Ingestão dos Dados
-```bash
-# Inserir perfis e configurações estruturais:
-psql -U postgres -d dpsjur -f docs/migracao-fase0/03-core-seed-data.sql
+Consulte o manual completo e os scripts prontos em:
+👉 **`docs/migracao-fase1/guia-importacao.md`**
 
-# Inserir dump completo de dados das 15 tabelas:
-# (Utilizar o arquivo de dump gerado no bucket de backups ou restaurar via export_database_backup_json)
-```
+### 7.1 Arquivos do Kit de Importação (Fase 1 / Fase 2)
+1. **`docs/migracao-fase1/01-import-consolidado.sql`**: Script unificado contendo DDL, extensões, roles do Supabase (`authenticated`, `anon`, `service_role`), seed cadastral essencial, funções/triggers e RLS.
+2. **`dump-dados-completo.sql`**: Dump SQL extraído do bucket `backups` do Supabase via URL assinada (passo a passo detalhado no guia).
+3. **`docs/migracao-fase1/conferencia-pos-importacao.sql`**: Script de auditoria automática comparando contagens reais vs esperadas com status `✅ OK`.
 
 ### 7.3 Restauração dos Arquivos de Storage
 ```bash
