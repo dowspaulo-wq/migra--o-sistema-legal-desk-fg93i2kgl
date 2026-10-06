@@ -1,0 +1,11 @@
+node_modules
+.git
+.github
+dist
+dev-dist
+*.log
+.env
+.env.*
+!.env.example
+coverage
+docs/migracao-fase0/storage-copies
