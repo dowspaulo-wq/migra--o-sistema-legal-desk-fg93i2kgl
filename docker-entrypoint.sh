@@ -21,6 +21,7 @@ window.__ENV__ = {
   "VITE_SUPABASE_URL": "$SAFE_SUPABASE_URL",
   "VITE_SUPABASE_PUBLISHABLE_KEY": "$SAFE_SUPABASE_KEY"
 };
+window.env = window.__ENV__;
 EOF
 
 echo "[DPSjur Entrypoint] env.js gerado com sucesso em $TARGET_FILE"

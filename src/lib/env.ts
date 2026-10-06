@@ -13,11 +13,35 @@ declare global {
       VITE_SUPABASE_PUBLISHABLE_KEY?: string
       [key: string]: string | undefined
     }
+    env?: {
+      VITE_SUPABASE_URL?: string
+      VITE_SUPABASE_PUBLISHABLE_KEY?: string
+      [key: string]: string | undefined
+    }
   }
 }
 
-function resolveEnvVar(key: 'VITE_SUPABASE_URL' | 'VITE_SUPABASE_PUBLISHABLE_KEY'): string {
-  // 1. Tenta ler do build-time (Vite import.meta.env)
+const DEFAULT_FALLBACKS: Record<'VITE_SUPABASE_URL' | 'VITE_SUPABASE_PUBLISHABLE_KEY', string> = {
+  VITE_SUPABASE_URL: 'https://cpcafthwnqazopqftemj.supabase.co',
+  VITE_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_n8rNjvEg6i-Sjme1-5Yhug_mNwxBRwO',
+}
+
+export function resolveEnvVar(key: 'VITE_SUPABASE_URL' | 'VITE_SUPABASE_PUBLISHABLE_KEY'): string {
+  // 1. Runtime dinâmico no browser: window.__ENV__ ou window.env (gerado pelo env.js do contêiner Docker/EasyPanel)
+  try {
+    if (typeof window !== 'undefined') {
+      const win = window as any
+      const runtimeObj = win.__ENV__ || win.env
+      const runtimeVal = runtimeObj?.[key]
+      if (typeof runtimeVal === 'string' && runtimeVal.trim().length > 0) {
+        return runtimeVal.trim()
+      }
+    }
+  } catch {
+    /* falha silenciosa ao inspecionar window */
+  }
+
+  // 2. Build-time (Vite import.meta.env, injetado quando definido no build do Vite)
   try {
     const metaVal = (import.meta as any)?.env?.[key]
     if (typeof metaVal === 'string' && metaVal.trim().length > 0) {
@@ -27,19 +51,8 @@ function resolveEnvVar(key: 'VITE_SUPABASE_URL' | 'VITE_SUPABASE_PUBLISHABLE_KEY
     /* ambiente sem import.meta */
   }
 
-  // 2. Tenta ler do runtime (window.__ENV__ gerado pelo entrypoint do contêiner)
-  try {
-    if (typeof window !== 'undefined' && window.__ENV__) {
-      const runtimeVal = window.__ENV__[key]
-      if (typeof runtimeVal === 'string' && runtimeVal.trim().length > 0) {
-        return runtimeVal.trim()
-      }
-    }
-  } catch {
-    /* falha silenciosa ao ler window */
-  }
-
-  return ''
+  // 3. Fallback padrão embutido (backend Supabase cpcafthwnqazopqftemj)
+  return DEFAULT_FALLBACKS[key] || ''
 }
 
 export const SUPABASE_URL = resolveEnvVar('VITE_SUPABASE_URL')

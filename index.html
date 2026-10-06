@@ -7,12 +7,12 @@
     <meta name="description" content="Projeto gerado usando Skip (https://goskip.dev)" />
     <meta name="author" content="Skip (https://goskip.dev)" />
     <meta property="og:image" content="/og-image.png" />
+    <!-- Configuração de ambiente dinâmico em runtime (EasyPanel / Docker VPS) executado sincronicamente no head antes do bundle JS -->
+    <script src="/env.js"></script>
   </head>
 
   <body>
     <div id="root"></div>
-    <!-- Configuração de ambiente dinâmico em runtime (EasyPanel / Docker) -->
-    <script src="/env.js"></script>
     <!-- @skip-protected: Do not remove. Required for app features. -->
     <script src="https://goskip.dev/skip.js"></script>
     <!-- @skip-protected: Do not remove. App entrypoint. -->
