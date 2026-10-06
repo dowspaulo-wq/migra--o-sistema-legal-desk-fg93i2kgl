@@ -11,17 +11,20 @@ ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
 ENV VITE_SUPABASE_PUBLISHABLE_KEY=$VITE_SUPABASE_PUBLISHABLE_KEY
 ENV NODE_ENV=production
 
-# Copia manifestos de dependências primeiro para aproveitar cache de camadas
-COPY package.json package-lock.json* ./
+# Habilita o Corepack e ativa o pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
 
-# Instala todas as dependências necessárias para o build
-RUN npm ci || npm install
+# Copia manifestos de dependências primeiro para aproveitar cache de camadas
+COPY package.json pnpm-lock.yaml ./
+
+# Instala todas as dependências necessárias para o build usando pnpm
+RUN pnpm install --frozen-lockfile
 
 # Copia todo o código-fonte
 COPY . .
 
 # Executa o build de produção Vite -> pasta dist/
-RUN npm run build
+RUN pnpm run build
 
 # -------------------------------------------------------------
 # Estágio final: Nginx Alpine ultraleve para servir o frontend estático
