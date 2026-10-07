@@ -116,7 +116,7 @@ Deno.serve(async (req: Request) => {
         throw new Error('Cliente não encontrado.')
       }
 
-      const asaasId = (client as any).asaas_id
+      let asaasId = (client as any).asaas_id
 
       const fullAddress = [
         (client as any).street,
@@ -130,10 +130,34 @@ Deno.serve(async (req: Request) => {
 
       const hasNoPhone = (client as any).no_phone || (client as any).phone_na
       const hasNoEmail = (client as any).no_email || (client as any).email_na
+      const normalizedCpfCnpj = normalizeDocument(client.document)
+
+      // Se não possui asaas_id salvo, verificar se já existe no Asaas por CPF/CNPJ
+      // para evitar duplicar ou tomar erro do Asaas
+      if (!asaasId && normalizedCpfCnpj) {
+        try {
+          const searchRes = await fetch(
+            `${asaasBaseUrl}/customers?cpfCnpj=${encodeURIComponent(normalizedCpfCnpj)}`,
+            {
+              method: 'GET',
+              headers: { access_token: apiKey, 'Content-Type': 'application/json' },
+            },
+          )
+          if (searchRes.ok) {
+            const searchData = await searchRes.json()
+            if (searchData?.data && searchData.data.length > 0) {
+              asaasId = searchData.data[0].id
+              await supabase.from('clients').update({ asaas_id: asaasId }).eq('id', clientId)
+            }
+          }
+        } catch (searchErr) {
+          console.warn('Erro ao consultar cliente existente no Asaas por CPF:', searchErr)
+        }
+      }
 
       const customerData: any = {
         name: client.name,
-        cpfCnpj: normalizeDocument(client.document) || undefined,
+        cpfCnpj: normalizedCpfCnpj || undefined,
         email: !hasNoEmail && client.email ? client.email : undefined,
         phone: !hasNoPhone ? formatPhone(client.phone) : undefined,
         mobilePhone: !hasNoPhone ? formatPhone(client.phone) : undefined,
@@ -168,8 +192,16 @@ Deno.serve(async (req: Request) => {
           throw new Error(`Erro ao atualizar cliente no ASAAS: ${msg}`)
         }
 
+        const updated = await res.json()
+        const finalId = updated?.id || asaasId
+        await supabase.from('clients').update({ asaas_id: finalId }).eq('id', clientId)
+
         return new Response(
-          JSON.stringify({ success: true, message: 'Cliente atualizado no ASAAS com sucesso.' }),
+          JSON.stringify({
+            success: true,
+            message: 'Cliente atualizado no ASAAS com sucesso.',
+            asaas_id: finalId,
+          }),
           {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           },
@@ -764,7 +796,7 @@ Deno.serve(async (req: Request) => {
   } catch (error: any) {
     console.error('ASAAS Integration Error:', error.message || error)
     return new Response(JSON.stringify({ error: error.message || 'Erro interno' }), {
-      status: 200,
+      status: 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   }

@@ -35,6 +35,7 @@ export interface Client {
   neighborhood?: string
   city?: string
   state?: string
+  asaas_id?: string | null
 }
 export interface Case {
   id: string

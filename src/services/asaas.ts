@@ -35,23 +35,15 @@ export async function getAsaasConfig(): Promise<AsaasConfig> {
   return cachedConfig || { apiKey: null, apiUrl: 'https://api.asaas.com/v3' }
 }
 
-async function invokeAsaasFunction(body: Record<string, any>) {
+export interface AsaasInvokeResponse<T = any> {
+  data: T | null
+  error: Error | null
+}
+
+async function invokeAsaasFunction(body: Record<string, any>): Promise<AsaasInvokeResponse> {
   const config = await getAsaasConfig()
-  const headers: Record<string, string> = {}
-  if (config.apiKey) {
-    headers['x-asaas-api-key'] = config.apiKey
-  }
-  if (config.apiUrl) {
-    headers['x-asaas-api-url'] = config.apiUrl
-  }
 
-  const { data, error } = await supabase.functions.invoke('asaas-integration', {
-    body,
-    headers,
-  })
-
-  // Se a resposta retornou erro amigável de chave não configurada no corpo, garantir formatação
-  if (!config.apiKey && !data && error) {
+  if (!config.apiKey || !config.apiKey.trim()) {
     return {
       data: null,
       error: new Error(
@@ -60,7 +52,66 @@ async function invokeAsaasFunction(body: Record<string, any>) {
     }
   }
 
-  return { data, error }
+  const headers: Record<string, string> = {
+    'x-asaas-api-key': config.apiKey.trim(),
+  }
+  if (config.apiUrl && config.apiUrl.trim()) {
+    headers['x-asaas-api-url'] = config.apiUrl.trim()
+  }
+
+  try {
+    const { data, error } = await supabase.functions.invoke('asaas-integration', {
+      body,
+      headers,
+    })
+
+    if (error) {
+      // Supabase FunctionsHttpError costuma ter context com a resposta JSON da edge function
+      let message = error.message || 'Erro ao comunicar com o servidor.'
+      const ctx = (error as any)?.context
+      if (ctx) {
+        try {
+          if (typeof ctx.json === 'function') {
+            const bodyJson = await ctx.json().catch(() => null)
+            if (bodyJson?.error) {
+              message = bodyJson.error
+            } else if (bodyJson?.message) {
+              message = bodyJson.message
+            }
+          } else if (typeof ctx.text === 'function') {
+            const bodyText = await ctx.text().catch(() => '')
+            if (bodyText) {
+              try {
+                const parsed = JSON.parse(bodyText)
+                message = parsed.error || parsed.message || bodyText
+              } catch {
+                message = bodyText
+              }
+            }
+          }
+        } catch {
+          // fallback para error.message
+        }
+      }
+      return { data: null, error: new Error(message) }
+    }
+
+    // Se o backend retornou { error: '...' } no payload com status 200 (legado)
+    if (data && typeof data === 'object' && 'error' in data && (data as any).error) {
+      const errMsg = (data as any).error
+      return {
+        data: null,
+        error: new Error(typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg)),
+      }
+    }
+
+    return { data, error: null }
+  } catch (err: any) {
+    return {
+      data: null,
+      error: new Error(err?.message || 'Falha de conexão com o serviço Asaas.'),
+    }
+  }
 }
 
 export async function syncClientWithAsaas(clientId: string) {

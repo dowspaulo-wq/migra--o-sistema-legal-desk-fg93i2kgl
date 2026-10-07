@@ -210,14 +210,19 @@ export default function Finance() {
     setSyncingAsaasId(null)
     if (error) {
       toast({
-        title: 'Erro',
+        title: 'Erro na cobrança Asaas',
         description: error.message || 'Falha ao enviar para ASAAS.',
         variant: 'destructive',
       })
     } else {
+      if (data?.asaas_id) {
+        updateItem('transactions', transactionId, { asaas_id: data.asaas_id })
+      }
       toast({
         title: 'Sucesso',
-        description: data?.message || 'Cobrança enviada para ASAAS.',
+        description: data?.asaas_id
+          ? `Cobrança enviada para ASAAS com sucesso! (ID: ${data.asaas_id})`
+          : data?.message || 'Cobrança enviada para ASAAS.',
       })
     }
   }

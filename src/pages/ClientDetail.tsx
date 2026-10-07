@@ -167,20 +167,27 @@ export default function ClientDetail() {
     setSyncingAsaas(false)
     if (error) {
       toast({
-        title: 'Erro',
+        title: 'Erro na sincronização Asaas',
         description: error.message || 'Falha ao sincronizar com ASAAS.',
         variant: 'destructive',
       })
     } else {
+      const asaasId = (data as any)?.asaas_id
+      if (asaasId) {
+        updateItem('clients', client.id, { asaas_id: asaasId })
+      }
       const unlinkedTxCount = allClientTransactions.filter(
         (t) => !isTransactionLinked(t.id, t.processId),
       ).length
+      const baseMsg = asaasId
+        ? `Cliente sincronizado com ASAAS com sucesso! (ID: ${asaasId})`
+        : data?.message || 'Cliente sincronizado com ASAAS com sucesso.'
       toast({
         title: 'Sucesso',
         description:
           unlinkedTxCount > 0
-            ? `${data?.message || 'Cliente sincronizado com ASAAS.'} Atenção: ${unlinkedTxCount} transação(ões) sem processo vinculado.`
-            : data?.message || 'Cliente sincronizado com ASAAS.',
+            ? `${baseMsg} Atenção: ${unlinkedTxCount} transação(ões) sem processo vinculado.`
+            : baseMsg,
       })
     }
   }
@@ -492,12 +499,31 @@ export default function ClientDetail() {
               </AlertDialog>
             )}
           </div>
-          <p className="text-muted-foreground flex items-center gap-2 mt-1">
+          <div className="text-muted-foreground flex items-center flex-wrap gap-2 mt-1">
             <Badge variant={client.status === 'Ativo' ? 'default' : 'secondary'}>
               {client.status}
             </Badge>
-            {client.type} - {client.document}
-          </p>
+            <span>
+              {client.type} - {client.document}
+            </span>
+            {client.asaas_id ? (
+              <Badge
+                variant="outline"
+                className="bg-emerald-50 text-emerald-700 border-emerald-300 font-mono text-xs"
+                title={`Vínculo Asaas ID: ${client.asaas_id}`}
+              >
+                ASAAS: {client.asaas_id}
+              </Badge>
+            ) : (
+              <Badge
+                variant="outline"
+                className="bg-amber-50 text-amber-700 border-amber-300 text-xs"
+                title="Cliente ainda não sincronizado com Asaas"
+              >
+                ASAAS: Não vinculado
+              </Badge>
+            )}
+          </div>
         </div>
       </div>
 
@@ -597,6 +623,18 @@ export default function ClientDetail() {
                   <p className="font-medium text-sm">{client.state || '—'}</p>
                 </div>
               </div>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">ID do Cliente no ASAAS</p>
+              <p className="font-mono text-xs font-medium text-slate-700 dark:text-slate-300">
+                {client.asaas_id ? (
+                  <span className="text-emerald-700 font-semibold">{client.asaas_id}</span>
+                ) : (
+                  <span className="text-muted-foreground italic">
+                    Não vinculado (clique em 'Sincronizar com ASAAS')
+                  </span>
+                )}
+              </p>
             </div>
           </CardContent>
         </Card>

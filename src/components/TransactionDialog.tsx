@@ -433,15 +433,17 @@ export function TransactionDialog({
                       const { data: syncRes, error } = await syncChargeWithAsaas(data.id)
                       if (error) {
                         toast({
-                          title: 'Erro',
+                          title: 'Erro na cobrança Asaas',
                           description: error.message || 'Falha ao sincronizar com Asaas',
                           variant: 'destructive',
                         })
                       } else {
+                        const asaasTxId = (syncRes as any)?.asaas_id
                         toast({
                           title: 'Sucesso',
-                          description:
-                            syncRes?.message || 'Cobrança sincronizada com Asaas com sucesso.',
+                          description: asaasTxId
+                            ? `Cobrança sincronizada com Asaas com sucesso! (ID: ${asaasTxId})`
+                            : syncRes?.message || 'Cobrança sincronizada com Asaas com sucesso.',
                         })
                         onOpenChange(false)
                       }

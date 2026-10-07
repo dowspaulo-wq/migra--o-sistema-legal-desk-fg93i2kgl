@@ -7,17 +7,49 @@
 set -euo pipefail
 
 SCRIPT_VERSION="v1.1.0"
-TARGET_URL="${1:-https://sistema.advdouglaspsantos.com.br}"
+TARGET_URL=""
+CLI_KEY=""
+CLI_URL=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --key|-k)
+      CLI_KEY="$2"
+      shift 2
+      ;;
+    --url|-u)
+      CLI_URL="$2"
+      shift 2
+      ;;
+    *)
+      if [ -z "$TARGET_URL" ]; then
+        TARGET_URL="$1"
+      fi
+      shift
+      ;;
+  esac
+done
+
+TARGET_URL="${TARGET_URL:-https://sbjur.advdouglaspsantos.com.br}"
 TARGET_URL="${TARGET_URL%/}"
+
+TEST_API_KEY="${CLI_KEY:-${ASAAS_API_KEY:-}}"
+TEST_API_URL="${CLI_URL:-${ASAAS_API_URL:-https://api.asaas.com/v3}}"
 
 echo "====================================================================="
 echo " DPSjur / SBJur - Diagnóstico e Teste dos Endpoints Edge Functions"
 echo " Versão: $SCRIPT_VERSION"
 echo "====================================================================="
 echo ""
-echo "🎯 URL externa alvo configurada: $TARGET_URL"
+echo "Alvo dos testes: $TARGET_URL"
+if [ -n "$TEST_API_KEY" ]; then
+  MASKED_KEY="${TEST_API_KEY:0:8}...${TEST_API_KEY: -4}"
+  echo "Chave Asaas fornecida: $MASKED_KEY (via header x-asaas-api-key)"
+  echo "URL da API Asaas: $TEST_API_URL"
+else
+  echo "ℹ️ Nenhuma chave Asaas fornecida (passe --key \$CHAVE ou use env ASAAS_API_KEY para testar com autenticação Asaas)."
+fi
 echo ""
-
 # ==============================================================================
 # ETAPA A: Teste interno no VPS direto no Kong (http://127.0.0.1:8000)
 # ==============================================================================
@@ -75,8 +107,15 @@ echo ""
 
 echo "🔹 Teste B2: POST ping em $EXT_INTEG_URL"
 EXT_TEMP_FILE=$(mktemp)
+
+CURL_HEADERS=(-H "Content-Type: application/json")
+if [ -n "$TEST_API_KEY" ]; then
+  CURL_HEADERS+=(-H "x-asaas-api-key: $TEST_API_KEY")
+  CURL_HEADERS+=(-H "x-asaas-api-url: $TEST_API_URL")
+fi
+
 EXT_HTTP_CODE=$(curl -s -w "%{http_code}" -o "$EXT_TEMP_FILE" -X POST "$EXT_INTEG_URL" \
-  -H "Content-Type: application/json" \
+  "${CURL_HEADERS[@]}" \
   -d '{"action":"ping"}' || echo "000")
 
 EXT_POST_BODY=$(cat "$EXT_TEMP_FILE")
@@ -110,13 +149,23 @@ if [ "$EXT_HTTP_CODE" = "405" ] || echo "$EXT_POST_BODY" | grep -iq "405 Not All
     echo ""
   fi
 elif [ "$EXT_HTTP_CODE" = "200" ] || [ "$EXT_HTTP_CODE" = "204" ]; then
-  if echo "$EXT_POST_BODY" | grep -iq "ASAAS_API_KEY"; then
+  if echo "$EXT_POST_BODY" | grep -iq "ASAAS_API_KEY" || echo "$EXT_POST_BODY" | grep -iq "não configurada"; then
     echo "✅ Conexão externa com o Kong e Edge Function BEM-SUCEDIDA!"
-    echo "ℹ️ Observação: a Edge Function respondeu solicitando configurar a ASAAS_API_KEY no EasyPanel."
+    echo "ℹ️ Observação: a Edge Function respondeu informando que a chave não foi enviada na requisição (use --key para testar com chave)."
   elif echo "$EXT_POST_BODY" | grep -iq "Ação inválida"; then
-    echo "✅ EXCELENTE! Endpoint externo 100% OPERACIONAL via Kong e com chave ASAAS_API_KEY ativa!"
+    echo "✅ EXCELENTE! Endpoint externo 100% OPERACIONAL via Kong e com chave validada com sucesso!"
   else
     echo "✅ Resposta recebida da Edge Function com sucesso (HTTP $EXT_HTTP_CODE)."
+  fi
+  echo ""
+elif [ "$EXT_HTTP_CODE" = "400" ]; then
+  if echo "$EXT_POST_BODY" | grep -iq "Ação inválida"; then
+    echo "✅ EXCELENTE! Endpoint externo 100% OPERACIONAL via Kong e autenticação Asaas validada (ação ping tratada com sucesso)!"
+  elif echo "$EXT_POST_BODY" | grep -iq "ASAAS_API_KEY" || echo "$EXT_POST_BODY" | grep -iq "não configurada"; then
+    echo "✅ Conexão externa com o Kong e Edge Function BEM-SUCEDIDA!"
+    echo "ℹ️ Edge Function respondeu HTTP 400 solicitando chave Asaas (use --key para testar com chave)."
+  else
+    echo "ℹ️ Resposta HTTP 400 recebida da Edge Function com payload informativo."
   fi
   echo ""
 elif [ "$EXT_HTTP_CODE" = "404" ]; then
