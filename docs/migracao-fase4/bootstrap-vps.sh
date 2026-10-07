@@ -2,14 +2,14 @@
 # ==============================================================================
 # DPSjur - Bootstrap Autônomo de Migração (Executar no Terminal do VPS)
 # ==============================================================================
-# Versão: v0.0.507
+# Versão: v0.0.508
 # Servidor: VPS Hostinger KVM 1 (srv1737667 - IP 2.25.181.69)
 # Função: Baixa o kit completo da Fase 4 sem precisar de git clone nem login GitHub,
 #         organiza os arquivos em /root/sbjur-migracao/ e deixa tudo pronto para executar.
 # ==============================================================================
 set -euo pipefail
 
-BOOTSTRAP_VERSION="0.0.507"
+BOOTSTRAP_VERSION="0.0.508"
 DEST_DIR="/root/sbjur-migracao"
 REPO_RAW_BASE="https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4"
 
@@ -37,6 +37,7 @@ FILES=(
     "06-exportar-e-importar-dados.sh"
     "06b-exportar-via-rest-api.sh"
     "06-sync-storage-assets.ts"
+    "07-completar-pendencias.sh"
 )
 
 echo "⏳ Baixando os arquivos do kit de migração..."
@@ -72,6 +73,9 @@ if [ "$DOWNLOAD_SUCCESS" -ge 4 ]; then
     echo "👉 PLANO B (RECOMENDADO SE A PORTA 5432/6543 ESTIVER BLOQUEADA):"
     echo "   cd $DEST_DIR && bash 06b-exportar-via-rest-api.sh"
     echo "   (Usa HTTPS 443 via REST API PostgREST, contornando bloqueios de porta)"
+    echo ""
+    echo "👉 FECHAR PENDÊNCIAS DA AUDITORIA (auth.users + settings + document_templates + user_sessions):"
+    echo "   cd $DEST_DIR && bash 07-completar-pendencias.sh"
     echo ""
     echo "👉 PLANO A (CONEXÃO POSTGRESQL NATIVA):"
     echo "   cd $DEST_DIR && bash 06-exportar-e-importar-dados.sh"

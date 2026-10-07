@@ -17,6 +17,7 @@ Este diretório contém o kit completo e auditado para implantação do **Supaba
 | **`bootstrap-vps.sh`** | Script de bootstrap automático que baixa o kit completo para `/root/sbjur-migracao/` com 1 comando. |
 | **`06-exportar-e-importar-dados.sh`** | Script unificado (Plano A) v0.0.504 e 100% autônomo que roda no terminal do VPS via conexão PostgreSQL direta / pooler (`aws-1-us-east-1.pooler.supabase.com:6543 / :5432`), exportando via `pg_dump` e importando atomicamente. |
 | **`06b-exportar-via-rest-api.sh`** | **Script unificado (Plano B - v0.0.507)**: contorna 100% bloqueios de portas PostgreSQL (5432/6543). Opera estritamente via **REST API HTTPS (porta 443)** usando PostgREST `Accept: text/csv` com paginação em lotes de 1000 linhas, descoberta automática de tabelas via OpenAPI, localização dinâmica de contêiner db (suporte a `sbjur-local_supabase-db-1`), alinhamento automático de esquema (relaxamento de NOT NULL não-PK), **casamento dinâmico de colunas pelo nome no `\copy`** (evitando erros de ordem de colunas entre nuvem e banco local), importação atômica e auditoria completa. |
+| **`07-completar-pendencias.sh`** | **Script de fechamento de pendências (v0.0.508)**: 100% local no VPS. Restaura `auth.users` e `auth.identities` (7 usuários com hashes reais de senha), reimporta `settings` e `document_templates` com mapeamento dinâmico de colunas por nome, trunca `user_sessions` (descartadas por design pois são efêmeras) e executa auditoria final consolidada com regras ajustadas. |
 | **`06-sync-storage-assets.ts`** | Script Node.js/TypeScript para baixar os 32 arquivos essenciais de Storage (avatares, modelos DOCX, ícones de sistemas judiciais). |
 | **`07-guia-instalacao-supabase-easypanel.md`** | Manual passo a passo em linguagem simples para leigo: instalação do template Supabase no EasyPanel, configuração de SMTP e obtenção das chaves. |
 | **`08-procedimento-exportacao-sbjur.md`** | Procedimento detalhado de exportação fresca do projeto SBJur, analisando opções viáveis com e sem a service_role key. |
@@ -59,6 +60,13 @@ Este diretório contém o kit completo e auditado para implantação do **Supaba
      bash 06b-exportar-via-rest-api.sh
      ```
      Ele solicita a `SERVICE_ROLE_KEY` da nuvem (Settings > API) e a `POSTGRES_PASSWORD` local de forma segura via `read -s`. Usa apenas HTTPS 443!
+   - **Fechar Pendências da Auditoria (auth.users + settings + templates + user_sessions):**
+     ```bash
+     cd /root/sbjur-migracao && \
+     curl -sSf -L -H "Cache-Control: no-cache" https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4/03-auth-users-sbjur.sql -o 03-auth-users-sbjur.sql && \
+     curl -sSf -L -H "Cache-Control: no-cache" https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4/07-completar-pendencias.sh -o 07-completar-pendencias.sh && \
+     bash 07-completar-pendencias.sh
+     ```
    - **Se a porta 5432/6543 estiver liberada (Plano A):**
      ```bash
      cd /root/sbjur-migracao && bash 06-exportar-e-importar-dados.sh

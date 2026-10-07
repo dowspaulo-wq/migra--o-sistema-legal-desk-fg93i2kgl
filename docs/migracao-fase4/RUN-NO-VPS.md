@@ -3,7 +3,7 @@
 **Servidor:** VPS Hostinger KVM 1 (`srv1737667` — IP `2.25.181.69`)  
 **Acesso:** Terminal do EasyPanel ou SSH como `root`  
 **Objetivo:** Trazer os dados frescos da nuvem Supabase (`cpcafthwnqazopqftemj`) para o Supabase próprio instalado no EasyPanel com **apenas 1 comando colado no terminal**.  
-**Versão do Kit:** `v0.0.507` (com Plano B via REST API HTTPS 443 e casamento dinâmico de colunas por nome — dispensa portas PostgreSQL 5432/6543)
+**Versão do Kit:** `v0.0.508` (com Plano B via REST API HTTPS 443 + Fechamento de Pendências com Script 07)
 
 ---
 
@@ -51,6 +51,28 @@ curl -sSf -L -H "Cache-Control: no-cache" https://raw.githubusercontent.com/dows
 bash bootstrap-vps.sh && \
 bash 06b-exportar-via-rest-api.sh
 ```
+
+---
+
+## 🔧 Passo Obrigatório Após o 06b: Fechar Pendências com o Script 07
+
+O script `06b` exporta com perfeição os registros das tabelas via REST API. Porém, 4 pendências precisam ser resolvidas no banco local antes da virada do app no EasyPanel:
+
+1. **`auth.users` (7 usuários)**: a REST API não tem permissão para expor o schema `auth`. O script 07 executa o arquivo oficial `03-auth-users-sbjur.sql` diretamente no contêiner do banco local, cadastrando os 7 usuários com seus hashes reais de senha Bcrypt e identidades GoTrue;
+2. **`settings` (1 registro)**: reimporta a linha oficial de configurações do sistema;
+3. **`document_templates` (1 registro)**: reimporta o modelo de contrato DOCX oficial;
+4. **`user_sessions`**: como sessões antigas são efêmeras, a decisão de produto é descartá-las (trunca a tabela no local; as sessões serão recriadas automaticamente conforme os usuários fizerem login).
+
+### Como Rodar o Script 07 no VPS (Apenas 1 Comando):
+
+```bash
+cd /root/sbjur-migracao && \
+curl -sSf -L -H "Cache-Control: no-cache" https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4/03-auth-users-sbjur.sql -o 03-auth-users-sbjur.sql && \
+curl -sSf -L -H "Cache-Control: no-cache" https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4/07-completar-pendencias.sh -o 07-completar-pendencias.sh && \
+bash 07-completar-pendencias.sh
+```
+
+> 🔒 **100% Local:** Este comando não acessa a nuvem, não pede a `SERVICE_ROLE_KEY` e opera diretamente no banco local do EasyPanel. Solicita apenas a `POSTGRES_PASSWORD` local.
 
 ---
 
@@ -152,7 +174,7 @@ _(O script 06 foi projetado para rodar 100% autônomo: mesmo sem nenhum outro ar
 
 ## 🏁 O que fazer após ver o sucesso da auditoria?
 
-Depois que aparecer `🎉 EXPORTAÇÃO E IMPORTAÇÃO DOS DADOS CONCLUÍDAS COM SUCESSO!`:
+Depois que rodar o script `07-completar-pendencias.sh` e aparecer `🎉 TODAS AS 4 PENDÊNCIAS FORAM RESOLVIDAS COM SUCESSO!`:
 
 1. Abra o EasyPanel no navegador (`http://2.25.181.69:3000`);
 2. Vá no serviço **`dpsjur-web`** > aba **Environment**;
