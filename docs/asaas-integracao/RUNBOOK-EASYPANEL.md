@@ -1,51 +1,95 @@
-# Runbook EasyPanel: Ativação das Funções Asaas no VPS
+# Runbook EasyPanel: Configuração do Subdomínio da API e Ativação do Asaas
 
-Este guia destina-se ao Douglas para cadastrar a chave de API do Asaas e habilitar os botões de sincronização financeira no DPSjur/SBJur.
-
----
-
-### Passo 1: Obter a Chave de API no Asaas
-
-1. Acesse sua conta no **Asaas** (https://www.asaas.com).
-2. Vá em **Minha Conta** (menu superior direito) > **Configurações da Conta** > **Integrações**.
-3. Na seção **Chaves de API**, gere uma nova chave de API (ou copie uma existente).
-4. Guarde essa chave em local seguro (ela começa geralmente com `$aact_`).
+Este guia destina-se ao Douglas para configurar o subdomínio dedicado da API Supabase/Kong no VPS (`api.advdouglaspsantos.com.br`), cadastrar a chave de API do Asaas e habilitar os botões de sincronização financeira no DPSjur/SBJur.
 
 ---
 
-### Passo 2: Configurar no EasyPanel do VPS
+## 📌 Por que precisamos do subdomínio `api.advdouglaspsantos.com.br`?
 
-1. Acesse o painel **EasyPanel** no seu navegador:
-   `http://2.25.181.69:3000` (ou o domínio do EasyPanel configurado).
-2. Abra o projeto do **Supabase** (onde estão os containers de banco, auth, kong e functions).
-3. Selecione o serviço que roda o **Supabase** (ou o container de functions).
-4. Clique na aba **Environment**:
-   - Adicione a linha:
-     ```env
-     ASAAS_API_KEY=$aact_sua_chave_aqui
-     ```
-   - (Opcional) Adicione a linha:
-     ```env
-     ASAAS_API_URL=https://api.asaas.com/v3
-     ```
-5. Clique no botão **Save** e em seguida em **Restart** no serviço.
+No diagnóstico realizado no VPS, constatou-se que requisições enviadas para:
+`https://sistema.advdouglaspsantos.com.br/functions/v1/...`
+recebiam resposta **"405 Not Allowed" do nginx/1.27.5**.
+
+Isso acontecia porque o domínio `sistema.` aponta exclusivamente para o contêiner do aplicativo frontend. O gateway Kong (que responde na porta 8000 e atende Auth, Banco REST, Storage e Edge Functions) nunca recebia essas requisições.
+
+A solução definitiva e recomendada pela arquitetura do Supabase é criar um subdomínio dedicado:
+👉 **`api.advdouglaspsantos.com.br`** apontando diretamente para o Kong (porta 8000) com HTTPS.
+
+> 💡 **Fique tranquilo:** Login, banco de dados, cadastros e anexos continuam funcionando 100%, pois o Kong é o gateway central que já roteia tudo. Além disso, **nada muda no domínio `sistema.advdouglaspsantos.com.br`**, que continua sendo o endereço que você e seu time usam para acessar o app no navegador.
 
 ---
 
-### Passo 3: Executar a Implantação no VPS
+## 🚀 Passo a Passo de Configuração (Linguagem Simples)
 
-Abra o terminal do VPS via SSH (`ssh root@2.25.181.69`) e cole:
+### Etapa 1: Apontar o subdomínio no Registro.br
+
+1. Acesse o painel do **Registro.br** (https://registro.br) com seu login.
+2. Clique no domínio **`advdouglaspsantos.com.br`**.
+3. Na seção de **DNS / Editar Zona**, clique em **Adicionar Entrada**:
+   - **Tipo**: `A`
+   - **Nome**: `api`
+   - **Dados / IP**: `2.25.181.69` (IP do seu VPS Hostinger)
+4. Clique em **Salvar Alterações**.  
+   _(A propagação no Registro.br costuma levar de 2 a 15 minutos)._
+
+---
+
+### Etapa 2: Adicionar o domínio no Cartão Supabase do EasyPanel
+
+1. Abra o EasyPanel no seu navegador (`http://2.25.181.69:3000`).
+2. Entre no projeto **`sbjur-local`**.
+3. Clique no serviço/cartão do **Supabase** (tipo Compose, onde roda o Kong e os serviços de backend).
+4. Vá até a aba **Domains** (Domínios):
+   - Adicione o domínio: **`api.advdouglaspsantos.com.br`**
+   - Porta: **`8000`** (porta do gateway Kong)
+   - HTTPS: **Ativado / Habilitado** (o EasyPanel gera o certificado SSL Let's Encrypt automaticamente).
+5. Clique em **Salvar**.
+
+---
+
+### Etapa 3: Atualizar a URL no serviço do Frontend no EasyPanel
+
+1. Ainda no EasyPanel, vá para o serviço do app frontend: **`dpsjur-web`**.
+2. Abra a aba **Environment** (Variáveis de Ambiente).
+3. Localize (ou crie) a variável `VITE_SUPABASE_URL`:
+   ```env
+   VITE_SUPABASE_URL=https://api.advdouglaspsantos.com.br
+   ```
+4. Clique em **Salvar** e depois em **Implantar / Deploy** (ou Restart).
+   > ⚡ **Aplicação imediata:** O app conta com script dinâmico (`env.js` via `docker-entrypoint.sh`). A alteração entra em vigor imediatamente ao reiniciar o contêiner, **sem necessidade de recompilar o código**.
+
+---
+
+### Etapa 4: Cadastrar a chave de API do Asaas no Supabase
+
+1. Obtenha sua chave no painel do **Asaas** (https://www.asaas.com > _Minha Conta_ > _Configurações da Conta_ > _Integrações_ > _Chaves de API_).
+2. No EasyPanel, no serviço do **Supabase** (ou no container de edge-runtime/functions):
+3. Na aba **Environment**, adicione:
+   ```env
+   ASAAS_API_KEY=$aact_sua_chave_real_do_asaas_aqui
+   ASAAS_API_URL=https://api.asaas.com/v3
+   ```
+   _(Caso utilize o ambiente de testes sandbox do Asaas: `ASAAS_API_URL=https://api-sandbox.asaas.com/v3`)_
+4. Clique em **Salvar** e **Restart**.
+
+---
+
+### Etapa 5: Teste Final no VPS
+
+Acesse o terminal do VPS via SSH (`ssh root@2.25.181.69`) e rode o script de teste passando a nova URL da API:
 
 ```bash
-mkdir -p /root/sbjur-asaas && cd /root/sbjur-asaas && \
-curl -sSf -L -H "Accept: application/vnd.github.v3.raw" -H "User-Agent: DPSjur" https://api.github.com/repos/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/contents/docs/asaas-integracao/01-implantar-funcoes-vps.sh?ref=main -o 01-implantar-funcoes-vps.sh && \
-curl -sSf -L -H "Accept: application/vnd.github.v3.raw" -H "User-Agent: DPSjur" https://api.github.com/repos/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/contents/docs/asaas-integracao/02-testar-endpoints.sh?ref=main -o 02-testar-endpoints.sh && \
-bash 01-implantar-funcoes-vps.sh
+bash /root/sbjur-asaas/02-testar-endpoints.sh https://api.advdouglaspsantos.com.br
 ```
+
+**Resultado esperado:**
+
+- ✅ Kong interno respondeu com sucesso;
+- ✅ Conexão externa com o Kong e Edge Function BEM-SUCEDIDA (retornando JSON válido, sem erro 405 do nginx).
 
 ---
 
-### Passo 4: Como usar no DPSjur (Sem IA e Sem Custos)
+## 💼 Como Usar a Integração no DPSjur (100% Manual, Sem Custos e Sem IA)
 
 No sistema (`https://sistema.advdouglaspsantos.com.br`):
 
