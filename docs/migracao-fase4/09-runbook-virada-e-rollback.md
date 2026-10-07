@@ -33,14 +33,20 @@ Portanto, **nenhuma linha de código do aplicativo precisa ser alterada ou recom
    bash docs/migracao-fase4/05-importar-no-supabase-local.sh
    ```
 3. Execute o script unificado de exportação e importação de dados frescos:
+   _(Se o código não estiver clonado no VPS, consulte `RUN-NO-VPS.md` para o comando único colável)_
+
    ```bash
-   bash docs/migracao-fase4/06-exportar-e-importar-dados.sh
+   mkdir -p /root/sbjur-migracao && cd /root/sbjur-migracao && \
+   curl -sSf -L https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4/bootstrap-vps.sh -o bootstrap-vps.sh && \
+   bash bootstrap-vps.sh && \
+   bash 06-exportar-e-importar-dados.sh
    ```
 
    - O script solicita as senhas interativamente (`read -s` seguro, sem ecoar no terminal nem salvar em disco);
    - Exporta os dados frescos da nuvem via `docker run postgres:17 pg_dump` através do pooler de sessão;
    - Aplica os dados no contêiner local em transação única com `session_replication_role = 'replica'`;
    - Executa a auditoria pós-importação automaticamente exibindo o comparativo de contagens.
+
 4. Confirme que a auditoria retornou todas as 17 tabelas e 7 usuários com status **OK EXATO**.
 
 ### Etapa 2: Obter a URL e a Anon Key do Supabase Local

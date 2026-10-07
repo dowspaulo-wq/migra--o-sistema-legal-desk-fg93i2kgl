@@ -13,7 +13,9 @@ Este diretório contém o kit completo e auditado para implantação do **Supaba
 | **`03-auth-users-sbjur.sql`** | Restauração dos 7 usuários do escritório no schema `auth` com hashes bcrypt reais e identidades GoTrue preservadas (senhas intactas). |
 | **`04-auditoria-pos-importacao.sql`** | Script de conferência automatizado que valida contagens exatas das 17 tabelas, status de RLS, FKs, índices e integridade de usuários. |
 | **`05-importar-no-supabase-local.sh`** | Script bash automatizado para aplicar DDL, RLS e usuários locais no contêiner do Supabase no VPS. |
-| **`06-exportar-e-importar-dados.sh`** | Script unificado e didático que roda no terminal do VPS: exporta dados frescos da nuvem via `docker run postgres:17 pg_dump` e importa no banco local em transação única com auditoria. |
+| **`RUN-NO-VPS.md`** | **Guia rápido para leigo com comando único:** como colar no terminal do VPS sem precisar de git clone nem login GitHub. |
+| **`bootstrap-vps.sh`** | Script de bootstrap automático que baixa o kit completo para `/root/sbjur-migracao/` com 1 comando. |
+| **`06-exportar-e-importar-dados.sh`** | Script unificado e 100% autônomo que roda no terminal do VPS: exporta dados frescos da nuvem via `docker run postgres:17 pg_dump`, importa no banco local em transação única e audita contagens. |
 | **`06-sync-storage-assets.ts`** | Script Node.js/TypeScript para baixar os 32 arquivos essenciais de Storage (avatares, modelos DOCX, ícones de sistemas judiciais). |
 | **`07-guia-instalacao-supabase-easypanel.md`** | Manual passo a passo em linguagem simples para leigo: instalação do template Supabase no EasyPanel, configuração de SMTP e obtenção das chaves. |
 | **`08-procedimento-exportacao-sbjur.md`** | Procedimento detalhado de exportação fresca do projeto SBJur, analisando opções viáveis com e sem a service_role key. |
@@ -49,8 +51,12 @@ Este diretório contém o kit completo e auditado para implantação do **Supaba
    bash docs/migracao-fase4/05-importar-no-supabase-local.sh
    ```
 3. **Exportar e Importar Dados Frescos da Nuvem (Passo Final):** No terminal do VPS, execute o script unificado:
+   Consulte **`RUN-NO-VPS.md`** para colar o comando único no terminal do VPS:
    ```bash
-   bash docs/migracao-fase4/06-exportar-e-importar-dados.sh
+   mkdir -p /root/sbjur-migracao && cd /root/sbjur-migracao && \
+   curl -sSf -L https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4/bootstrap-vps.sh -o bootstrap-vps.sh && \
+   bash bootstrap-vps.sh && \
+   bash 06-exportar-e-importar-dados.sh
    ```
    Ele solicitará interativamente (`read -s`, de forma invisível e segura) a senha da nuvem e a senha `POSTGRES_PASSWORD` local. Nenhuma senha fica gravada em arquivo ou log.
 4. **Auditar os Dados:** A auditoria com contagens exatas roda automaticamente ao final.

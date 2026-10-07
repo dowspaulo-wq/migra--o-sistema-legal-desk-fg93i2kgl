@@ -42,11 +42,15 @@ O ambiente de sandbox e builds locais bloqueia conexões TCP diretas de saída n
 - O dump de origem é estritamente **somente leitura** via `pg_dump` com a imagem oficial `postgres:17` via Docker;
 - Se houver qualquer falha no meio, o PostgreSQL local efetua `ROLLBACK` automático e a nuvem permanece 100% intocada.
 
-### Como executar no VPS:
+### Como executar no VPS com comando único (sem precisar de git clone):
+
+Cole no terminal do seu VPS (ver guia completo em `RUN-NO-VPS.md`):
 
 ```bash
-# No diretório do projeto no VPS:
-bash docs/migracao-fase4/06-exportar-e-importar-dados.sh
+mkdir -p /root/sbjur-migracao && cd /root/sbjur-migracao && \
+curl -sSf -L https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4/bootstrap-vps.sh -o bootstrap-vps.sh && \
+bash bootstrap-vps.sh && \
+bash 06-exportar-e-importar-dados.sh
 ```
 
 ---

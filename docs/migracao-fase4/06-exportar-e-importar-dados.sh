@@ -74,14 +74,18 @@ else
 fi
 
 # Região AWS do pooler da Supabase
-printf "👉 Região AWS do projeto Supabase [padrão: sa-east-1]: "
-read -r INPUT_REGION
-CLOUD_AWS_REGION="${INPUT_REGION:-sa-east-1}"
+if [ -z "${CLOUD_AWS_REGION:-}" ]; then
+    printf "👉 Região AWS do projeto Supabase [padrão: sa-east-1]: "
+    read -r INPUT_REGION
+    CLOUD_AWS_REGION="${INPUT_REGION:-sa-east-1}"
+fi
 
 # Porta do pooler de sessão da Supabase
-printf "👉 Porta do pooler Supabase (5432 modo sessão / 6543 alternativo) [padrão: 5432]: "
-read -r INPUT_PORT
-CLOUD_DB_PORT="${INPUT_PORT:-5432}"
+if [ -z "${CLOUD_DB_PORT:-}" ]; then
+    printf "👉 Porta do pooler Supabase (5432 modo sessão / 6543 alternativo) [padrão: 5432]: "
+    read -r INPUT_PORT
+    CLOUD_DB_PORT="${INPUT_PORT:-5432}"
+fi
 
 CLOUD_DB_HOST="aws-0-${CLOUD_AWS_REGION}.pooler.supabase.com"
 
@@ -100,13 +104,16 @@ echo "Etapa 2/6: Localizando o contêiner do PostgreSQL local no EasyPanel..."
 CONTAINER_LOCAL=$(docker ps --format '{{.Names}}' | grep -E 'supabase.*db|supabase-db' | head -n 1 || true)
 
 if [ -z "$CONTAINER_LOCAL" ]; then
-    echo "⚠️  Contêiner padrão 'supabase.*db' não localizado de imediato. Buscando variações..."
+    echo "⚠️  Contêiner com padrão 'supabase.*db' não localizado de imediato. Buscando contêiner postgres/db do Supabase..."
     CONTAINER_LOCAL=$(docker ps --format '{{.Names}}' | grep -E 'postgres|db' | grep -v 'dpsjur-web' | head -n 1 || true)
 fi
 
 if [ -z "$CONTAINER_LOCAL" ]; then
-    echo "❌ Erro fatal: Não foi possível encontrar nenhum contêiner PostgreSQL do Supabase em execução!"
-    echo "Execute 'docker ps' no terminal do VPS para inspecionar os serviços no ar."
+    echo "❌ Erro fatal: Não foi possível encontrar nenhum contêiner PostgreSQL em execução no Docker!"
+    echo "Lista de contêineres atualmente em execução:"
+    docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' || true
+    echo ""
+    echo "Dica: Verifique se o serviço 'supabase' no EasyPanel está com status 'Running'."
     exit 1
 fi
 
@@ -339,12 +346,16 @@ if [ -f "$AUDIT_SCRIPT" ]; then
         "$CONTAINER_LOCAL" \
         psql -U postgres -d postgres < "$AUDIT_SCRIPT"
 else
-    echo "ℹ️  Arquivo 04-auditoria-pos-importacao.sql não encontrado no caminho relativo."
-    echo "Executando auditoria essencial inline de contagem:"
+    echo "ℹ️  Arquivo 04-auditoria-pos-importacao.sql externo não encontrado localmente."
+    echo "Executando suite de auditoria embutida completa (contagens, RLS e usuários):"
+    echo ""
     docker exec -i \
         -e PGPASSWORD="$LOCAL_DB_PASSWORD" \
         "$CONTAINER_LOCAL" \
         psql -U postgres -d postgres -c "
+        \echo '---------------------------------------------------------------------'
+        \echo '1. CONFERÊNCIA DE CONTAGENS (Esperado vs Encontrado no VPS)'
+        \echo '---------------------------------------------------------------------'
         WITH expected(tabela, esperado) AS (
             VALUES
                 ('auth.users', 7),
@@ -393,6 +404,23 @@ else
         FROM expected e
         LEFT JOIN actual a ON e.tabela = a.tabela
         ORDER BY e.tabela;
+
+        \echo ''
+        \echo '---------------------------------------------------------------------'
+        \echo '2. USUÁRIOS E SENHAS (auth.users e perfis vinculados)'
+        \echo '---------------------------------------------------------------------'
+        SELECT 
+            u.email AS \"E-mail de Login\",
+            p.name AS \"Nome no Perfil\",
+            p.role AS \"Papel\",
+            CASE 
+                WHEN u.encrypted_password LIKE '\$2a\$%' OR u.encrypted_password LIKE '\$2b\$%' THEN '✅ BCRYPT VÁLIDO'
+                ELSE '⚠️ INVÁLIDA'
+            END AS \"Hash Senha\",
+            CASE WHEN u.confirmed_at IS NOT NULL THEN '✅ CONFIRMADO' ELSE 'PENDENTE' END AS \"E-mail Conf.\"
+        FROM auth.users u
+        LEFT JOIN public.profiles p ON u.id = p.id
+        ORDER BY u.created_at ASC;
         "
 fi
 
