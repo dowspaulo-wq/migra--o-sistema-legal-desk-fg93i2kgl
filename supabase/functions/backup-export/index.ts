@@ -45,6 +45,7 @@ Deno.serve(async (req: Request) => {
     })
   }
 
+
   const { data: backup, error: bkErr } = await admin.rpc('export_database_backup_json')
   if (bkErr || !backup) {
     return new Response(JSON.stringify({ error: 'export_failed', detail: String(bkErr) }), {
