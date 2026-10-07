@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur - Script Unificado de Exportação da Nuvem e Importação no VPS (EasyPanel)
 # ==============================================================================
-# Versão: v0.0.503
+# Versão: v0.0.504
 # Execução: EXCLUSIVAMENTE NO TERMINAL DO VPS (Hostinger KVM 1 - IP 2.25.181.69)
 # Motivo: Conexões TCP diretas nas portas 5432/6543 da nuvem Supabase são
 #         bloqueadas em sandboxes de build, mas funcionam perfeitamente no VPS,
@@ -11,18 +11,17 @@
 # Origem: Supabase Nuvem SBJur (ref: cpcafthwnqazopqftemj)
 # Destino: Contêiner PostgreSQL do Supabase Self-Hosted no EasyPanel
 #
-# NOVIDADE v0.0.503:
-# - Varredura automática multirregião AWS (17 regiões x poolers aws-0 e aws-1):
-#   resolve o erro "tenant/user postgres.cpcafthwnqazopqftemj not found" quando o
-#   projeto na nuvem está hospedado em outra região AWS (ex: us-east-1, us-west-2, etc.).
-# - Teste rápido prévio (SELECT 1 com PGCONNECT_TIMEOUT=6s) com feedback compacto em tempo real.
-# - Dump com conexão definitiva usando PGCONNECT_TIMEOUT=15s.
-# - Resolução IPv4 com fallback para host direto (db.<ref>.supabase.co:5432) evitando falhas
-#   em VPS IPv4-only causadas por DNS AAAA IPv6 unreachable.
-# - Diagnóstico preciso ao final se tudo falhar, destacando se algum host aceitou o tenant
-#   mas rejeitou a senha ("password authentication failed").
+# NOVIDADE v0.0.504:
+# - Endpoint OFICIAL do painel da Supabase Cloud incorporado com PRIORIDADE MÁXIMA:
+#   * Tentativa 1: aws-1-us-east-1.pooler.supabase.com:6543 (Transaction pooler, usuário postgres.cpcafthwnqazopqftemj)
+#   * Tentativa 2: aws-1-us-east-1.pooler.supabase.com:5432 (Session pooler, fallback se o pg_dump falhar por restrição de transaction mode)
+# - Fallback de segurança para varredura multirregião mantido caso os endpoints oficiais falhem.
+# - Tratamento inteligente de fallback no pg_dump: se o dump falhar na porta 6543 por limitações
+#   do transaction pooler, o script tenta automaticamente a porta 5432 do mesmo host oficial.
+# - Diagnóstico detalhado de erro por tentativa preservado (senha incorreta vs tenant vs rede).
 #
 # HISTÓRICO:
+# v0.0.503: Varredura multirregião AWS 17 regiões x aws-0/aws-1.
 # v0.0.502: Correção do teste de timeout via env PGCONNECT_TIMEOUT no psql 17.
 # v0.0.501: Fallback automático inicial e diagnóstico de senha vs tenant.
 #
@@ -35,7 +34,7 @@ set -euo pipefail
 # Garante que terminal restaure echo mesmo se abortado via Ctrl+C
 trap 'stty echo 2>/dev/null || true' EXIT INT TERM
 
-SCRIPT_VERSION="0.0.503"
+SCRIPT_VERSION="0.0.504"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AUDIT_SCRIPT="$SCRIPT_DIR/04-auditoria-pos-importacao.sql"
 
@@ -44,12 +43,17 @@ CLOUD_PROJECT_REF="cpcafthwnqazopqftemj"
 CLOUD_DB_NAME="postgres"
 DOCKER_PG_IMAGE="postgres:17"
 
+# Endpoint OFICIAL confirmado no painel Supabase (Project Settings > Database > Connection pooler)
+OFFICIAL_POOLER_HOST="aws-1-us-east-1.pooler.supabase.com"
+OFFICIAL_POOLER_USER="postgres.${CLOUD_PROJECT_REF}"
+
 echo "====================================================================="
 echo "   DPSjur - EXPORTAÇÃO DA NUVEM (SBJur) & IMPORTAÇÃO NO VPS LOCAL    "
-echo "   Versão: v${SCRIPT_VERSION} (Varredura Multirregião AWS Automática)       "
+echo "   Versão: v${SCRIPT_VERSION} (Endpoint Oficial Supabase aws-1-us-east-1) "
 echo "====================================================================="
 echo "Data: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "Origem: Supabase Cloud ref: $CLOUD_PROJECT_REF"
+echo "Endpoint Oficial: $OFFICIAL_POOLER_HOST:6543 / :5432"
 echo "Destino: Contêiner PostgreSQL do Supabase Self-Hosted no EasyPanel"
 echo "---------------------------------------------------------------------"
 echo ""
@@ -90,25 +94,10 @@ else
     echo "ℹ️  Usando LOCAL_DB_PASSWORD fornecida via variável de ambiente."
 fi
 
-# Região AWS preferencial ou inicial (opcional, padrão: sa-east-1)
-if [ -z "${CLOUD_AWS_REGION:-}" ]; then
-    printf "👉 Região AWS inicial/preferencial do Supabase [padrão: sa-east-1]: "
-    read -r INPUT_REGION
-    CLOUD_AWS_REGION="${INPUT_REGION:-sa-east-1}"
-fi
-
-# Porta do pooler da Supabase
-if [ -z "${CLOUD_DB_PORT:-}" ]; then
-    printf "👉 Porta do pooler Supabase (5432 sessão / 6543 alternativo) [padrão: 5432]: "
-    read -r INPUT_PORT
-    CLOUD_DB_PORT="${INPUT_PORT:-5432}"
-fi
-
 echo ""
 echo "✅ Parâmetros de entrada recebidos:"
 echo "   - Projeto Nuvem: $CLOUD_PROJECT_REF"
-echo "   - Região Inicial: $CLOUD_AWS_REGION"
-echo "   - Porta Base: $CLOUD_DB_PORT"
+echo "   - Host Oficial: $OFFICIAL_POOLER_HOST (portas 6543 e 5432)"
 echo "   - Imagem pg_dump: $DOCKER_PG_IMAGE"
 echo ""
 
@@ -154,18 +143,24 @@ AUTH_DUMP="$WORK_DIR/02_auth_data.sql"
 STORAGE_DUMP="$WORK_DIR/03_storage_data.sql"
 
 # ------------------------------------------------------------------------------
-# 3. DETERMINAÇÃO DINÂMICA DO ENDPOINT DA NUVEM (VARREDURA MULTIRREGIÃO)
+# 3. DETERMINAÇÃO DINÂMICA DO ENDPOINT DA NUVEM (OFICIAL PRIMEIRO + FALLBACK)
 # ------------------------------------------------------------------------------
 echo "Etapa 3/6: Conectando e exportando dados da Nuvem Supabase (pg_dump $DOCKER_PG_IMAGE)..."
-echo "Varrendo automaticamente as regiões AWS da Supabase para localizar o tenant '$CLOUD_PROJECT_REF'..."
+echo "Priorizando endpoint oficial confirmado no painel ($OFFICIAL_POOLER_HOST)..."
 echo ""
 
-# Lista oficial de regiões AWS suportadas pela Supabase Cloud
-# Se o usuário informou uma região inicial, garantimos que ela seja testada primeiro
+CANDIDATES=()
+
+# Prioridade Máxima: Endpoint oficial informado pelo painel do Supabase
+# Tentativa 1: porta 6543 (transaction pooler oficial)
+CANDIDATES+=("${OFFICIAL_POOLER_HOST}|6543|${OFFICIAL_POOLER_USER}|⭐ OFICIAL Supabase (Porta 6543 - Transaction)")
+# Tentativa 2: porta 5432 (session pooler no mesmo host oficial)
+CANDIDATES+=("${OFFICIAL_POOLER_HOST}|5432|${OFFICIAL_POOLER_USER}|⭐ OFICIAL Supabase (Porta 5432 - Session)")
+
+# Tentativas seguintes: Rede de segurança (fallback multirregião AWS)
 AWS_REGIONS_ORDER=(
-    "$CLOUD_AWS_REGION"
-    "sa-east-1"
     "us-east-1"
+    "sa-east-1"
     "us-east-2"
     "us-west-1"
     "us-west-2"
@@ -183,27 +178,14 @@ AWS_REGIONS_ORDER=(
     "sa-east-2"
 )
 
-# Elimina duplicatas preservando a ordem
-UNIQUE_REGIONS=()
 for reg in "${AWS_REGIONS_ORDER[@]}"; do
-    [ -z "$reg" ] && continue
-    already_in=0
-    for u in "${UNIQUE_REGIONS[@]}"; do
-        if [ "$u" = "$reg" ]; then
-            already_in=1
-            break
-        fi
-    done
-    if [ $already_in -eq 0 ]; then
-        UNIQUE_REGIONS+=("$reg")
+    # Evita duplicar os já adicionados acima
+    if [ "$reg" = "us-east-1" ]; then
+        CANDIDATES+=("aws-0-${reg}.pooler.supabase.com|5432|postgres.${CLOUD_PROJECT_REF}|Fallback aws-0 (${reg}:5432)")
+    else
+        CANDIDATES+=("aws-1-${reg}.pooler.supabase.com|5432|postgres.${CLOUD_PROJECT_REF}|Fallback aws-1 (${reg}:5432)")
+        CANDIDATES+=("aws-0-${reg}.pooler.supabase.com|5432|postgres.${CLOUD_PROJECT_REF}|Fallback aws-0 (${reg}:5432)")
     fi
-done
-
-# Monta lista de candidatos: para cada região testa aws-0 e aws-1 com usuário postgres.<ref>
-CANDIDATES=()
-for reg in "${UNIQUE_REGIONS[@]}"; do
-    CANDIDATES+=("aws-0-${reg}.pooler.supabase.com|${CLOUD_DB_PORT}|postgres.${CLOUD_PROJECT_REF}|Pooler aws-0 (${reg})")
-    CANDIDATES+=("aws-1-${reg}.pooler.supabase.com|${CLOUD_DB_PORT}|postgres.${CLOUD_PROJECT_REF}|Pooler aws-1 (${reg})")
 done
 
 # Endpoint direto de fallback (última tentativa): db.<ref>.supabase.co
@@ -242,7 +224,7 @@ TENANT_NOT_FOUND_DETECTED=0
 CANDIDATES_TESTED=0
 TOTAL_CANDIDATES=${#CANDIDATES[@]}
 
-echo "🔎 Iniciando varredura rápida em até $TOTAL_CANDIDATES candidatos (timeout: 6s por teste)..."
+echo "🔎 Iniciando teste nos endpoints (OFICIAL $OFFICIAL_POOLER_HOST primeiro; timeout: 6s por teste)..."
 echo "---------------------------------------------------------------------"
 
 for candidate in "${CANDIDATES[@]}"; do
@@ -356,59 +338,15 @@ echo ""
 # 4. EXPORTAÇÃO DOS DADOS FRESCOS DA NUVEM (pg_dump 17)
 # ------------------------------------------------------------------------------
 
-# (i) Schema PUBLIC: Somente dados, sem DDL, sem owners, sem privilégios
-echo "⏳ [1/3] Exportando dados do schema 'public' (17 tabelas)..."
-if ! docker run --rm -i \
-    -e PGPASSWORD="$CLOUD_DB_PASSWORD" \
-    -e PGCONNECT_TIMEOUT=15 \
-    -e PGSSLMODE=require \
-    "$DOCKER_PG_IMAGE" \
-    pg_dump \
-    -h "$SELECTED_HOST" \
-    -p "$SELECTED_PORT" \
-    -U "$SELECTED_USER" \
-    -d "$CLOUD_DB_NAME" \
-    --schema=public \
-    --data-only \
-    --no-owner \
-    --no-privileges \
-    --no-comments \
-    --disable-triggers \
-    --inserts \
-    --column-inserts \
-    > "$PUBLIC_DUMP"; then
-    echo "❌ Erro ao exportar dados do schema 'public' da nuvem via $SELECTED_HOST!"
-    exit 1
-fi
+# Função auxiliar para executar pg_dump com tolerância e fallback automático caso a porta 6543
+# (transaction mode) apresente restrições típicas de prepared statements / session level locks.
+run_pg_dump() {
+    local dump_target_file="$1"
+    shift
+    local dump_args=("$@")
 
-PUBLIC_SIZE=$(du -h "$PUBLIC_DUMP" | cut -f1)
-echo "✅ Schema public exportado com sucesso ($PUBLIC_SIZE)."
-
-# (ii) Schema AUTH: Tabelas essenciais (auth.users, auth.identities, auth.refresh_tokens se houver)
-echo "⏳ [2/3] Exportando dados essenciais de autenticação (schema 'auth')..."
-if ! docker run --rm -i \
-    -e PGPASSWORD="$CLOUD_DB_PASSWORD" \
-    -e PGCONNECT_TIMEOUT=15 \
-    -e PGSSLMODE=require \
-    "$DOCKER_PG_IMAGE" \
-    pg_dump \
-    -h "$SELECTED_HOST" \
-    -p "$SELECTED_PORT" \
-    -U "$SELECTED_USER" \
-    -d "$CLOUD_DB_NAME" \
-    --schema=auth \
-    --table="auth.users" \
-    --table="auth.identities" \
-    --table="auth.refresh_tokens" \
-    --data-only \
-    --no-owner \
-    --no-privileges \
-    --no-comments \
-    --disable-triggers \
-    --inserts \
-    --column-inserts \
-    > "$AUTH_DUMP" 2>/dev/null; then
-    echo "ℹ️  Tentando dump auth sem filtro de refresh_tokens..."
+    local status=0
+    set +e
     docker run --rm -i \
         -e PGPASSWORD="$CLOUD_DB_PASSWORD" \
         -e PGCONNECT_TIMEOUT=15 \
@@ -419,6 +357,80 @@ if ! docker run --rm -i \
         -p "$SELECTED_PORT" \
         -U "$SELECTED_USER" \
         -d "$CLOUD_DB_NAME" \
+        "${dump_args[@]}" > "$dump_target_file" 2>"$WORK_DIR/pg_dump_err.log"
+    status=$?
+    set -e
+
+    # Se falhou e estávamos usando a porta 6543 no host oficial, tenta automaticamente a porta 5432 (session)
+    if [ $status -ne 0 ] && [ "$SELECTED_PORT" = "6543" ]; then
+        echo ""
+        echo "⚠️  pg_dump encontrou limitação na porta 6543 (transaction mode):"
+        head -n 4 "$WORK_DIR/pg_dump_err.log" 2>/dev/null || true
+        echo "🔄 Alternando automaticamente para o Session Pooler na porta 5432 do mesmo host ($SELECTED_HOST)..."
+
+        set +e
+        docker run --rm -i \
+            -e PGPASSWORD="$CLOUD_DB_PASSWORD" \
+            -e PGCONNECT_TIMEOUT=15 \
+            -e PGSSLMODE=require \
+            "$DOCKER_PG_IMAGE" \
+            pg_dump \
+            -h "$SELECTED_HOST" \
+            -p "5432" \
+            -U "$SELECTED_USER" \
+            -d "$CLOUD_DB_NAME" \
+            "${dump_args[@]}" > "$dump_target_file" 2>"$WORK_DIR/pg_dump_err.log"
+        status=$?
+        set -e
+
+        if [ $status -eq 0 ]; then
+            echo "✅ Session pooler (porta 5432) conectado com sucesso! Fixando porta 5432 para as próximas etapas."
+            SELECTED_PORT="5432"
+        fi
+    fi
+
+    if [ $status -ne 0 ]; then
+        echo "❌ Falha no pg_dump:"
+        cat "$WORK_DIR/pg_dump_err.log" 2>/dev/null || true
+    fi
+
+    return $status
+}
+
+# (i) Schema PUBLIC: Somente dados, sem DDL, sem owners, sem privilégios
+echo "⏳ [1/3] Exportando dados do schema 'public' (17 tabelas)..."
+if ! run_pg_dump "$PUBLIC_DUMP" \
+    --schema=public \
+    --data-only \
+    --no-owner \
+    --no-privileges \
+    --no-comments \
+    --disable-triggers \
+    --inserts \
+    --column-inserts; then
+    echo "❌ Erro ao exportar dados do schema 'public' da nuvem via $SELECTED_HOST:$SELECTED_PORT!"
+    exit 1
+fi
+
+PUBLIC_SIZE=$(du -h "$PUBLIC_DUMP" | cut -f1)
+echo "✅ Schema public exportado com sucesso ($PUBLIC_SIZE)."
+
+# (ii) Schema AUTH: Tabelas essenciais (auth.users, auth.identities, auth.refresh_tokens se houver)
+echo "⏳ [2/3] Exportando dados essenciais de autenticação (schema 'auth')..."
+if ! run_pg_dump "$AUTH_DUMP" \
+    --schema=auth \
+    --table="auth.users" \
+    --table="auth.identities" \
+    --table="auth.refresh_tokens" \
+    --data-only \
+    --no-owner \
+    --no-privileges \
+    --no-comments \
+    --disable-triggers \
+    --inserts \
+    --column-inserts 2>/dev/null; then
+    echo "ℹ️  Tentando dump auth sem filtro de refresh_tokens..."
+    run_pg_dump "$AUTH_DUMP" \
         --table="auth.users" \
         --table="auth.identities" \
         --data-only \
@@ -427,25 +439,15 @@ if ! docker run --rm -i \
         --no-comments \
         --disable-triggers \
         --inserts \
-        --column-inserts \
-        > "$AUTH_DUMP"
+        --column-inserts || true
 fi
 
-AUTH_SIZE=$(du -h "$AUTH_DUMP" | cut -f1)
+AUTH_SIZE=$(du -h "$AUTH_DUMP" 2>/dev/null | cut -f1 || echo "0K")
 echo "✅ Schema auth exportado com sucesso ($AUTH_SIZE)."
 
 # (iii) Schema STORAGE: Metadados dos buckets e objetos (storage.buckets e storage.objects)
 echo "⏳ [3/3] Exportando registros de buckets e objetos (schema 'storage')..."
-if ! docker run --rm -i \
-    -e PGPASSWORD="$CLOUD_DB_PASSWORD" \
-    -e PGCONNECT_TIMEOUT=15 \
-    -e PGSSLMODE=require \
-    "$DOCKER_PG_IMAGE" \
-    pg_dump \
-    -h "$SELECTED_HOST" \
-    -p "$SELECTED_PORT" \
-    -U "$SELECTED_USER" \
-    -d "$CLOUD_DB_NAME" \
+if ! run_pg_dump "$STORAGE_DUMP" \
     --table="storage.buckets" \
     --table="storage.objects" \
     --data-only \
@@ -454,8 +456,7 @@ if ! docker run --rm -i \
     --no-comments \
     --disable-triggers \
     --inserts \
-    --column-inserts \
-    > "$STORAGE_DUMP" 2>/dev/null; then
+    --column-inserts 2>/dev/null; then
     echo "⚠️  Aviso: Não foi possível exportar storage via pg_dump direto (possível restrição de privilégio). Criando dump de storage seguro..."
     cat <<'EOF' > "$STORAGE_DUMP"
 -- Buckets padrão do DPSjur

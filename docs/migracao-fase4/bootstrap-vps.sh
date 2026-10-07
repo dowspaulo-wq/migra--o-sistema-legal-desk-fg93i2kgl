@@ -9,7 +9,7 @@
 # ==============================================================================
 set -euo pipefail
 
-BOOTSTRAP_VERSION="0.0.503"
+BOOTSTRAP_VERSION="0.0.504"
 DEST_DIR="/root/sbjur-migracao"
 REPO_RAW_BASE="https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4"
 

@@ -3,7 +3,7 @@
 **Servidor:** VPS Hostinger KVM 1 (`srv1737667` — IP `2.25.181.69`)  
 **Acesso:** Terminal do EasyPanel ou SSH como `root`  
 **Objetivo:** Trazer os dados frescos da nuvem Supabase (`cpcafthwnqazopqftemj`) para o Supabase próprio instalado no EasyPanel com **apenas 1 comando colado no terminal**.  
-**Versão do Kit:** `v0.0.503` (com varredura automática multirregião AWS, resolução IPv4 e diagnóstico detalhado)
+**Versão do Kit:** `v0.0.504` (com endpoint oficial confirmado aws-1-us-east-1 nas portas 6543 e 5432, fallback multirregião e diagnóstico detalhado)
 
 ---
 
@@ -36,12 +36,13 @@ bash bootstrap-vps.sh && \
 bash 06-exportar-e-importar-dados.sh
 ```
 
-> 💡 **Nota da versão 0.0.503**: O script agora executa uma **varredura automática multirregião AWS** (17 regiões x poolers `aws-0` e `aws-1`) para localizar o tenant `cpcafthwnqazopqftemj`, superando o erro de _"tenant not found"_ caso o projeto esteja em outra região (ex: `us-east-1`, `us-west-2`, etc.):
+> 💡 **Novidade da versão 0.0.504**: O script agora prioriza diretamente o **endpoint oficial confirmado no painel Supabase** (`aws-1-us-east-1.pooler.supabase.com`):
 >
-> - Teste leve preliminar de conexão (`SELECT 1`) com timeout ágil de 6s (`PGCONNECT_TIMEOUT=6`) exibindo o status em linha única compacta;
-> - O primeiro endpoint que responder com sucesso é eleito e utilizado no `pg_dump` com timeout estendido de 15s;
-> - Para conexão direta (`db.cpcafthwnqazopqftemj.supabase.co`), resolve o registro IPv4 (registro A) para evitar que VPSs IPv4-only falhem com _"Network is unreachable"_ ao tentar IPv6;
-> - Diagnóstico inteligente: se algum host aceitar o tenant mas rejeitar a senha (`password authentication failed`), o script avisa com destaque que o servidor correto foi encontrado e orienta o reset de senha no painel da Supabase.
+> - **Prioridade Máxima (Tentativa 1)**: `aws-1-us-east-1.pooler.supabase.com:6543` com usuário `postgres.cpcafthwnqazopqftemj`;
+> - **Prioridade Máxima (Tentativa 2)**: `aws-1-us-east-1.pooler.supabase.com:5432` (session pooler no mesmo host, caso o transaction mode encontre restrição no pg_dump);
+> - **Fallback automático no pg_dump**: se a porta 6543 for eleita mas o `pg_dump` falhar por peculiaridades de transaction pooling, o script migra automaticamente para a porta 5432 sem abortar o fluxo;
+> - **Rede de segurança mantida**: varredura de fallback em outras regiões e host direto preservada caso o oficial não responda;
+> - Diagnóstico inteligente: se o host reconhecer o tenant mas rejeitar a senha (`password authentication failed`), o script avisa que o servidor correto foi encontrado e orienta o reset de senha no painel.
 
 ---
 
@@ -57,9 +58,9 @@ O script fará todo o trabalho pesado sozinho em 6 etapas claras:
 3. **Pedir a Senha Local (`POSTGRES_PASSWORD`)**:
    - Aparecerá: `👉 Digite a senha POSTGRES_PASSWORD do Supabase LOCAL (EasyPanel): `
    - Digite ou cole a senha configurada no seu serviço `supabase` do EasyPanel e dê `Enter`.
-4. **Pressionar Enter nas opções padrão**:
-   - Região AWS: apenas dê `Enter` (já vem `sa-east-1` configurada).
-   - Porta: apenas dê `Enter` (já vem `5432` configurada).
+4. **Endpoint Oficial Supabase Automático**:
+   - O script já utiliza de fábrica o endpoint oficial `aws-1-us-east-1.pooler.supabase.com` (testando primeiro porta 6543 e depois 5432).
+   - Não requer digitar host, região ou porta: vai direto ao ponto.
 5. **Localização automática do contêiner**:
    - O script descobre o contêiner do PostgreSQL local sozinho via `docker ps`.
 6. **Exportação da nuvem e importação local segura**:
