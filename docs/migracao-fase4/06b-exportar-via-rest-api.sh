@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur - Plano B: Exportação via REST API (PostgREST HTTPS) & Importação VPS
 # ==============================================================================
-# Versão: v0.0.506
+# Versão: v0.0.507
 # Execução: EXCLUSIVAMENTE NO TERMINAL DO VPS (Hostinger KVM 1 - IP 2.25.181.69)
 # Motivo: Conexões diretas PostgreSQL (portas 5432/6543) estão bloqueadas
 #         de dentro do VPS (timeout nos poolers e IPv6 unreachable no db host direto).
@@ -11,7 +11,7 @@
 # Origem: Supabase Cloud SBJur (ref: cpcafthwnqazopqftemj) via REST API HTTPS
 # Destino: Contêiner PostgreSQL do Supabase Self-Hosted no EasyPanel
 #
-# CARACTERÍSTICAS DESTA VERSÃO (v0.0.506):
+# CARACTERÍSTICAS DESTA VERSÃO (v0.0.507):
 # 1. 100% Autocontido: roda diretamente no VPS sem depender de repositório clonado.
 # 2. Descoberta automática de tabelas via OpenAPI (/rest/v1/) com a Service Role Key.
 # 3. Localização dinâmica e inteligente do contêiner db (suporta DB_CONTAINER,
@@ -19,22 +19,26 @@
 # 4. Alinhamento automático de esquema com a nuvem (DROP NOT NULL em colunas não-PK
 #    antes do COPY para garantir 100% de compatibilidade quando o DDL local for mais rígido).
 # 5. Exportação paginada em lotes de 1000 linhas usando PostgREST 'Accept: text/csv'
-#    e Range header ('Range-Unit: items' / 'Range: 0-999').
-# 6. Somente leitura estrita na nuvem (apenas requisições GET autenticadas).
-# 7. Importação no PostgreSQL local via docker exec \copy com:
+#    e Range header ('Range-Unit: items' / 'Range: 0-999'), mantendo cabeçalho CSV.
+# 6. Casamento dinâmico de colunas PELO NOME no \copy: extrai cabeçalho real do CSV,
+#    valida contra colunas existentes no PostgreSQL local, descarta colunas inexistentes com aviso
+#    e gera '\copy public."tbl" ("colA", "colB", ...) FROM ... WITH (FORMAT csv, HEADER true)'.
+#    Elimina totalmente erros de inversão de ordem de colunas entre nuvem e banco local.
+# 7. Somente leitura estrita na nuvem (apenas requisições GET autenticadas).
+# 8. Importação no PostgreSQL local via docker exec \copy com:
 #    - Transação única (BEGIN / COMMIT)
 #    - SET session_replication_role = 'replica' (ignora ordem de FKs e triggers transitórios)
 #    - TRUNCATE prévio com RESTART IDENTITY CASCADE (idempotência total)
-# 8. Auditoria final com conferência cruzada: dados exportados vs gravados localmente
+# 9. Auditoria final com conferência cruzada: dados exportados vs gravados localmente
 #    mais referência histórica auditada do SBJur.
-# 9. Diagnóstico inteligente para projetos adormecidos/pausados (Restore project).
+# 10. Diagnóstico inteligente para projetos adormecidos/pausados (Restore project).
 # ==============================================================================
 set -euo pipefail
 
 # Garante que terminal restaure echo mesmo se abortado via Ctrl+C
 trap 'stty echo 2>/dev/null || true' EXIT INT TERM
 
-SCRIPT_VERSION="0.0.506"
+SCRIPT_VERSION="0.0.507"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AUDIT_SCRIPT="$SCRIPT_DIR/04-auditoria-pos-importacao.sql"
 
@@ -552,6 +556,67 @@ docker exec -i "$CONTAINER_LOCAL" mkdir -p "$CONTAINER_REST_DIR"
 docker cp "$EXPORT_DIR/." "$CONTAINER_LOCAL:$CONTAINER_REST_DIR/"
 docker exec -i "$CONTAINER_LOCAL" chmod -R 777 "$CONTAINER_REST_DIR"
 
+# ------------------------------------------------------------------------------
+# 6.2 MAPEAMENTO INTELIGENTE DE COLUNAS POR NOME (CSV Header vs Tabela Local)
+# ------------------------------------------------------------------------------
+# Obtém todas as colunas existentes em cada tabela local do schema public
+echo "⏳ Mapeando colunas das tabelas locais para casamento exato por nome..."
+LOCAL_COLUMNS_FILE="$EXPORT_DIR/local_columns.tsv"
+docker exec -i \
+    -e PGPASSWORD="$LOCAL_DB_PASSWORD" \
+    "$CONTAINER_LOCAL" \
+    psql -U postgres -d postgres -t -A -F $'\t' -c "
+        SELECT table_name, column_name 
+        FROM information_schema.columns 
+        WHERE table_schema = 'public' 
+        ORDER BY table_name, ordinal_position;
+    " > "$LOCAL_COLUMNS_FILE"
+
+# Função helper em bash puro para extrair colunas do header CSV respeitando aspas
+# Exemplo de header: id,name,"canViewFinance",color,"created_at"
+parse_csv_header() {
+    local header_line="$1"
+    local len=${#header_line}
+    local i=0
+    local in_quotes=0
+    local current=""
+    local -a raw_cols=()
+
+    while [ $i -lt $len ]; do
+        local c="${header_line:$i:1}"
+        if [ "$c" = '"' ]; then
+            # Se a próxima letra também for aspas, é escape de aspas
+            local next_idx=$((i + 1))
+            local next_c=""
+            if [ $next_idx -lt $len ]; then
+                next_c="${header_line:$next_idx:1}"
+            fi
+            if [ $in_quotes -eq 1 ] && [ "$next_c" = '"' ]; then
+                current="${current}\""
+                i=$((i + 1))
+            else
+                in_quotes=$((1 - in_quotes))
+            fi
+        elif [ "$c" = ',' ] && [ $in_quotes -eq 0 ]; then
+            raw_cols+=("$current")
+            current=""
+        else
+            current="${current}${c}"
+        fi
+        i=$((i + 1))
+    done
+    raw_cols+=("$current")
+
+    for col in "${raw_cols[@]}"; do
+        # Trim de espaços e remoção de \r no final
+        local trimmed
+        trimmed=$(echo "$col" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+        if [ -n "$trimmed" ]; then
+            echo "$trimmed"
+        fi
+    done
+}
+
 # Monta o script SQL de execução dentro do contêiner
 IMPORT_SQL_FILE="$EXPORT_DIR/executar_importacao.sql"
 cat <<'EOF' > "$IMPORT_SQL_FILE"
@@ -576,16 +641,62 @@ for tbl in "${ORDERED_IMPORT_TABLES[@]}"; do
 done
 echo "" >> "$IMPORT_SQL_FILE"
 
-# 2. Comandos \copy para cada tabela que possui arquivo CSV
-echo "-- 2. Carga dos dados via \copy CSV" >> "$IMPORT_SQL_FILE"
+# 2. Comandos \copy para cada tabela que possui arquivo CSV com colunas explícitas
+echo "-- 2. Carga dos dados via \copy CSV com lista explícita de colunas" >> "$IMPORT_SQL_FILE"
 for tbl in "${ORDERED_IMPORT_TABLES[@]}"; do
     CSV_FILE="$EXPORT_DIR/${tbl}.csv"
     if [ -f "$CSV_FILE" ]; then
         # Verifica se o arquivo tem mais de 1 linha (cabeçalho + dados)
         LINE_COUNT=$(wc -l < "$CSV_FILE" 2>/dev/null || echo 0)
         if [ "$LINE_COUNT" -gt 1 ]; then
-            echo "\echo '   ➜ Importando public.${tbl}...'" >> "$IMPORT_SQL_FILE"
-            echo "\copy public.\"${tbl}\" FROM '${CONTAINER_REST_DIR}/${tbl}.csv' WITH (FORMAT csv, HEADER true);" >> "$IMPORT_SQL_FILE"
+            HEADER_LINE=$(head -n 1 "$CSV_FILE" | tr -d '\r')
+            
+            # Carrega colunas existentes na tabela local em um array
+            LOCAL_TBL_COLS=()
+            while IFS=$'\t' read -r t_name c_name; do
+                if [ "$t_name" = "$tbl" ] && [ -n "$c_name" ]; then
+                    LOCAL_TBL_COLS+=("$c_name")
+                fi
+            done < "$LOCAL_COLUMNS_FILE"
+
+            # Lê e parseia as colunas do header CSV
+            CSV_COLS=()
+            while IFS= read -r col_name; do
+                if [ -n "$col_name" ]; then
+                    CSV_COLS+=("$col_name")
+                fi
+            done < <(parse_csv_header "$HEADER_LINE")
+
+            # Cruza as colunas do CSV com o esquema local
+            MATCHED_SQL_COLS=()
+            for col in "${CSV_COLS[@]}"; do
+                FOUND=0
+                for local_col in "${LOCAL_TBL_COLS[@]}"; do
+                    if [ "$col" = "$local_col" ]; then
+                        FOUND=1
+                        break
+                    fi
+                done
+
+                if [ $FOUND -eq 1 ]; then
+                    # Escapa aspas internas se houver e coloca entre aspas duplas
+                    ESCAPED_COL_NAME=$(echo "$col" | sed 's/"/""/g')
+                    MATCHED_SQL_COLS+=("\"${ESCAPED_COL_NAME}\"")
+                else
+                    echo "⚠️  [${tbl}] Coluna '${col}' presente no CSV da nuvem não existe no banco local. Será ignorada."
+                fi
+            done
+
+            if [ ${#MATCHED_SQL_COLS[@]} -eq 0 ]; then
+                echo "⚠️  [${tbl}] Nenhuma coluna compatível encontrada entre CSV e tabela local! Ignorando tabela."
+                continue
+            fi
+
+            # Junta as colunas separadas por vírgula para a cláusula do \copy
+            COLUMNS_SQL_LIST=$(IFS=, ; echo "${MATCHED_SQL_COLS[*]}")
+
+            echo "\echo '   ➜ Importando public.${tbl} (${#MATCHED_SQL_COLS[@]} colunas casadas)...'" >> "$IMPORT_SQL_FILE"
+            echo "\copy public.\"${tbl}\" (${COLUMNS_SQL_LIST}) FROM '${CONTAINER_REST_DIR}/${tbl}.csv' WITH (FORMAT csv, HEADER true);" >> "$IMPORT_SQL_FILE"
         fi
     fi
 done

@@ -3,7 +3,7 @@
 **Servidor:** VPS Hostinger KVM 1 (`srv1737667` — IP `2.25.181.69`)  
 **Acesso:** Terminal do EasyPanel ou SSH como `root`  
 **Objetivo:** Trazer os dados frescos da nuvem Supabase (`cpcafthwnqazopqftemj`) para o Supabase próprio instalado no EasyPanel com **apenas 1 comando colado no terminal**.  
-**Versão do Kit:** `v0.0.506` (com Plano B via REST API HTTPS 443 — dispensa portas PostgreSQL 5432/6543)
+**Versão do Kit:** `v0.0.507` (com Plano B via REST API HTTPS 443 e casamento dinâmico de colunas por nome — dispensa portas PostgreSQL 5432/6543)
 
 ---
 
@@ -78,6 +78,7 @@ O script executa de forma 100% automatizada e transparente:
    - Alinha restrições de nulabilidade (`DROP NOT NULL` em colunas não-PK) para assegurar que colunas opcionais na nuvem (como `clients.phone_na`) sejam aceitas perfeitamente pelo `\copy`;
    - Limpeza prévia idempotente (`TRUNCATE ... RESTART IDENTITY CASCADE`);
    - Desativação transitória de FKs e triggers (`SET session_replication_role = 'replica'`);
+   - Mapeamento dinâmico de colunas por nome: lê a primeira linha de cada CSV e cruza com as colunas do PostgreSQL local, gerando `\copy public.tabela ("colA", "colB", ...) FROM ... WITH (FORMAT csv, HEADER true)`, eliminando qualquer divergência de ordem de colunas entre nuvem e banco local;
    - Carga atômica de cada CSV via `\copy` em uma única transação (`BEGIN / COMMIT`).
 7. **Auditoria comparativa instantânea**:
    - Exibe a tabela verde conferindo cada uma das 17 tabelas (esperado vs importado no VPS).
