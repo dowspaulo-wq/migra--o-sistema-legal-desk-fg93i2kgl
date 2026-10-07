@@ -2,7 +2,8 @@
 
 **Servidor:** VPS Hostinger KVM 1 (`srv1737667` — IP `2.25.181.69`)  
 **Acesso:** Terminal do EasyPanel ou SSH como `root`  
-**Objetivo:** Trazer os dados frescos da nuvem Supabase (`cpcafthwnqazopqftemj`) para o Supabase próprio instalado no EasyPanel com **apenas 1 comando colado no terminal**.
+**Objetivo:** Trazer os dados frescos da nuvem Supabase (`cpcafthwnqazopqftemj`) para o Supabase próprio instalado no EasyPanel com **apenas 1 comando colado no terminal**.  
+**Versão do Kit:** `v0.0.501` (com fallback automático sequencial de endpoints da nuvem)
 
 ---
 
@@ -30,10 +31,18 @@ Copie o bloco inteiro abaixo de uma vez só e cole no terminal:
 
 ```bash
 mkdir -p /root/sbjur-migracao && cd /root/sbjur-migracao && \
-curl -sSf -L https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4/bootstrap-vps.sh -o bootstrap-vps.sh && \
+curl -sSf -L -H "Cache-Control: no-cache" https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4/bootstrap-vps.sh -o bootstrap-vps.sh && \
 bash bootstrap-vps.sh && \
 bash 06-exportar-e-importar-dados.sh
 ```
+
+> 💡 **Nota da versão 0.0.501**: O script agora testa automaticamente e em sequência os endpoints da Supabase Cloud:
+>
+> 1. `aws-0-sa-east-1.pooler.supabase.com` (pooler legado / sessão);
+> 2. `aws-1-sa-east-1.pooler.supabase.com` (pooler novo / projetos migrados);
+> 3. `db.cpcafthwnqazopqftemj.supabase.co:5432` (conexão direta com usuário `postgres`).
+>
+> Se um endpoint retornar `tenant not found`, ele avança imediatamente para o seguinte sem travar a migração! Caso todos falhem, o diagnóstico impresso informará se o motivo foi senha ou conectividade de rede.
 
 ---
 
@@ -75,7 +84,7 @@ Caso o terminal do VPS tenha algum bloqueio temporário de rede com o GitHub, us
 
 ```bash
 mkdir -p /root/sbjur-migracao && cd /root/sbjur-migracao && \
-curl -sSf -L https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4/06-exportar-e-importar-dados.sh -o 06-exportar-e-importar-dados.sh && \
+curl -sSf -L -H "Cache-Control: no-cache" https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4/06-exportar-e-importar-dados.sh -o 06-exportar-e-importar-dados.sh && \
 chmod +x 06-exportar-e-importar-dados.sh && \
 bash 06-exportar-e-importar-dados.sh
 ```

@@ -2,17 +2,20 @@
 # ==============================================================================
 # DPSjur - Bootstrap Autônomo de Migração (Executar no Terminal do VPS)
 # ==============================================================================
+# Versão: v0.0.501
 # Servidor: VPS Hostinger KVM 1 (srv1737667 - IP 2.25.181.69)
 # Função: Baixa o kit completo da Fase 4 sem precisar de git clone nem login GitHub,
 #         organiza os arquivos em /root/sbjur-migracao/ e deixa tudo pronto para executar.
 # ==============================================================================
 set -euo pipefail
 
+BOOTSTRAP_VERSION="0.0.501"
 DEST_DIR="/root/sbjur-migracao"
 REPO_RAW_BASE="https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4"
 
 echo "====================================================================="
 echo "   DPSjur - PREPARAÇÃO DO KIT DE MIGRAÇÃO NO VPS (BOOTSTRAP)        "
+echo "   Versão: v${BOOTSTRAP_VERSION}                                              "
 echo "====================================================================="
 echo "Destino: $DEST_DIR"
 echo "Origem: Repositório GitHub DPSjur"
@@ -39,11 +42,15 @@ echo "⏳ Baixando os arquivos do kit de migração..."
 DOWNLOAD_SUCCESS=0
 for f in "${FILES[@]}"; do
     printf "   ➜ Baixando %s... " "$f"
-    if curl -sSf -L "$REPO_RAW_BASE/$f" -o "$f" 2>/dev/null; then
+    # Cache buster de cabeçalho para garantir download da versão mais recente
+    if curl -sSf -L -H "Cache-Control: no-cache" -H "Pragma: no-cache" "$REPO_RAW_BASE/$f" -o "$f" 2>/dev/null; then
         echo "✅"
         ((DOWNLOAD_SUCCESS++)) || true
-    elif wget -q -O "$f" "$REPO_RAW_BASE/$f" 2>/dev/null; then
+    elif wget -q --no-cache -O "$f" "$REPO_RAW_BASE/$f" 2>/dev/null; then
         echo "✅ (via wget)"
+        ((DOWNLOAD_SUCCESS++)) || true
+    elif curl -sSf -L "$REPO_RAW_BASE/$f" -o "$f" 2>/dev/null; then
+        echo "✅"
         ((DOWNLOAD_SUCCESS++)) || true
     else
         echo "⚠️ (falha ao baixar)"

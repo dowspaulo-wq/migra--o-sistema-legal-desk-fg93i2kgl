@@ -2,6 +2,7 @@
 # ==============================================================================
 # DPSjur - Script Unificado de Exportação da Nuvem e Importação no VPS (EasyPanel)
 # ==============================================================================
+# Versão: v0.0.501
 # Execução: EXCLUSIVAMENTE NO TERMINAL DO VPS (Hostinger KVM 1 - IP 2.25.181.69)
 # Motivo: Conexões TCP diretas nas portas 5432/6543 da nuvem Supabase são
 #         bloqueadas em sandboxes de build, mas funcionam perfeitamente no VPS,
@@ -9,6 +10,13 @@
 #
 # Origem: Supabase Nuvem SBJur (ref: cpcafthwnqazopqftemj)
 # Destino: Contêiner PostgreSQL do Supabase Self-Hosted no EasyPanel
+#
+# NOVIDADE v0.0.501:
+# Fallback automático inteligente de conexão:
+#   1. Pooler aws-0 (aws-0-<região>.pooler.supabase.com)
+#   2. Pooler aws-1 (aws-1-<região>.pooler.supabase.com)
+#   3. Conexão DIRETA (db.<ref>.supabase.co:5432, usuário "postgres")
+# Diagnóstico preciso diferenciando "tenant not found" de "password authentication failed".
 #
 # SEGURANÇA:
 # NENHUMA senha fica gravada em arquivo, histórico de comandos (.bash_history)
@@ -19,17 +27,18 @@ set -euo pipefail
 # Garante que terminal restaure echo mesmo se abortado via Ctrl+C
 trap 'stty echo 2>/dev/null || true' EXIT INT TERM
 
+SCRIPT_VERSION="0.0.501"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AUDIT_SCRIPT="$SCRIPT_DIR/04-auditoria-pos-importacao.sql"
 
 # Configurações padrão da origem Supabase Nuvem
 CLOUD_PROJECT_REF="cpcafthwnqazopqftemj"
-CLOUD_DB_USER="postgres.${CLOUD_PROJECT_REF}"
 CLOUD_DB_NAME="postgres"
 DOCKER_PG_IMAGE="postgres:17"
 
 echo "====================================================================="
 echo "   DPSjur - EXPORTAÇÃO DA NUVEM (SBJur) & IMPORTAÇÃO NO VPS LOCAL    "
+echo "   Versão: v${SCRIPT_VERSION} (com Fallback Automático de Endpoints)       "
 echo "====================================================================="
 echo "Data: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "Origem: Supabase Cloud ref: $CLOUD_PROJECT_REF"
@@ -87,12 +96,11 @@ if [ -z "${CLOUD_DB_PORT:-}" ]; then
     CLOUD_DB_PORT="${INPUT_PORT:-5432}"
 fi
 
-CLOUD_DB_HOST="aws-0-${CLOUD_AWS_REGION}.pooler.supabase.com"
-
 echo ""
-echo "✅ Parâmetros validados:"
-echo "   - Host Nuvem: $CLOUD_DB_HOST:$CLOUD_DB_PORT"
-echo "   - Usuário Nuvem: $CLOUD_DB_USER"
+echo "✅ Parâmetros de entrada recebidos:"
+echo "   - Projeto Nuvem: $CLOUD_PROJECT_REF"
+echo "   - Região AWS: $CLOUD_AWS_REGION"
+echo "   - Porta Base: $CLOUD_DB_PORT"
 echo "   - Imagem pg_dump: $DOCKER_PG_IMAGE"
 echo ""
 
@@ -138,11 +146,115 @@ AUTH_DUMP="$WORK_DIR/02_auth_data.sql"
 STORAGE_DUMP="$WORK_DIR/03_storage_data.sql"
 
 # ------------------------------------------------------------------------------
-# 3. EXPORTAÇÃO DOS DADOS FRESCOS DA NUVEM VIA DOCKER (pg_dump 17)
+# 3. DETERMINAÇÃO DINÂMICA DO ENDPOINT DA NUVEM (FALLBACK AUTOMÁTICO)
 # ------------------------------------------------------------------------------
-echo "Etapa 3/6: Exportando dados da Nuvem Supabase (pg_dump $DOCKER_PG_IMAGE)..."
-echo "   (Conexão segura via Session Pooler: $CLOUD_DB_HOST:$CLOUD_DB_PORT)"
+echo "Etapa 3/6: Conectando e exportando dados da Nuvem Supabase (pg_dump $DOCKER_PG_IMAGE)..."
+echo "Detectando automaticamente o melhor endpoint de conexão da nuvem..."
 echo ""
+
+CANDIDATES=(
+    "aws-0-${CLOUD_AWS_REGION}.pooler.supabase.com|${CLOUD_DB_PORT}|postgres.${CLOUD_PROJECT_REF}|Pooler aws-0 (sessão/pooler)"
+    "aws-1-${CLOUD_AWS_REGION}.pooler.supabase.com|${CLOUD_DB_PORT}|postgres.${CLOUD_PROJECT_REF}|Pooler aws-1 (sessão/pooler)"
+    "db.${CLOUD_PROJECT_REF}.supabase.co|5432|postgres|Conexão DIRETA ao banco (sem pooler)"
+)
+
+SELECTED_HOST=""
+SELECTED_PORT=""
+SELECTED_USER=""
+SELECTED_DESC=""
+LAST_ERROR_LOG=""
+PASSWORD_ERROR_DETECTED=0
+TENANT_NOT_FOUND_DETECTED=0
+
+for candidate in "${CANDIDATES[@]}"; do
+    IFS="|" read -r c_host c_port c_user c_desc <<< "$candidate"
+    echo "⏳ Testando conexão: $c_desc ($c_host:$c_port, usuário: $c_user)..."
+
+    TEST_OUT=""
+    set +e
+    TEST_OUT=$(docker run --rm \
+        -e PGPASSWORD="$CLOUD_DB_PASSWORD" \
+        "$DOCKER_PG_IMAGE" \
+        psql \
+        -h "$c_host" \
+        -p "$c_port" \
+        -U "$c_user" \
+        -d "$CLOUD_DB_NAME" \
+        --connect-timeout=10 \
+        -c "SELECT 1;" 2>&1)
+    TEST_STATUS=$?
+    set -e
+
+    if [ $TEST_STATUS -eq 0 ]; then
+        echo "✅ Conexão bem-sucedida via: $c_desc ($c_host:$c_port)!"
+        SELECTED_HOST="$c_host"
+        SELECTED_PORT="$c_port"
+        SELECTED_USER="$c_user"
+        SELECTED_DESC="$c_desc"
+        break
+    else
+        echo "   ⚠️ Falha ao conectar em $c_host:$c_port"
+        # Registra última mensagem para diagnóstico
+        LAST_ERROR_LOG="$TEST_OUT"
+        if echo "$TEST_OUT" | grep -qiE "password authentication failed"; then
+            PASSWORD_ERROR_DETECTED=1
+            echo "   ↳ Motivo detectado: Falha de autenticação por senha (password authentication failed)."
+        elif echo "$TEST_OUT" | grep -qiE "tenant.*not found|tenant/user.*not found"; then
+            TENANT_NOT_FOUND_DETECTED=1
+            echo "   ↳ Motivo detectado: Tenant não encontrado neste endpoint (pooler tenant not found)."
+        elif echo "$TEST_OUT" | grep -qiE "timeout|could not connect|refused"; then
+            echo "   ↳ Motivo detectado: Tempo limite esgotado ou recusa de conexão na porta $c_port."
+        else
+            CLEAN_ERR=$(echo "$TEST_OUT" | tail -n 2 | tr '\n' ' ')
+            echo "   ↳ Detalhe: $CLEAN_ERR"
+        fi
+        echo "   Tentando próximo endpoint..."
+        echo ""
+    fi
+done
+
+if [ -z "$SELECTED_HOST" ]; then
+    echo ""
+    echo "====================================================================="
+    echo "❌ FALHA: NENHUM DOS ENDPOINTS DA NUVEM RESPONDEU COM SUCESSO!"
+    echo "====================================================================="
+    echo "Tentamos em sequência:"
+    echo " 1. aws-0-${CLOUD_AWS_REGION}.pooler.supabase.com:$CLOUD_DB_PORT (user: postgres.${CLOUD_PROJECT_REF})"
+    echo " 2. aws-1-${CLOUD_AWS_REGION}.pooler.supabase.com:$CLOUD_DB_PORT (user: postgres.${CLOUD_PROJECT_REF})"
+    echo " 3. db.${CLOUD_PROJECT_REF}.supabase.co:5432 (user: postgres - Conexão Direta)"
+    echo ""
+    echo "🔍 DIAGNÓSTICO DO ERRO:"
+    if [ "$PASSWORD_ERROR_DETECTED" -eq 1 ]; then
+        echo "👉 A causa mais provável é SENHA INCORRETA (password authentication failed)."
+        echo "   - O usuário conectou no host, mas o banco rejeitou a senha informada."
+        echo "   - Solução: Acesse o painel da Supabase Cloud > Project Settings > Database"
+        echo "     e clique em 'Reset database password'. Aguarde 30 segundos e reexecute o script."
+    elif [ "$TENANT_NOT_FOUND_DETECTED" -eq 1 ]; then
+        echo "👉 A causa é 'tenant/user not found' e/ou bloqueio de rede no IP do banco direto."
+        echo "   - Se o projeto esteve pausado ou em manutenção na Supabase, pode levar alguns minutos"
+        echo "     para o DNS e os poolers propagarem o tenant."
+        echo "   - Verifique no painel Supabase se o projeto cpcafthwnqazopqftemj está com status 'Active'."
+    else
+        echo "👉 Erro de rede ou indisponibilidade temporária na Supabase."
+    fi
+    echo ""
+    echo "Último log recebido do cliente PostgreSQL:"
+    echo "$LAST_ERROR_LOG" | tail -n 6
+    echo "====================================================================="
+    exit 1
+fi
+
+echo ""
+echo "🎯 Endpoint selecionado para o dump:"
+echo "   - Host: $SELECTED_HOST"
+echo "   - Porta: $SELECTED_PORT"
+echo "   - Usuário: $SELECTED_USER"
+echo "   - Modo: $SELECTED_DESC"
+echo ""
+
+# ------------------------------------------------------------------------------
+# 4. EXPORTAÇÃO DOS DADOS FRESCOS DA NUVEM (pg_dump 17)
+# ------------------------------------------------------------------------------
 
 # (i) Schema PUBLIC: Somente dados, sem DDL, sem owners, sem privilégios
 echo "⏳ [1/3] Exportando dados do schema 'public' (17 tabelas)..."
@@ -150,9 +262,9 @@ if ! docker run --rm -i \
     -e PGPASSWORD="$CLOUD_DB_PASSWORD" \
     "$DOCKER_PG_IMAGE" \
     pg_dump \
-    -h "$CLOUD_DB_HOST" \
-    -p "$CLOUD_DB_PORT" \
-    -U "$CLOUD_DB_USER" \
+    -h "$SELECTED_HOST" \
+    -p "$SELECTED_PORT" \
+    -U "$SELECTED_USER" \
     -d "$CLOUD_DB_NAME" \
     --schema=public \
     --data-only \
@@ -163,8 +275,7 @@ if ! docker run --rm -i \
     --inserts \
     --column-inserts \
     > "$PUBLIC_DUMP"; then
-    echo "❌ Erro ao exportar dados do schema 'public' da nuvem!"
-    echo "Verifique a senha informada, o status do banco no painel da Supabase ou a porta ($CLOUD_DB_PORT)."
+    echo "❌ Erro ao exportar dados do schema 'public' da nuvem via $SELECTED_HOST!"
     exit 1
 fi
 
@@ -177,9 +288,9 @@ if ! docker run --rm -i \
     -e PGPASSWORD="$CLOUD_DB_PASSWORD" \
     "$DOCKER_PG_IMAGE" \
     pg_dump \
-    -h "$CLOUD_DB_HOST" \
-    -p "$CLOUD_DB_PORT" \
-    -U "$CLOUD_DB_USER" \
+    -h "$SELECTED_HOST" \
+    -p "$SELECTED_PORT" \
+    -U "$SELECTED_USER" \
     -d "$CLOUD_DB_NAME" \
     --schema=auth \
     --table="auth.users" \
@@ -198,9 +309,9 @@ if ! docker run --rm -i \
         -e PGPASSWORD="$CLOUD_DB_PASSWORD" \
         "$DOCKER_PG_IMAGE" \
         pg_dump \
-        -h "$CLOUD_DB_HOST" \
-        -p "$CLOUD_DB_PORT" \
-        -U "$CLOUD_DB_USER" \
+        -h "$SELECTED_HOST" \
+        -p "$SELECTED_PORT" \
+        -U "$SELECTED_USER" \
         -d "$CLOUD_DB_NAME" \
         --table="auth.users" \
         --table="auth.identities" \
@@ -223,9 +334,9 @@ if ! docker run --rm -i \
     -e PGPASSWORD="$CLOUD_DB_PASSWORD" \
     "$DOCKER_PG_IMAGE" \
     pg_dump \
-    -h "$CLOUD_DB_HOST" \
-    -p "$CLOUD_DB_PORT" \
-    -U "$CLOUD_DB_USER" \
+    -h "$SELECTED_HOST" \
+    -p "$SELECTED_PORT" \
+    -U "$SELECTED_USER" \
     -d "$CLOUD_DB_NAME" \
     --table="storage.buckets" \
     --table="storage.objects" \
@@ -259,7 +370,7 @@ echo "✅ Metadados de storage exportados ($STORAGE_SIZE)."
 echo ""
 
 # ------------------------------------------------------------------------------
-# 4. PREPARAÇÃO DO BATCH DE IMPORTAÇÃO EM TRANSAÇÃO ÚNICA COM DESATIVAÇÃO DE TRIGGERS
+# 5. PREPARAÇÃO DO BATCH DE IMPORTAÇÃO EM TRANSAÇÃO ÚNICA COM DESATIVAÇÃO DE TRIGGERS
 # ------------------------------------------------------------------------------
 echo "Etapa 4/6: Montando transação atômica de importação local..."
 
@@ -303,7 +414,7 @@ echo "✅ Arquivo de importação compilado em: $CONSOLIDATED_SQL"
 echo ""
 
 # ------------------------------------------------------------------------------
-# 5. APLICAÇÃO DOS DADOS NO BANCO LOCAL VIA DOCKER EXEC
+# 6. APLICAÇÃO DOS DADOS NO BANCO LOCAL VIA DOCKER EXEC
 # ------------------------------------------------------------------------------
 echo "Etapa 5/6: Aplicando dados no contêiner local '$CONTAINER_LOCAL'..."
 echo "   (Transação única, ON_ERROR_STOP=1, tolerante a grants de ambiente)"
@@ -335,7 +446,7 @@ echo "✅ Todos os dados foram aplicados com sucesso no banco PostgreSQL local!"
 echo ""
 
 # ------------------------------------------------------------------------------
-# 6. AUDITORIA PÓS-IMPORTAÇÃO (Contagens esperadas vs encontradas)
+# 7. AUDITORIA PÓS-IMPORTAÇÃO (Contagens esperadas vs encontradas)
 # ------------------------------------------------------------------------------
 echo "Etapa 6/6: Executando auditoria automatizada pós-importação..."
 echo "---------------------------------------------------------------------"
