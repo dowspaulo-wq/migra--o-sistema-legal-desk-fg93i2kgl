@@ -3,46 +3,91 @@
 **Servidor:** VPS Hostinger KVM 1 (`srv1737667` — IP `2.25.181.69`)  
 **Acesso:** Terminal do EasyPanel ou SSH como `root`  
 **Objetivo:** Trazer os dados frescos da nuvem Supabase (`cpcafthwnqazopqftemj`) para o Supabase próprio instalado no EasyPanel com **apenas 1 comando colado no terminal**.  
-**Versão do Kit:** `v0.0.504` (com endpoint oficial confirmado aws-1-us-east-1 nas portas 6543 e 5432, fallback multirregião e diagnóstico detalhado)
+**Versão do Kit:** `v0.0.505` (com Plano B via REST API HTTPS 443 — dispensa portas PostgreSQL 5432/6543)
 
 ---
 
-## ❓ Por que o comando anterior deu erro?
+## 🌐 Por que o Plano B (`06b`) é a solução definitiva para o VPS?
 
-Quando você digitou `cd /root/dpsjur` ou tentou rodar `bash docs/migracao-fase4/06-exportar-e-importar-dados.sh`, o Linux respondeu:
+No teste do script 06 (Plano A), vimos que:
 
-> `No such file or directory` (Arquivo ou pasta não encontrada)
+1. O host direto do banco `db.cpcafthwnqazopqftemj.supabase.co` só publica endereço IPv6 (`2600:1f18...`), mas o VPS da Hostinger opera em rede IPv4-only (`Network is unreachable`);
+2. Os poolers (`aws-1-us-east-1.pooler.supabase.com` nas portas 6543 e 5432) dão timeout de dentro do VPS ou respondem `tenant not found`;
+3. **Porém a API REST HTTPS na porta 443 responde perfeitamente!**
 
-Isso acontece porque o VPS **não possui os arquivos do código clonados em `/root/dpsjur`** — o EasyPanel roda o aplicativo via contêineres Docker isolados, então a pasta não existia no diretório `/root`.
+O **Plano B (`06b-exportar-via-rest-api.sh`)** utiliza a própria API REST HTTPS da nuvem (`https://cpcafthwnqazopqftemj.supabase.co/rest/v1/`) com a sua **`service_role` key** para exportar todas as tabelas em formato CSV com paginação e importá-las via `\copy` atômico no PostgreSQL local.
+
+**Vantagem crucial:** Não precisa de nenhuma porta de banco aberta nem de IPv6 — trafega tudo por HTTPS 443 padrão da web!
 
 ---
 
-## 🚀 Como Fazer Agora (Passo Único e Garantido)
+## 🔑 Onde pegar a SERVICE_ROLE KEY no Painel Supabase?
 
-Você não precisa instalar Git, nem configurar senhas do GitHub, nem clonar nada manualmente.
+O Plano B precisa da **Service Role Key** para conseguir ler todas as tabelas do banco contornando o RLS:
 
-### Passo 1: Abrir o Terminal do VPS
+1. Acesse: [https://supabase.com/dashboard/project/cpcafthwnqazopqftemj/settings/api](https://supabase.com/dashboard/project/cpcafthwnqazopqftemj/settings/api)
+2. Na seção **Project API keys**:
+   - Procure a chave chamada **`service_role` (secret)**;
+   - Clique em **Reveal** (ou no ícone de cópia) e copie esse token longo (`eyJhbGci...`);
+   - ⚠️ **Importante**: Copie a chave `service_role` e NÃO a `anon/public`.
 
-Abra o terminal preto do seu VPS (via **EasyPanel** ou via **SSH**). Você já está como `root@srv1737667:~#`.
+---
 
-### Passo 2: Copiar e Colar o Comando Abaixo
+## 🚀 Como Executar o Plano B no VPS (Passo Único)
 
-Copie o bloco inteiro abaixo de uma vez só e cole no terminal:
+Abra o terminal do seu VPS (via **EasyPanel** ou **SSH**) e cole este comando único:
+
+```bash
+cd /root/sbjur-migracao && \
+curl -sSf -L -H "Cache-Control: no-cache" https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4/06b-exportar-via-rest-api.sh -o 06b-exportar-via-rest-api.sh && \
+bash 06b-exportar-via-rest-api.sh
+```
+
+Ou, se a pasta `/root/sbjur-migracao` ainda não existir:
 
 ```bash
 mkdir -p /root/sbjur-migracao && cd /root/sbjur-migracao && \
 curl -sSf -L -H "Cache-Control: no-cache" https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4/bootstrap-vps.sh -o bootstrap-vps.sh && \
 bash bootstrap-vps.sh && \
-bash 06-exportar-e-importar-dados.sh
+bash 06b-exportar-via-rest-api.sh
 ```
 
-> 💡 **Novidade da versão 0.0.504**: O script agora prioriza diretamente o **endpoint oficial confirmado no painel Supabase** (`aws-1-us-east-1.pooler.supabase.com`):
->
-> - **Prioridade Máxima (Tentativa 1)**: `aws-1-us-east-1.pooler.supabase.com:6543` com usuário `postgres.cpcafthwnqazopqftemj`;
-> - **Prioridade Máxima (Tentativa 2)**: `aws-1-us-east-1.pooler.supabase.com:5432` (session pooler no mesmo host, caso o transaction mode encontre restrição no pg_dump);
-> - **Fallback automático no pg_dump**: se a porta 6543 for eleita mas o `pg_dump` falhar por peculiaridades de transaction pooling, o script migra automaticamente para a porta 5432 sem abortar o fluxo;
-> - **Rede de segurança mantida**: varredura de fallback em outras regiões e host direto preservada caso o oficial não responda;
-> - Diagnóstico inteligente: se o host reconhecer o tenant mas rejeitar a senha (`password authentication failed`), o script avisa que o servidor correto foi encontrado e orienta o reset de senha no painel.
+---
+
+## 🛡️ O que vai acontecer na sua tela no Plano B?
+
+O script executa de forma 100% automatizada e transparente:
+
+1. **Pede a SERVICE_ROLE KEY da Nuvem**:
+   - `👉 Digite ou cole a SERVICE_ROLE KEY da NUVEM Supabase: `
+   - Cole a chave e aperte `Enter` (leitura oculta via `stty -echo`, nada é gravado em disco).
+2. **Pede a POSTGRES_PASSWORD Local**:
+   - `👉 Digite a senha POSTGRES_PASSWORD do Supabase LOCAL (EasyPanel): `
+   - Cole a senha configurada no seu serviço `supabase` do EasyPanel e aperte `Enter`.
+3. **Descobre as tabelas automaticamente**:
+   - Consulta o catálogo OpenAPI da nuvem (`/rest/v1/`) e lista as tabelas (`clients`, `cases`, `tasks`, etc.).
+4. **Exporta página por página em CSV**:
+   - Mostra o progresso tabela por tabela:
+     - `⏳ Exportando clients ... ✅ 345 linhas`
+     - `⏳ Exportando cases ... ✅ 550 linhas`
+     - `⏳ Exportando tasks ... ✅ 836 linhas`
+     - `...`
+5. **Importa no PostgreSQL local com integridade garantida**:
+   - Limpeza prévia idempotente (`TRUNCATE ... RESTART IDENTITY CASCADE`);
+   - Desativação transitória de FKs e triggers (`SET session_replication_role = 'replica'`);
+   - Carga atômica de cada CSV via `\copy` em uma única transação (`BEGIN / COMMIT`).
+6. **Auditoria comparativa instantânea**:
+   - Exibe a tabela verde conferindo cada uma das 17 tabelas (esperado vs importado no VPS).
+
+---
+
+## 🔁 E o Script 06 (Plano A via PostgreSQL nativo)?
+
+O script `06-exportar-e-importar-dados.sh` continua disponível e intacto para quem possuir conectividade TCP direta liberada:
+
+```bash
+cd /root/sbjur-migracao && bash 06-exportar-e-importar-dados.sh
+```
 
 ---
 

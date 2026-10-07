@@ -9,7 +9,7 @@
 # ==============================================================================
 set -euo pipefail
 
-BOOTSTRAP_VERSION="0.0.504"
+BOOTSTRAP_VERSION="0.0.505"
 DEST_DIR="/root/sbjur-migracao"
 REPO_RAW_BASE="https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4"
 
@@ -27,7 +27,7 @@ echo ""
 mkdir -p "$DEST_DIR"
 cd "$DEST_DIR"
 
-# 2. Lista de arquivos essenciais do kit de migração
+# 2. Lista de arquivos essenciais do kit de migração (inclui Plano A e Plano B)
 FILES=(
     "01-schema-ddl-sbjur.sql"
     "02-rls-policies-sbjur.sql"
@@ -35,6 +35,7 @@ FILES=(
     "04-auditoria-pos-importacao.sql"
     "05-importar-no-supabase-local.sh"
     "06-exportar-e-importar-dados.sh"
+    "06b-exportar-via-rest-api.sh"
     "06-sync-storage-assets.ts"
 )
 
@@ -66,10 +67,16 @@ if [ "$DOWNLOAD_SUCCESS" -ge 4 ]; then
     echo "🎉 Kit de migração preparado com sucesso em: $DEST_DIR"
     echo "====================================================================="
     echo ""
-    echo "Para executar a migração agora, basta rodar:"
+    echo "Para executar a migração agora, escolha uma das opções:"
+    echo ""
+    echo "👉 PLANO B (RECOMENDADO SE A PORTA 5432/6543 ESTIVER BLOQUEADA):"
+    echo "   cd $DEST_DIR && bash 06b-exportar-via-rest-api.sh"
+    echo "   (Usa HTTPS 443 via REST API PostgREST, contornando bloqueios de porta)"
+    echo ""
+    echo "👉 PLANO A (CONEXÃO POSTGRESQL NATIVA):"
     echo "   cd $DEST_DIR && bash 06-exportar-e-importar-dados.sh"
     echo ""
-    echo "Ou, se for aplicar apenas a estrutura base primeiro:"
+    echo "👉 APLICAR APENAS ESTRUTURA BASE (DDL, RLS e Usuários Auth):"
     echo "   cd $DEST_DIR && bash 05-importar-no-supabase-local.sh"
     echo "====================================================================="
 else

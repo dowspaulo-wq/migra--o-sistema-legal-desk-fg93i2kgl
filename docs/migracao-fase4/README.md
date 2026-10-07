@@ -15,7 +15,8 @@ Este diretório contém o kit completo e auditado para implantação do **Supaba
 | **`05-importar-no-supabase-local.sh`** | Script bash automatizado para aplicar DDL, RLS e usuários locais no contêiner do Supabase no VPS. |
 | **`RUN-NO-VPS.md`** | **Guia rápido para leigo com comando único:** como colar no terminal do VPS sem precisar de git clone nem login GitHub. |
 | **`bootstrap-vps.sh`** | Script de bootstrap automático que baixa o kit completo para `/root/sbjur-migracao/` com 1 comando. |
-| **`06-exportar-e-importar-dados.sh`** | Script unificado v0.0.504 e 100% autônomo que roda no terminal do VPS: prioridade máxima no endpoint oficial da nuvem (`aws-1-us-east-1.pooler.supabase.com:6543 / :5432`), fallback inteligente no pg_dump se a porta 6543 (transaction mode) rejeitar comandos de dump, varredura secundária multirregião de segurança, exportação dos dados frescos via `docker run postgres:17 pg_dump`, importação atômica no banco local e auditoria de contagens. |
+| **`06-exportar-e-importar-dados.sh`** | Script unificado (Plano A) v0.0.504 e 100% autônomo que roda no terminal do VPS via conexão PostgreSQL direta / pooler (`aws-1-us-east-1.pooler.supabase.com:6543 / :5432`), exportando via `pg_dump` e importando atomicamente. |
+| **`06b-exportar-via-rest-api.sh`** | **Script unificado (Plano B - NOVO v0.0.505)**: contorna 100% bloqueios de portas PostgreSQL (5432/6543). Opera estritamente via **REST API HTTPS (porta 443)** usando PostgREST `Accept: text/csv` com paginação em lotes de 1000 linhas, descoberta automática de tabelas via OpenAPI, importação atômica com `\copy` e auditoria completa. |
 | **`06-sync-storage-assets.ts`** | Script Node.js/TypeScript para baixar os 32 arquivos essenciais de Storage (avatares, modelos DOCX, ícones de sistemas judiciais). |
 | **`07-guia-instalacao-supabase-easypanel.md`** | Manual passo a passo em linguagem simples para leigo: instalação do template Supabase no EasyPanel, configuração de SMTP e obtenção das chaves. |
 | **`08-procedimento-exportacao-sbjur.md`** | Procedimento detalhado de exportação fresca do projeto SBJur, analisando opções viáveis com e sem a service_role key. |
@@ -50,16 +51,19 @@ Este diretório contém o kit completo e auditado para implantação do **Supaba
    ```bash
    bash docs/migracao-fase4/05-importar-no-supabase-local.sh
    ```
-3. **Exportar e Importar Dados Frescos da Nuvem (Passo Final):** No terminal do VPS, execute o script unificado:
-   Consulte **`RUN-NO-VPS.md`** para colar o comando único no terminal do VPS:
-   ```bash
-   mkdir -p /root/sbjur-migracao && cd /root/sbjur-migracao && \
-   curl -sSf -L https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4/bootstrap-vps.sh -o bootstrap-vps.sh && \
-   bash bootstrap-vps.sh && \
-   bash 06-exportar-e-importar-dados.sh
-   ```
-   Ele solicitará interativamente (`read -s`, de forma invisível e segura) a senha da nuvem e a senha `POSTGRES_PASSWORD` local. Nenhuma senha fica gravada em arquivo ou log.
-4. **Auditar os Dados:** A auditoria com contagens exatas roda automaticamente ao final.
+3. **Exportar e Importar Dados Frescos da Nuvem (Passo Final):**
+   - **Se a porta 5432/6543 estiver inacessível (Plano B - Recomendado):**
+     ```bash
+     mkdir -p /root/sbjur-migracao && cd /root/sbjur-migracao && \
+     curl -sSf -L -H "Cache-Control: no-cache" https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4/06b-exportar-via-rest-api.sh -o 06b-exportar-via-rest-api.sh && \
+     bash 06b-exportar-via-rest-api.sh
+     ```
+     Ele solicita a `SERVICE_ROLE_KEY` da nuvem (Settings > API) e a `POSTGRES_PASSWORD` local de forma segura via `read -s`. Usa apenas HTTPS 443!
+   - **Se a porta 5432/6543 estiver liberada (Plano A):**
+     ```bash
+     cd /root/sbjur-migracao && bash 06-exportar-e-importar-dados.sh
+     ```
+Consulte **`RUN-NO-VPS.md`** para colar o comando único no terminal do VPS.4. **Auditar os Dados:** A auditoria com contagens exatas roda automaticamente ao final.
 5. **Sincronizar Arquivos do Storage (em paralelo):**
    ```bash
    node docs/migracao-fase4/06-sync-storage-assets.ts ./storage-local
