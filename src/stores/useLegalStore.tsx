@@ -408,6 +408,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       let originalItem: any
 
       if (table === 'settings') {
+        const previousSettings = state.settings
         setState((prev) => ({ ...prev, settings: { ...prev.settings, ...changes } }))
         if (changes.asaasApiKey !== undefined || changes.asaasApiUrl !== undefined) {
           import('@/services/asaas').then(({ setCachedAsaasConfig }) => {
@@ -415,27 +416,47 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
               apiKey:
                 changes.asaasApiKey !== undefined
                   ? changes.asaasApiKey
-                  : state.settings.asaasApiKey,
+                  : previousSettings.asaasApiKey,
               apiUrl:
                 changes.asaasApiUrl !== undefined
                   ? changes.asaasApiUrl
-                  : state.settings.asaasApiUrl,
+                  : previousSettings.asaasApiUrl,
             })
           })
         }
-        if (id && id !== 'default') {
-          await supabase
-            .from(table as any)
-            .update(changes as any)
-            .eq('id', id)
-        } else {
-          const { data } = await supabase
-            .from(table as any)
-            .insert(changes as any)
-            .select('id')
-            .single()
-          if (data && 'id' in data)
-            setState((prev) => ({ ...prev, settings: { ...prev.settings, id: (data as any).id } }))
+
+        try {
+          if (id && id !== 'default') {
+            const { error } = await supabase
+              .from(table as any)
+              .update(changes as any)
+              .eq('id', id)
+            if (error) throw error
+          } else {
+            const { data, error } = await supabase
+              .from(table as any)
+              .insert(changes as any)
+              .select('id')
+              .single()
+            if (error) throw error
+            if (data && 'id' in data)
+              setState((prev) => ({
+                ...prev,
+                settings: { ...prev.settings, id: (data as any).id },
+              }))
+          }
+        } catch (dbErr: any) {
+          // Em caso de erro no banco (ex: coluna inexistente no VPS), faz rollback do estado local e do cache
+          setState((prev) => ({ ...prev, settings: previousSettings }))
+          if (changes.asaasApiKey !== undefined || changes.asaasApiUrl !== undefined) {
+            import('@/services/asaas').then(({ setCachedAsaasConfig }) => {
+              setCachedAsaasConfig({
+                apiKey: previousSettings.asaasApiKey,
+                apiUrl: previousSettings.asaasApiUrl,
+              })
+            })
+          }
+          throw dbErr
         }
       } else {
         let finalChanges = { ...changes }

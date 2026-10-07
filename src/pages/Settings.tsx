@@ -318,9 +318,26 @@ export default function Settings() {
           : 'Configurações salvas (sem chave cadastrada).',
       })
     } catch (err: any) {
+      const rawMsg = err?.message || err?.details || String(err)
+      let userFriendlyMsg = rawMsg
+
+      if (
+        rawMsg.toLowerCase().includes('column') &&
+        rawMsg.toLowerCase().includes('does not exist')
+      ) {
+        userFriendlyMsg =
+          'A coluna da chave do Asaas ainda não foi criada no banco PostgreSQL do VPS. Execute o script "03-aplicar-migracao-asaas.sh" no terminal do VPS via SSH para criar as colunas necessárias na tabela settings.'
+      } else if (
+        rawMsg.toLowerCase().includes('permission denied') ||
+        rawMsg.toLowerCase().includes('policy')
+      ) {
+        userFriendlyMsg =
+          'Permissão negada ao atualizar as configurações. Verifique as políticas de RLS ou certifique-se de estar conectado com perfil Administrador.'
+      }
+
       toast({
-        title: 'Erro ao salvar',
-        description: err.message || 'Não foi possível salvar a integração Asaas.',
+        title: 'Erro ao salvar credenciais do Asaas',
+        description: userFriendlyMsg,
         variant: 'destructive',
       })
     } finally {

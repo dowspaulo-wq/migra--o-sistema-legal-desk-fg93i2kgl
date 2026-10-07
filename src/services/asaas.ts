@@ -16,11 +16,17 @@ export async function getAsaasConfig(): Promise<AsaasConfig> {
     return cachedConfig
   }
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('settings')
       .select('asaasApiKey, asaasApiUrl')
       .limit(1)
       .maybeSingle()
+
+    if (error) {
+      // Se a coluna ainda não existir no banco (ex: VPS antes da migração), avisa e degrada suavemente
+      console.warn('Aviso: Colunas do Asaas não disponíveis em public.settings:', error.message)
+      return cachedConfig || { apiKey: null, apiUrl: 'https://api.asaas.com/v3' }
+    }
 
     if (data) {
       cachedConfig = {
@@ -30,7 +36,7 @@ export async function getAsaasConfig(): Promise<AsaasConfig> {
       return cachedConfig
     }
   } catch (err) {
-    console.warn('Erro ao ler configurações do Asaas:', err)
+    console.warn('Erro ao ler configurações do Asaas (degradação graciosa):', err)
   }
   return cachedConfig || { apiKey: null, apiUrl: 'https://api.asaas.com/v3' }
 }

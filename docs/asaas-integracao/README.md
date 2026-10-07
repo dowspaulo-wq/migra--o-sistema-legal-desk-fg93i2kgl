@@ -21,6 +21,7 @@ Este kit fornece todas as instruções e scripts para disponibilizar e testar as
 | :--- | :--- |
 | **`01-implantar-funcoes-vps.sh`** | Script bash autônomo para baixar e copiar as funções para o contêiner de Edge Functions do Supabase no EasyPanel. |
 | **`02-testar-endpoints.sh`** | Script de teste avançado com `curl`: aceita URL externa como argumento (`$1`), testa Kong interno na porta 8000 e URL externa com diagnóstico automático de 405 do nginx do frontend. |
+| **`03-aplicar-migracao-asaas.sh`** | Script bash idempotente para criar as colunas `asaasApiKey` e `asaasApiUrl` na tabela `public.settings` no PostgreSQL local do VPS. |
 | **`RUNBOOK-EASYPANEL.md`** | Passo a passo completo para o Douglas: configuração no Registro.br, subdomínio no EasyPanel, configuração da chave no SBJur e teste final. |
 
 ---
@@ -37,6 +38,30 @@ O EasyPanel no VPS utiliza template Compose com editor `docker-compose.yaml` vaz
 6. Clique em **Salvar Configurações do Asaas**.
 
 *O app enviará a chave automaticamente nas requisições às Edge Functions (`x-asaas-api-key`). O fallback para variáveis de ambiente locais (`ASAAS_API_KEY`) continua suportado, mas é estritamente opcional.*
+
+---
+
+## 🛠️ Se a chave não salvar no app: rode `03-aplicar-migracao-asaas.sh` no VPS
+
+### Explicação simples:
+O sistema web guarda a chave da API numa "gaveta" chamada `asaasApiKey` dentro da tabela `settings` do banco de dados. No banco de dados que roda dentro do seu VPS, essa gaveta ainda não existia. Por isso, ao tentar salvar a chave, o banco rejeitava a gravação e o valor não persistia (o badge voltava a "Chave ausente").
+
+### Como resolver no VPS em 1 minuto:
+Acesse o terminal do VPS via SSH (`ssh root@2.25.181.69`) e rode o comando:
+
+```bash
+mkdir -p /root/sbjur-asaas && cd /root/sbjur-asaas && \
+curl -sSf -L -H "Accept: application/vnd.github.v3.raw" -H "User-Agent: DPSjur" https://api.github.com/repos/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/contents/docs/asaas-integracao/03-aplicar-migracao-asaas.sh?ref=main -o 03-aplicar-migracao-asaas.sh && \
+bash 03-aplicar-migracao-asaas.sh
+```
+
+O script:
+- Localiza automaticamente o contêiner do PostgreSQL do Supabase no EasyPanel;
+- Executa o comando seguro `ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS "asaasApiKey" text;`;
+- Executa o comando seguro `ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS "asaasApiUrl" text DEFAULT 'https://api.asaas.com/v3';`;
+- Confirma que as colunas existem e exibe `✅ MIGRAÇÃO CONCLUÍDA COM SUCESSO!`.
+
+Após rodar o script, volte à tela de **Configurações → Integrações** no navegador, cole a chave e clique em **Salvar Configurações do Asaas**. O badge mudará para **Configurada** e o valor não sumirá mais.
 
 ---
 

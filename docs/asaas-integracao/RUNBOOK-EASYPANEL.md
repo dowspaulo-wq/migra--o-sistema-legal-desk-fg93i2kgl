@@ -64,6 +64,18 @@ A solução definitiva e recomendada pela arquitetura do Supabase é criar um su
 
 > ✨ **Novidade (sem mexer no Compose/EasyPanel):** A configuração da chave agora é feita diretamente dentro do sistema web! As chamadas passam a chave com segurança para as Edge Functions através de headers protegidos por HTTPS.
 
+> ⚠️ **Atenção — Se a chave não persistir e o badge voltar a "Chave ausente":**
+> Em termos leigos: o app web guarda sua chave dentro de uma gaveta da tabela `settings` no banco PostgreSQL. No banco do seu VPS essa gaveta (`asaasApiKey`) ainda não havia sido criada.  
+> Para criar essa gaveta com 1 comando, execute via SSH no terminal do VPS:
+>
+> ```bash
+> mkdir -p /root/sbjur-asaas && cd /root/sbjur-asaas && \
+> curl -sSf -L -H "Accept: application/vnd.github.v3.raw" -H "User-Agent: DPSjur" https://api.github.com/repos/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/contents/docs/asaas-integracao/03-aplicar-migracao-asaas.sh?ref=main -o 03-aplicar-migracao-asaas.sh && \
+> bash 03-aplicar-migracao-asaas.sh
+> ```
+>
+> O script é rápido (leva menos de 5 segundos), totalmente seguro e idempotente (não apaga dados). Ele detecta o contêiner do banco do Supabase, cria as colunas `asaasApiKey` e `asaasApiUrl` e confirma o resultado na tela com `✅`.
+
 1. Obtenha sua chave no painel do **Asaas** (https://www.asaas.com > _Minha Conta_ > _Configurações da Conta_ > _Integrações_ > _Chaves de API_).
 2. Acesse o **SBJur no navegador**: `https://sistema.advdouglaspsantos.com.br`.
 3. No menu lateral, clique em **Configurações**.
@@ -71,6 +83,7 @@ A solução definitiva e recomendada pela arquitetura do Supabase é criar um su
 5. No campo **Chave da API do Asaas (API Key)**, cole sua chave (`$aact_...`).
 6. O campo **URL da API do Asaas** já vem preenchido com `https://api.asaas.com/v3` (padrão de produção). Caso queira usar sandbox futuramente, basta alterar para `https://api-sandbox.asaas.com/v3`.
 7. Clique em **Salvar Configurações do Asaas**.
+8. O badge mudará para **"Configurada"** em verde e permanecerá salvo.
 
 > 💡 **Nota sobre EasyPanel / Compose (OPCIONAL / Não Necessário):** Como o editor `docker-compose.yaml` do Compose no EasyPanel aparece vazio (configuração gerada por template Git), você **NÃO precisa editar o arquivo docker-compose.yaml nem cadastrar variáveis de ambiente no painel do EasyPanel**. O sistema lê a chave salva no banco de dados do SBJur e injeta automaticamente nas requisições. O suporte a variáveis de ambiente no container (`ASAAS_API_KEY`) foi mantido apenas como fallback.
 
