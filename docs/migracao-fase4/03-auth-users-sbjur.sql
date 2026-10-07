@@ -2,7 +2,7 @@
 -- DPSjur - Restauração de Usuários no Schema auth (com senhas preservadas)
 -- Gerado para: Fase 4 da Migração para Supabase Self-Hosted (EasyPanel)
 -- Origem: Projeto SBJur (cpcafthwnqazopqftemj)
--- Versão: v0.0.509
+-- Versão: v0.0.510
 -- Contém: 7 usuários com hashes bcrypt reais e identidades email sincronizadas.
 -- As senhas atuais continuarão funcionando sem necessidade de redefinição!
 --

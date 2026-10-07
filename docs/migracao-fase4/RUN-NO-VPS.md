@@ -3,7 +3,7 @@
 **Servidor:** VPS Hostinger KVM 1 (`srv1737667` — IP `2.25.181.69`)  
 **Acesso:** Terminal do EasyPanel ou SSH como `root`  
 **Objetivo:** Trazer os dados frescos da nuvem Supabase (`cpcafthwnqazopqftemj`) para o Supabase próprio instalado no EasyPanel com **apenas 1 comando colado no terminal**.  
-**Versão do Kit:** `v0.0.509` (com Plano B via REST API HTTPS 443 + Fechamento de Pendências com Script 07)
+**Versão do Kit:** `v0.0.510` (com Plano B via REST API HTTPS 443 + Fechamento de Pendências com Script 07 e Blindagem Anti-Cache)
 
 ---
 
@@ -67,8 +67,8 @@ O script `06b` exporta com perfeição os registros das tabelas via REST API. Po
 
 ```bash
 cd /root/sbjur-migracao && \
-curl -sSf -L -H "Cache-Control: no-cache" https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4/03-auth-users-sbjur.sql -o 03-auth-users-sbjur.sql && \
-curl -sSf -L -H "Cache-Control: no-cache" https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4/07-completar-pendencias.sh -o 07-completar-pendencias.sh && \
+curl -sSf -L -H "Cache-Control: no-cache, no-store, must-revalidate" -H "Pragma: no-cache" https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4/03-auth-users-sbjur.sql?ts=$(date +%s) -o 03-auth-users-sbjur.sql && \
+curl -sSf -L -H "Cache-Control: no-cache, no-store, must-revalidate" -H "Pragma: no-cache" https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4/07-completar-pendencias.sh?ts=$(date +%s) -o 07-completar-pendencias.sh && \
 bash 07-completar-pendencias.sh
 ```
 
