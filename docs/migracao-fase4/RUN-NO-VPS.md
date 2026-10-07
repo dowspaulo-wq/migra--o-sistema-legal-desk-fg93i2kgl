@@ -3,7 +3,7 @@
 **Servidor:** VPS Hostinger KVM 1 (`srv1737667` — IP `2.25.181.69`)  
 **Acesso:** Terminal do EasyPanel ou SSH como `root`  
 **Objetivo:** Trazer os dados frescos da nuvem Supabase (`cpcafthwnqazopqftemj`) para o Supabase próprio instalado no EasyPanel com **apenas 1 comando colado no terminal**.  
-**Versão do Kit:** `v0.0.502` (com fallback automático sequencial de endpoints e PGCONNECT_TIMEOUT corrigido)
+**Versão do Kit:** `v0.0.503` (com varredura automática multirregião AWS, resolução IPv4 e diagnóstico detalhado)
 
 ---
 
@@ -36,13 +36,12 @@ bash bootstrap-vps.sh && \
 bash 06-exportar-e-importar-dados.sh
 ```
 
-> 💡 **Nota da versão 0.0.502**: O script agora testa automaticamente e em sequência os endpoints da Supabase Cloud (com timeout via variável de ambiente `PGCONNECT_TIMEOUT=10` compatível com PostgreSQL 17):
+> 💡 **Nota da versão 0.0.503**: O script agora executa uma **varredura automática multirregião AWS** (17 regiões x poolers `aws-0` e `aws-1`) para localizar o tenant `cpcafthwnqazopqftemj`, superando o erro de _"tenant not found"_ caso o projeto esteja em outra região (ex: `us-east-1`, `us-west-2`, etc.):
 >
-> 1. `aws-0-sa-east-1.pooler.supabase.com` (pooler legado / sessão);
-> 2. `aws-1-sa-east-1.pooler.supabase.com` (pooler novo / projetos migrados);
-> 3. `db.cpcafthwnqazopqftemj.supabase.co:5432` (conexão direta com usuário `postgres`).
->
-> Se um endpoint retornar `tenant not found`, ele avança imediatamente para o seguinte sem travar a migração! Caso todos falhem, o diagnóstico impresso informará se o motivo foi senha ou conectividade de rede.
+> - Teste leve preliminar de conexão (`SELECT 1`) com timeout ágil de 6s (`PGCONNECT_TIMEOUT=6`) exibindo o status em linha única compacta;
+> - O primeiro endpoint que responder com sucesso é eleito e utilizado no `pg_dump` com timeout estendido de 15s;
+> - Para conexão direta (`db.cpcafthwnqazopqftemj.supabase.co`), resolve o registro IPv4 (registro A) para evitar que VPSs IPv4-only falhem com _"Network is unreachable"_ ao tentar IPv6;
+> - Diagnóstico inteligente: se algum host aceitar o tenant mas rejeitar a senha (`password authentication failed`), o script avisa com destaque que o servidor correto foi encontrado e orienta o reset de senha no painel da Supabase.
 
 ---
 

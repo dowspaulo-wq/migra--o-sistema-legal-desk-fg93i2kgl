@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur - Script Unificado de Exportação da Nuvem e Importação no VPS (EasyPanel)
 # ==============================================================================
-# Versão: v0.0.502
+# Versão: v0.0.503
 # Execução: EXCLUSIVAMENTE NO TERMINAL DO VPS (Hostinger KVM 1 - IP 2.25.181.69)
 # Motivo: Conexões TCP diretas nas portas 5432/6543 da nuvem Supabase são
 #         bloqueadas em sandboxes de build, mas funcionam perfeitamente no VPS,
@@ -11,13 +11,20 @@
 # Origem: Supabase Nuvem SBJur (ref: cpcafthwnqazopqftemj)
 # Destino: Contêiner PostgreSQL do Supabase Self-Hosted no EasyPanel
 #
-# NOVIDADE v0.0.502:
-# Correção do teste de conectividade: uso da env PGCONNECT_TIMEOUT=10 (em vez de
-# flag CLI malformada que impedia a sonda em qualquer versão do psql 17).
+# NOVIDADE v0.0.503:
+# - Varredura automática multirregião AWS (17 regiões x poolers aws-0 e aws-1):
+#   resolve o erro "tenant/user postgres.cpcafthwnqazopqftemj not found" quando o
+#   projeto na nuvem está hospedado em outra região AWS (ex: us-east-1, us-west-2, etc.).
+# - Teste rápido prévio (SELECT 1 com PGCONNECT_TIMEOUT=6s) com feedback compacto em tempo real.
+# - Dump com conexão definitiva usando PGCONNECT_TIMEOUT=15s.
+# - Resolução IPv4 com fallback para host direto (db.<ref>.supabase.co:5432) evitando falhas
+#   em VPS IPv4-only causadas por DNS AAAA IPv6 unreachable.
+# - Diagnóstico preciso ao final se tudo falhar, destacando se algum host aceitou o tenant
+#   mas rejeitou a senha ("password authentication failed").
 #
 # HISTÓRICO:
-# v0.0.501: Fallback automático de endpoints (aws-0 pooler, aws-1 pooler, direto)
-#           e diagnóstico de credencial vs rede/tenant.
+# v0.0.502: Correção do teste de timeout via env PGCONNECT_TIMEOUT no psql 17.
+# v0.0.501: Fallback automático inicial e diagnóstico de senha vs tenant.
 #
 # SEGURANÇA:
 # NENHUMA senha fica gravada em arquivo, histórico de comandos (.bash_history)
@@ -28,7 +35,7 @@ set -euo pipefail
 # Garante que terminal restaure echo mesmo se abortado via Ctrl+C
 trap 'stty echo 2>/dev/null || true' EXIT INT TERM
 
-SCRIPT_VERSION="0.0.502"
+SCRIPT_VERSION="0.0.503"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AUDIT_SCRIPT="$SCRIPT_DIR/04-auditoria-pos-importacao.sql"
 
@@ -39,7 +46,7 @@ DOCKER_PG_IMAGE="postgres:17"
 
 echo "====================================================================="
 echo "   DPSjur - EXPORTAÇÃO DA NUVEM (SBJur) & IMPORTAÇÃO NO VPS LOCAL    "
-echo "   Versão: v${SCRIPT_VERSION} (com Fallback Automático de Endpoints)       "
+echo "   Versão: v${SCRIPT_VERSION} (Varredura Multirregião AWS Automática)       "
 echo "====================================================================="
 echo "Data: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "Origem: Supabase Cloud ref: $CLOUD_PROJECT_REF"
@@ -83,16 +90,16 @@ else
     echo "ℹ️  Usando LOCAL_DB_PASSWORD fornecida via variável de ambiente."
 fi
 
-# Região AWS do pooler da Supabase
+# Região AWS preferencial ou inicial (opcional, padrão: sa-east-1)
 if [ -z "${CLOUD_AWS_REGION:-}" ]; then
-    printf "👉 Região AWS do projeto Supabase [padrão: sa-east-1]: "
+    printf "👉 Região AWS inicial/preferencial do Supabase [padrão: sa-east-1]: "
     read -r INPUT_REGION
     CLOUD_AWS_REGION="${INPUT_REGION:-sa-east-1}"
 fi
 
-# Porta do pooler de sessão da Supabase
+# Porta do pooler da Supabase
 if [ -z "${CLOUD_DB_PORT:-}" ]; then
-    printf "👉 Porta do pooler Supabase (5432 modo sessão / 6543 alternativo) [padrão: 5432]: "
+    printf "👉 Porta do pooler Supabase (5432 sessão / 6543 alternativo) [padrão: 5432]: "
     read -r INPUT_PORT
     CLOUD_DB_PORT="${INPUT_PORT:-5432}"
 fi
@@ -100,7 +107,7 @@ fi
 echo ""
 echo "✅ Parâmetros de entrada recebidos:"
 echo "   - Projeto Nuvem: $CLOUD_PROJECT_REF"
-echo "   - Região AWS: $CLOUD_AWS_REGION"
+echo "   - Região Inicial: $CLOUD_AWS_REGION"
 echo "   - Porta Base: $CLOUD_DB_PORT"
 echo "   - Imagem pg_dump: $DOCKER_PG_IMAGE"
 echo ""
@@ -147,35 +154,115 @@ AUTH_DUMP="$WORK_DIR/02_auth_data.sql"
 STORAGE_DUMP="$WORK_DIR/03_storage_data.sql"
 
 # ------------------------------------------------------------------------------
-# 3. DETERMINAÇÃO DINÂMICA DO ENDPOINT DA NUVEM (FALLBACK AUTOMÁTICO)
+# 3. DETERMINAÇÃO DINÂMICA DO ENDPOINT DA NUVEM (VARREDURA MULTIRREGIÃO)
 # ------------------------------------------------------------------------------
 echo "Etapa 3/6: Conectando e exportando dados da Nuvem Supabase (pg_dump $DOCKER_PG_IMAGE)..."
-echo "Detectando automaticamente o melhor endpoint de conexão da nuvem..."
+echo "Varrendo automaticamente as regiões AWS da Supabase para localizar o tenant '$CLOUD_PROJECT_REF'..."
 echo ""
 
-CANDIDATES=(
-    "aws-0-${CLOUD_AWS_REGION}.pooler.supabase.com|${CLOUD_DB_PORT}|postgres.${CLOUD_PROJECT_REF}|Pooler aws-0 (sessão/pooler)"
-    "aws-1-${CLOUD_AWS_REGION}.pooler.supabase.com|${CLOUD_DB_PORT}|postgres.${CLOUD_PROJECT_REF}|Pooler aws-1 (sessão/pooler)"
-    "db.${CLOUD_PROJECT_REF}.supabase.co|5432|postgres|Conexão DIRETA ao banco (sem pooler)"
+# Lista oficial de regiões AWS suportadas pela Supabase Cloud
+# Se o usuário informou uma região inicial, garantimos que ela seja testada primeiro
+AWS_REGIONS_ORDER=(
+    "$CLOUD_AWS_REGION"
+    "sa-east-1"
+    "us-east-1"
+    "us-east-2"
+    "us-west-1"
+    "us-west-2"
+    "eu-west-1"
+    "eu-west-2"
+    "eu-west-3"
+    "eu-central-1"
+    "eu-central-2"
+    "ap-southeast-1"
+    "ap-southeast-2"
+    "ap-northeast-1"
+    "ap-northeast-2"
+    "ap-south-1"
+    "ca-central-1"
+    "sa-east-2"
 )
+
+# Elimina duplicatas preservando a ordem
+UNIQUE_REGIONS=()
+for reg in "${AWS_REGIONS_ORDER[@]}"; do
+    [ -z "$reg" ] && continue
+    already_in=0
+    for u in "${UNIQUE_REGIONS[@]}"; do
+        if [ "$u" = "$reg" ]; then
+            already_in=1
+            break
+        fi
+    done
+    if [ $already_in -eq 0 ]; then
+        UNIQUE_REGIONS+=("$reg")
+    fi
+done
+
+# Monta lista de candidatos: para cada região testa aws-0 e aws-1 com usuário postgres.<ref>
+CANDIDATES=()
+for reg in "${UNIQUE_REGIONS[@]}"; do
+    CANDIDATES+=("aws-0-${reg}.pooler.supabase.com|${CLOUD_DB_PORT}|postgres.${CLOUD_PROJECT_REF}|Pooler aws-0 (${reg})")
+    CANDIDATES+=("aws-1-${reg}.pooler.supabase.com|${CLOUD_DB_PORT}|postgres.${CLOUD_PROJECT_REF}|Pooler aws-1 (${reg})")
+done
+
+# Endpoint direto de fallback (última tentativa): db.<ref>.supabase.co
+# Como o VPS do usuário é IPv4-only e a Supabase publica registro IPv6 (AAAA) para db.<ref>,
+# resolvemos o IPv4 (registro A) diretamente para evitar o erro "Network is unreachable (2600:1f18:...)".
+DIRECT_FQDN="db.${CLOUD_PROJECT_REF}.supabase.co"
+DIRECT_IPV4=""
+
+# Tenta resolver registro IPv4 no host VPS
+if command -v getent >/dev/null 2>&1; then
+    DIRECT_IPV4=$(getent ahostsv4 "$DIRECT_FQDN" 2>/dev/null | awk '{print $1}' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)
+fi
+if [ -z "$DIRECT_IPV4" ] && command -v dig >/dev/null 2>&1; then
+    DIRECT_IPV4=$(dig +short A "$DIRECT_FQDN" 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)
+fi
+if [ -z "$DIRECT_IPV4" ] && command -v host >/dev/null 2>&1; then
+    DIRECT_IPV4=$(host -t A "$DIRECT_FQDN" 2>/dev/null | awk '/has address/ {print $NF}' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)
+fi
+
+if [ -n "$DIRECT_IPV4" ]; then
+    CANDIDATES+=("${DIRECT_IPV4}|5432|postgres|Conexão DIRETA IPv4 ($DIRECT_IPV4 - $DIRECT_FQDN)")
+else
+    # Mantém como fallback nomeado (se o ambiente resolver)
+    CANDIDATES+=("${DIRECT_FQDN}|5432|postgres|Conexão DIRETA FQDN (sem pooler)")
+fi
 
 SELECTED_HOST=""
 SELECTED_PORT=""
 SELECTED_USER=""
 SELECTED_DESC=""
+SELECTED_SSLMODE="require"
 LAST_ERROR_LOG=""
 PASSWORD_ERROR_DETECTED=0
+PASSWORD_ERROR_HOST=""
 TENANT_NOT_FOUND_DETECTED=0
+CANDIDATES_TESTED=0
+TOTAL_CANDIDATES=${#CANDIDATES[@]}
+
+echo "🔎 Iniciando varredura rápida em até $TOTAL_CANDIDATES candidatos (timeout: 6s por teste)..."
+echo "---------------------------------------------------------------------"
 
 for candidate in "${CANDIDATES[@]}"; do
     IFS="|" read -r c_host c_port c_user c_desc <<< "$candidate"
-    echo "⏳ Testando conexão: $c_desc ($c_host:$c_port, usuário: $c_user)..."
+    CANDIDATES_TESTED=$((CANDIDATES_TESTED + 1))
+
+    # Se for a conexão direta FQDN sem IPv4 resolvido e o host estiver em IPv4-only,
+    # informamos de forma amigável
+    if [ "$c_host" = "$DIRECT_FQDN" ] && [ -z "$DIRECT_IPV4" ]; then
+        echo -n "⏳ [$CANDIDATES_TESTED/$TOTAL_CANDIDATES] Testando: $c_desc ... "
+    else
+        echo -n "⏳ [$CANDIDATES_TESTED/$TOTAL_CANDIDATES] Testando: $c_host:$c_port ($c_desc) ... "
+    fi
 
     TEST_OUT=""
     set +e
     TEST_OUT=$(docker run --rm \
         -e PGPASSWORD="$CLOUD_DB_PASSWORD" \
-        -e PGCONNECT_TIMEOUT=10 \
+        -e PGCONNECT_TIMEOUT=6 \
+        -e PGSSLMODE=require \
         "$DOCKER_PG_IMAGE" \
         psql \
         -h "$c_host" \
@@ -187,56 +274,68 @@ for candidate in "${CANDIDATES[@]}"; do
     set -e
 
     if [ $TEST_STATUS -eq 0 ]; then
-        echo "✅ Conexão bem-sucedida via: $c_desc ($c_host:$c_port)!"
+        echo "✅ OK!"
+        echo ""
+        echo "====================================================================="
+        echo "✅ Conexão bem-sucedida via: $c_desc"
+        echo "   Host validado: $c_host:$c_port"
+        echo "   Usuário autenticado: $c_user"
+        echo "====================================================================="
         SELECTED_HOST="$c_host"
         SELECTED_PORT="$c_port"
         SELECTED_USER="$c_user"
         SELECTED_DESC="$c_desc"
         break
     else
-        echo "   ⚠️ Falha ao conectar em $c_host:$c_port"
-        # Registra última mensagem para diagnóstico
         LAST_ERROR_LOG="$TEST_OUT"
         if echo "$TEST_OUT" | grep -qiE "password authentication failed"; then
             PASSWORD_ERROR_DETECTED=1
-            echo "   ↳ Motivo detectado: Falha de autenticação por senha (password authentication failed)."
+            PASSWORD_ERROR_HOST="$c_host ($c_desc)"
+            echo "🔑 senha rejeitada (host reconheceu o tenant!)"
         elif echo "$TEST_OUT" | grep -qiE "tenant.*not found|tenant/user.*not found"; then
             TENANT_NOT_FOUND_DETECTED=1
-            echo "   ↳ Motivo detectado: Tenant não encontrado neste endpoint (pooler tenant not found)."
-        elif echo "$TEST_OUT" | grep -qiE "timeout|could not connect|refused"; then
-            echo "   ↳ Motivo detectado: Tempo limite esgotado ou recusa de conexão na porta $c_port."
+            echo "❌ tenant not found"
+        elif echo "$TEST_OUT" | grep -qiE "Network is unreachable"; then
+            echo "⚠️ rede inacessível (IPv6 no host IPv4-only)"
+        elif echo "$TEST_OUT" | grep -qiE "timeout|timed out|could not connect|refused"; then
+            echo "⏱️ timeout / sem resposta"
         else
-            CLEAN_ERR=$(echo "$TEST_OUT" | tail -n 2 | tr '\n' ' ')
-            echo "   ↳ Detalhe: $CLEAN_ERR"
+            SUMMARY_ERR=$(echo "$TEST_OUT" | tail -n 1 | tr -d '\r' | cut -c1-60)
+            echo "❌ falha: $SUMMARY_ERR"
         fi
-        echo "   Tentando próximo endpoint..."
-        echo ""
     fi
 done
+
+echo "---------------------------------------------------------------------"
 
 if [ -z "$SELECTED_HOST" ]; then
     echo ""
     echo "====================================================================="
     echo "❌ FALHA: NENHUM DOS ENDPOINTS DA NUVEM RESPONDEU COM SUCESSO!"
     echo "====================================================================="
-    echo "Tentamos em sequência:"
-    echo " 1. aws-0-${CLOUD_AWS_REGION}.pooler.supabase.com:$CLOUD_DB_PORT (user: postgres.${CLOUD_PROJECT_REF})"
-    echo " 2. aws-1-${CLOUD_AWS_REGION}.pooler.supabase.com:$CLOUD_DB_PORT (user: postgres.${CLOUD_PROJECT_REF})"
-    echo " 3. db.${CLOUD_PROJECT_REF}.supabase.co:5432 (user: postgres - Conexão Direta)"
+    echo "Foram testados $CANDIDATES_TESTED endpoints em diversas regiões AWS da Supabase."
     echo ""
     echo "🔍 DIAGNÓSTICO DO ERRO:"
     if [ "$PASSWORD_ERROR_DETECTED" -eq 1 ]; then
-        echo "👉 A causa mais provável é SENHA INCORRETA (password authentication failed)."
-        echo "   - O usuário conectou no host, mas o banco rejeitou a senha informada."
-        echo "   - Solução: Acesse o painel da Supabase Cloud > Project Settings > Database"
-        echo "     e clique em 'Reset database password'. Aguarde 30 segundos e reexecute o script."
+        echo "👉 ATENÇÃO: O host '$PASSWORD_ERROR_HOST' reconheceu o tenant,"
+        echo "   mas REJEITOU a senha digitada ('password authentication failed')."
+        echo "   Isso significa que O HOST CORRETO FOI ENCONTRADO, mas a senha está incorreta!"
+        echo ""
+        echo "   Solução recomendada:"
+        echo "   1. Acesse https://supabase.com/dashboard/project/$CLOUD_PROJECT_REF/settings/database"
+        echo "   2. Em 'Database password', clique em 'Reset database password' e defina uma nova senha."
+        echo "   3. Aguarde cerca de 30 segundos para os poolers sincronizarem."
+        echo "   4. Reexecute este script e informe a nova senha quando solicitada."
     elif [ "$TENANT_NOT_FOUND_DETECTED" -eq 1 ]; then
-        echo "👉 A causa é 'tenant/user not found' e/ou bloqueio de rede no IP do banco direto."
-        echo "   - Se o projeto esteve pausado ou em manutenção na Supabase, pode levar alguns minutos"
-        echo "     para o DNS e os poolers propagarem o tenant."
-        echo "   - Verifique no painel Supabase se o projeto cpcafthwnqazopqftemj está com status 'Active'."
+        echo "👉 Todos os poolers consultados retornaram 'tenant not found'."
+        echo "   - Verifique no painel da Supabase Cloud se o projeto '$CLOUD_PROJECT_REF' está com status 'Active'."
+        echo "   - Se o projeto esteve pausado recentemente, pode levar 2-5 minutos para os poolers"
+        echo "     restabelecerem a rota do tenant."
+        echo "   - Se você possui a Connection String exata no painel Supabase (Project Settings > Database),"
+        echo "     verifique em qual região AWS ela aponta e configure via: CLOUD_AWS_REGION=<regiao> bash 06-..."
     else
         echo "👉 Erro de rede ou indisponibilidade temporária na Supabase."
+        echo "   - O VPS não conseguiu alcançar os servidores de pooler ou banco da Supabase."
     fi
     echo ""
     echo "Último log recebido do cliente PostgreSQL:"
@@ -261,6 +360,8 @@ echo ""
 echo "⏳ [1/3] Exportando dados do schema 'public' (17 tabelas)..."
 if ! docker run --rm -i \
     -e PGPASSWORD="$CLOUD_DB_PASSWORD" \
+    -e PGCONNECT_TIMEOUT=15 \
+    -e PGSSLMODE=require \
     "$DOCKER_PG_IMAGE" \
     pg_dump \
     -h "$SELECTED_HOST" \
@@ -287,6 +388,8 @@ echo "✅ Schema public exportado com sucesso ($PUBLIC_SIZE)."
 echo "⏳ [2/3] Exportando dados essenciais de autenticação (schema 'auth')..."
 if ! docker run --rm -i \
     -e PGPASSWORD="$CLOUD_DB_PASSWORD" \
+    -e PGCONNECT_TIMEOUT=15 \
+    -e PGSSLMODE=require \
     "$DOCKER_PG_IMAGE" \
     pg_dump \
     -h "$SELECTED_HOST" \
@@ -308,6 +411,8 @@ if ! docker run --rm -i \
     echo "ℹ️  Tentando dump auth sem filtro de refresh_tokens..."
     docker run --rm -i \
         -e PGPASSWORD="$CLOUD_DB_PASSWORD" \
+        -e PGCONNECT_TIMEOUT=15 \
+        -e PGSSLMODE=require \
         "$DOCKER_PG_IMAGE" \
         pg_dump \
         -h "$SELECTED_HOST" \
@@ -333,6 +438,8 @@ echo "✅ Schema auth exportado com sucesso ($AUTH_SIZE)."
 echo "⏳ [3/3] Exportando registros de buckets e objetos (schema 'storage')..."
 if ! docker run --rm -i \
     -e PGPASSWORD="$CLOUD_DB_PASSWORD" \
+    -e PGCONNECT_TIMEOUT=15 \
+    -e PGSSLMODE=require \
     "$DOCKER_PG_IMAGE" \
     pg_dump \
     -h "$SELECTED_HOST" \
