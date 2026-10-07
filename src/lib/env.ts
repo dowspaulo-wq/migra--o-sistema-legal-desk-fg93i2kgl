@@ -26,15 +26,59 @@ const DEFAULT_FALLBACKS: Record<'VITE_SUPABASE_URL' | 'VITE_SUPABASE_PUBLISHABLE
   VITE_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_n8rNjvEg6i-Sjme1-5Yhug_nNwxBRwO',
 }
 
+/**
+ * Sanitiza valores de variáveis de ambiente do Supabase de forma defensiva:
+ * - Remove espaços/quebras de linha nas extremidades;
+ * - Remove aspas ou crases acidentais nas extremidades ("...", '...', `...`);
+ * - Remove prefixos literais como "ANON_KEY=", "VITE_SUPABASE_PUBLISHABLE_KEY=", "VITE_SUPABASE_URL=";
+ * - Remove barra "/" final se for uma URL.
+ */
+export function sanitizeEnvValue(val: unknown, isUrl: boolean = false): string {
+  if (typeof val !== 'string') return ''
+  let sanitized = val.trim()
+
+  // Remove aspas ou crases acidentais nas extremidades (inclusive repetidas ou aninhadas)
+  let prev = ''
+  while (sanitized !== prev && sanitized.length > 0) {
+    prev = sanitized
+    sanitized = sanitized.replace(/^["'`\s]+|["'`\s]+$/g, '').trim()
+  }
+
+  // Remove prefixos literais colados por acidente
+  // Ex: "ANON_KEY=ey...", "VITE_SUPABASE_PUBLISHABLE_KEY=ey...", "VITE_SUPABASE_URL=http...", "anon_key=..."
+  const prefixRegex =
+    /^(?:ANON_KEY|VITE_SUPABASE_PUBLISHABLE_KEY|VITE_SUPABASE_URL|SUPABASE_ANON_KEY|SUPABASE_URL)\s*[:=]\s*/i
+  while (prefixRegex.test(sanitized)) {
+    sanitized = sanitized.replace(prefixRegex, '').trim()
+    // Limpa aspas novamente caso o prefixo tivesse aspas logo após o '='
+    prev = ''
+    while (sanitized !== prev && sanitized.length > 0) {
+      prev = sanitized
+      sanitized = sanitized.replace(/^["'`\s]+|["'`\s]+$/g, '').trim()
+    }
+  }
+
+  // Se for URL, garante que não termine com "/"
+  if (isUrl) {
+    sanitized = sanitized.replace(/\/+$/, '').trim()
+  }
+
+  return sanitized
+}
+
 export function resolveEnvVar(key: 'VITE_SUPABASE_URL' | 'VITE_SUPABASE_PUBLISHABLE_KEY'): string {
+  const isUrl = key === 'VITE_SUPABASE_URL'
+
   // 1. Runtime dinâmico no browser: window.__ENV__ ou window.env (gerado pelo env.js do contêiner Docker/EasyPanel)
+  // Tem PRECEDÊNCIA MÁXIMA para permitir mudar o Supabase na VPS sem rebuild do bundle JS estático
   try {
     if (typeof window !== 'undefined') {
       const win = window as any
       const runtimeObj = win.__ENV__ || win.env
-      const runtimeVal = runtimeObj?.[key]
-      if (typeof runtimeVal === 'string' && runtimeVal.trim().length > 0) {
-        return runtimeVal.trim()
+      const rawVal = runtimeObj?.[key]
+      const sanitized = sanitizeEnvValue(rawVal, isUrl)
+      if (sanitized.length > 0) {
+        return sanitized
       }
     }
   } catch {
@@ -44,15 +88,16 @@ export function resolveEnvVar(key: 'VITE_SUPABASE_URL' | 'VITE_SUPABASE_PUBLISHA
   // 2. Build-time (Vite import.meta.env, injetado quando definido no build do Vite)
   try {
     const metaVal = (import.meta as any)?.env?.[key]
-    if (typeof metaVal === 'string' && metaVal.trim().length > 0) {
-      return metaVal.trim()
+    const sanitized = sanitizeEnvValue(metaVal, isUrl)
+    if (sanitized.length > 0) {
+      return sanitized
     }
   } catch {
     /* ambiente sem import.meta */
   }
 
   // 3. Fallback padrão embutido (backend Supabase cpcafthwnqazopqftemj)
-  return DEFAULT_FALLBACKS[key] || ''
+  return sanitizeEnvValue(DEFAULT_FALLBACKS[key] || '', isUrl)
 }
 
 export const SUPABASE_URL = resolveEnvVar('VITE_SUPABASE_URL')
