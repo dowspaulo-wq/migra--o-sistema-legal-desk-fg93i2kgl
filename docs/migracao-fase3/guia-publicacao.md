@@ -104,7 +104,7 @@ CONTAINER_DB=$(docker ps -q -f name=dpsjur.*db | head -n 1)
 docker cp /root/dpsjur-import/01-preparacao-auth-roles.sql $CONTAINER_DB:/tmp/01-preparacao-auth-roles.sql
 
 # Executar a preparação com o usuário Doug
-docker exec -e PGPASSWORD='4585d780134654a88ae7' -i $CONTAINER_DB \
+docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" -i $CONTAINER_DB \
   psql -U Doug -d dpsjur -f /tmp/01-preparacao-auth-roles.sql
 ```
 

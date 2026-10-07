@@ -5,7 +5,7 @@
 **Serviço Alvo no EasyPanel:** `dpsjur-db` (PostgreSQL 16.6)  
 **Banco de Dados Alvo:** `dpsjur`  
 **Usuário:** `Doug`  
-**Senha do Banco:** `4585d780134654a88ae7` (conforme exibido na aba Credenciais do EasyPanel)
+**Senha do Banco:** `$POSTGRES_PASSWORD` (conforme exibido na aba Credenciais do EasyPanel)
 
 ---
 
@@ -34,7 +34,7 @@ Você vai executar apenas **4 etapas básicas**:
 | **Nome do Banco**        | `dpsjur`                    |
 | **Host Interno**         | `dpsjur_dpsjur-db`          |
 | **Porta Interna**        | `5432`                      |
-| **Senha do Banco**       | `4585d780134654a88ae7`      |
+| **Senha do Banco**       | `$POSTGRES_PASSWORD`        |
 
 ---
 
@@ -174,7 +174,7 @@ Cole no terminal do VPS:
 ```bash
 CONTAINER_DB=$(docker ps -q -f name=dpsjur.*db | head -n 1)
 
-docker exec -e PGPASSWORD='4585d780134654a88ae7' -i $CONTAINER_DB \
+docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" -i $CONTAINER_DB \
   psql -U Doug -d dpsjur -f /tmp/01-import-consolidado.sql
 ```
 
@@ -194,7 +194,7 @@ Cole no terminal do VPS:
 ```bash
 CONTAINER_DB=$(docker ps -q -f name=dpsjur.*db | head -n 1)
 
-docker exec -e PGPASSWORD='4585d780134654a88ae7' -i $CONTAINER_DB \
+docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" -i $CONTAINER_DB \
   psql -U Doug -d dpsjur -f /tmp/dump-dados-completo.sql
 ```
 
@@ -212,7 +212,7 @@ Cole o comando abaixo para rodar o script de conferência:
 ```bash
 CONTAINER_DB=$(docker ps -q -f name=dpsjur.*db | head -n 1)
 
-docker exec -e PGPASSWORD='4585d780134654a88ae7' -i $CONTAINER_DB \
+docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" -i $CONTAINER_DB \
   psql -U Doug -d dpsjur -f /tmp/conferencia-pos-importacao.sql
 ```
 
@@ -270,13 +270,13 @@ Em seguida, o script mostrará os **7 usuários do escritório** (`Douglas`, `Me
 ### 4. "password authentication failed for user Doug"
 
 - **Causa:** Senha incorreta ou com caracteres não escapados.
-- **Solução:** A senha correta é `4585d780134654a88ae7`. Usar sempre com aspas simples: `PGPASSWORD='4585d780134654a88ae7'`.
+- **Solução:** A senha correta é `$POSTGRES_PASSWORD`. Usar sempre com aspas: `PGPASSWORD="$POSTGRES_PASSWORD"`.
 
 ### 5. "Cannot connect to container dpsjur_dpsjur-db"
 
 - **Causa:** O container não foi localizado pelo filtro.
 - **Solução:** Rode `docker ps` manualmente, veja o nome que aparece na primeira coluna para o serviço postgres e passe no comando:
-  `docker exec -e PGPASSWORD='4585d780134654a88ae7' -i NOME_EXATO_DO_CONTAINER psql -U Doug -d dpsjur -f /tmp/01-import-consolidado.sql`.
+  `docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" -i NOME_EXATO_DO_CONTAINER psql -U Doug -d dpsjur -f /tmp/01-import-consolidado.sql`.
 
 ---
 

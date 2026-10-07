@@ -26,9 +26,9 @@ BEGIN
     -- Role 'authenticator' é usada pelo PostgREST para se autenticar no Postgres
     -- e depois assumir o papel 'anon' ou 'authenticated'
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticator') THEN
-        CREATE ROLE authenticator NOINHERIT LOGIN PASSWORD '4585d780134654a88ae7';
+        CREATE ROLE authenticator NOINHERIT LOGIN PASSWORD '$POSTGRES_PASSWORD';
     ELSE
-        ALTER ROLE authenticator WITH PASSWORD '4585d780134654a88ae7';
+        ALTER ROLE authenticator WITH PASSWORD '$POSTGRES_PASSWORD';
     END IF;
 END
 $$;

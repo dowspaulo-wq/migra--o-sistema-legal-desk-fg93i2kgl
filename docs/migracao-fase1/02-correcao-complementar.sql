@@ -3862,7 +3862,7 @@ ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value;
 -- Após executar este script, execute novamente a verificação de auditoria:
 --   psql -U Doug -d dpsjur -f /tmp/conferencia-pos-importacao.sql
 -- ou direto via docker exec:
---   docker exec -e PGPASSWORD='4585d780134654a88ae7' -i $CONTAINER_DB psql -U Doug -d dpsjur < conferencia-pos-importacao.sql
+--   docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" -i $CONTAINER_DB psql -U Doug -d dpsjur < conferencia-pos-importacao.sql
 --
 -- Resultado esperado:
 --   tasks: 834 (status: ✅ OK)
