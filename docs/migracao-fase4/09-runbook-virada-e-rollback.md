@@ -28,11 +28,20 @@ Portanto, **nenhuma linha de código do aplicativo precisa ser alterada ou recom
 ### Etapa 1: Garantir que o Supabase Self-Hosted está Operacional
 
 1. No EasyPanel, verifique se o serviço `supabase` está com status verde **"Running"**.
-2. Execute o script de importação e auditoria:
+2. No terminal do VPS, aplique a estrutura básica (DDL, RLS e usuários):
    ```bash
    bash docs/migracao-fase4/05-importar-no-supabase-local.sh
    ```
-3. Confirme que a auditoria retornou todas as 17 tabelas e 7 usuários com status **OK EXATO**.
+3. Execute o script unificado de exportação e importação de dados frescos:
+   ```bash
+   bash docs/migracao-fase4/06-exportar-e-importar-dados.sh
+   ```
+
+   - O script solicita as senhas interativamente (`read -s` seguro, sem ecoar no terminal nem salvar em disco);
+   - Exporta os dados frescos da nuvem via `docker run postgres:17 pg_dump` através do pooler de sessão;
+   - Aplica os dados no contêiner local em transação única com `session_replication_role = 'replica'`;
+   - Executa a auditoria pós-importação automaticamente exibindo o comparativo de contagens.
+4. Confirme que a auditoria retornou todas as 17 tabelas e 7 usuários com status **OK EXATO**.
 
 ### Etapa 2: Obter a URL e a Anon Key do Supabase Local
 
@@ -46,10 +55,20 @@ Na aba **Environment** do serviço Supabase no EasyPanel:
 1. No EasyPanel, abra o serviço do frontend: **`dpsjur-web`** (ou `app`);
 2. Vá para a aba **"Environment"**;
 3. Altere apenas as duas variáveis:
-   - `VITE_SUPABASE_URL` ➔ `http://2.25.181.69:8000` (ou sua URL local);
+   - `VITE_SUPABASE_URL` ➔ `https://sbjur-local-supabase.onsv5o.easypanel.host` (ou o domínio/porta configurado no EasyPanel, ex: `http://2.25.181.69:8000`);
    - `VITE_SUPABASE_PUBLISHABLE_KEY` ➔ Cole o valor da `ANON_KEY` local.
 4. Clique no botão azul **"Save"** (Salvar);
 5. No topo da página, clique em **"Restart"** (ou faça um **"Deploy"** rápido).
+
+### Etapa 3.1: Sincronização dos Arquivos de Storage (Passo Paralelo)
+
+Para copiar os 32 arquivos essenciais de Storage (avatares, imagens de sistemas judiciais e modelos DOCX), rode no VPS:
+
+```bash
+node docs/migracao-fase4/06-sync-storage-assets.ts ./storage-arquivos
+```
+
+Os arquivos serão baixados e organizados por pastas conforme os buckets oficiais.
 
 ### Etapa 4: Validação no Navegador
 

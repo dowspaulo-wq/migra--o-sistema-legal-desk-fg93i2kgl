@@ -27,18 +27,38 @@ Abaixo estão os **3 caminhos viáveis**, ordenados do mais simples ao mais avan
 
 ---
 
-## 🥇 Caminho 1: Utilizar o Kit Pronto da Fase 4 (Recomendado - 0 Esforço)
+## 🥇 Caminho 1: Exportação e Importação Direta via VPS com `06-exportar-e-importar-dados.sh` (Recomendado)
 
-Como o sistema não possui usuários usando no momento, já extraímos todos os componentes com fidelidade 100% diretamente do projeto SBJur para dentro desta pasta `docs/migracao-fase4/`:
+O script `06-exportar-e-importar-dados.sh` automatiza a extração fresca diretamente do Supabase Nuvem e importa no banco local em transação única.
+
+### Por que rodar no VPS?
+
+O ambiente de sandbox e builds locais bloqueia conexões TCP diretas de saída nas portas 5432 e 6543 por segurança. O terminal do VPS Hostinger KVM 1, por outro lado, possui conectividade aberta com a internet e pode conectar-se aos servidores AWS do Supabase livremente.
+
+### Como funciona a segurança de senhas?
+
+- O script solicita a senha do banco da nuvem e a senha `POSTGRES_PASSWORD` local usando `read -s` (leitura silenciosa);
+- Nenhuma senha é gravada em arquivos de log, dumps, histórico do bash ou commits git;
+- O dump de origem é estritamente **somente leitura** via `pg_dump` com a imagem oficial `postgres:17` via Docker;
+- Se houver qualquer falha no meio, o PostgreSQL local efetua `ROLLBACK` automático e a nuvem permanece 100% intocada.
+
+### Como executar no VPS:
+
+```bash
+# No diretório do projeto no VPS:
+bash docs/migracao-fase4/06-exportar-e-importar-dados.sh
+```
+
+---
+
+## 🥈 Caminho 2: Utilizar o Kit Estrutural Pronto da Fase 4
 
 1. **`01-schema-ddl-sbjur.sql`**: Todas as 17 tabelas, foreign keys, índices, triggers e funções plpgsql;
 2. **`02-rls-policies-sbjur.sql`**: Todas as 57 políticas de segurança por linha;
 3. **`03-auth-users-sbjur.sql`**: Os 7 usuários de auth com suas senhas reais (Douglas, Mestre, Guilherme Almeida, Guilherme Filippini, Heitor, Fernanda e Eduardo);
 4. **`04-auditoria-pos-importacao.sql`**: Script de auditoria para conferir contagens e regras;
-5. **`05-importar-no-supabase-local.sh`**: Script bash de 1 comando para rodar tudo no VPS;
+5. **`05-importar-no-supabase-local.sh`**: Script bash de 1 comando para rodar a estrutura no VPS;
 6. **`06-sync-storage-assets.ts`**: Script de sincronização dos arquivos de imagem e templates.
-
-👉 **Vantagem:** Você não precisa instalar ferramentas no seu computador nem copiar strings longas. Basta rodar o script no terminal do VPS.
 
 ---
 

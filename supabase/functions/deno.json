@@ -5,9 +5,9 @@
     "asaas-integration": 18,
     "asaas-webhook": 8,
     "datajud-sync": 4,
-    "database-backup": 99,
-    "electronic-signature": 80,
-    "zapsign-integration": 80,
+    "database-backup": 100,
+    "electronic-signature": 81,
+    "zapsign-integration": 81,
     "backup-export": 14
   }
 }
