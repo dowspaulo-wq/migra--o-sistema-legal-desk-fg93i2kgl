@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur - Bootstrap Autônomo de Migração (Executar no Terminal do VPS)
 # ==============================================================================
-# Versão: v0.0.511
+# Versão: v0.0.512
 # Servidor: VPS Hostinger KVM 1 (srv1737667 - IP 2.25.181.69)
 # Função: Baixa o kit completo da Fase 4 sem precisar de git clone nem login GitHub,
 #         organiza os arquivos em /root/sbjur-migracao/ e deixa tudo pronto para executar.

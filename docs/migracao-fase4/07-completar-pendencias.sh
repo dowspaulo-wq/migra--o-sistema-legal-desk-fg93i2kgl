@@ -2,13 +2,13 @@
 # ==============================================================================
 # DPSjur - Resolução de Pendências Pós-Exportação REST (Fase 4 - VPS Local)
 # ==============================================================================
-# Versão: v0.0.511
+# Versão: v0.0.512
 # Execução: EXCLUSIVAMENTE NO TERMINAL DO VPS (Hostinger KVM 1 - IP 2.25.181.69)
 # Contexto: O script 06b exportou 6.035 registros com sucesso via REST API.
 #           Este script 07 fecha as 4 pendências identificadas na auditoria:
 #           1. auth.users: restaura os 7 usuários com hashes bcrypt e identidades
 #              (auth.identities) executando 03-auth-users-sbjur.sql no PostgreSQL local
-#              com verificação de versão do SQL e re-download automático anti-cache.
+#              com verificação de versão via selo explícito (KIT-SQL-VERSION) e re-download anti-cache.
 #           2. settings: reimporta a linha de configuração a partir de
 #              /root/sbjur-migracao/rest-export/settings.csv (ou fallback estruturado)
 #              com casamento dinâmico de colunas pelo nome.
@@ -27,7 +27,8 @@ set -euo pipefail
 # Garante que terminal restaure echo mesmo se abortado via Ctrl+C
 trap 'stty echo 2>/dev/null || true' EXIT INT TERM
 
-SCRIPT_VERSION="0.0.511"
+SCRIPT_VERSION="0.0.512"
+EXPECTED_SQL_MARKER="-- KIT-SQL-VERSION: v0.0.512"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK_DIR="/root/sbjur-migracao"
 REST_EXPORT_DIR="${WORK_DIR}/rest-export"
@@ -135,34 +136,39 @@ echo "Etapa 3/5: Resolvendo Pendência 1 — auth.users e auth.identities (7 usu
 RAW_AUTH_SQL_URL="https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4/03-auth-users-sbjur.sql"
 GITHUB_API_SQL_URL="https://api.github.com/repos/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/contents/docs/migracao-fase4/03-auth-users-sbjur.sql?ref=main"
 
-# Função helper para checar se o SQL local é compatível com colunas geradas do GoTrue
+# Função helper para checar se o SQL local possui o selo de versão esperado
 is_sql_file_updated() {
     local file="$1"
     if [ ! -f "$file" ]; then
         return 1
     fi
 
-    # 1. Deve possuir a menção explícita a provider_id na tabela auth.identities
+    # 1. Validação primária: presença exata do selo de versão explícito (KIT-SQL-VERSION)
+    if grep -Fxq "$EXPECTED_SQL_MARKER" "$file"; then
+        return 0
+    fi
+
+    # 2. Validação secundária estruturada caso o selo por algum motivo esteja ausente:
+    #    - Deve conter provider_id em auth.identities
+    #    - A lista de colunas do INSERT INTO auth.users NÃO pode conter confirmed_at
+    #    (isola estritamente a cláusula de colunas antes do VALUES, evitando falsos positivos no bloco DO $$)
     if ! grep -q "provider_id" "$file"; then
         return 1
     fi
 
-    # 2. O bloco INSERT INTO auth.users NÃO deve conter a coluna confirmed_at
-    #    (coluna confirmed_at é gerada no GoTrue moderno e causa erro fatal se inserida)
-    # Extrai o trecho entre 'INSERT INTO auth.users' e o primeiro ') VALUES'
-    local insert_header
-    insert_header=$(awk '/INSERT INTO auth\.users/,/\) VALUES/{print; if (/\) VALUES/) exit}' "$file" 2>/dev/null || true)
-    if echo "$insert_header" | grep -q "confirmed_at"; then
+    local insert_cols
+    insert_cols=$(awk '/INSERT[[:space:]]+INTO[[:space:]]+auth\.users[[:space:]]*\(/,/\)[[:space:]]*VALUES/{print; if (/\)[[:space:]]*VALUES/) exit}' "$file" 2>/dev/null || true)
+    if [ -n "$insert_cols" ] && echo "$insert_cols" | grep -Eq '^[[:space:]]*confirmed_at[,[:space:]]*$'; then
         return 1
     fi
 
-    return 0
+    return 1
 }
 
-# Se o arquivo não existir ou se for uma versão antiga (ex: contendo confirmed_at no INSERT de auth.users), rebaixa com múltiplas estratégias anti-cache
+# Se o arquivo não existir ou se não possuir a versão esperada, rebaixa com múltiplas estratégias anti-cache
 if [ ! -f "$AUTH_SQL_FILE" ] || ! is_sql_file_updated "$AUTH_SQL_FILE"; then
     if [ -f "$AUTH_SQL_FILE" ]; then
-        echo "⚠️  Arquivo local $AUTH_SQL_FILE desatualizado (contém confirmed_at ou sem provider_id) — baixando versão atualizada do GitHub..."
+        echo "⚠️  Arquivo local $AUTH_SQL_FILE sem o selo de versão esperado ($EXPECTED_SQL_MARKER) — baixando versão atualizada do GitHub..."
     else
         echo "ℹ️  Arquivo $AUTH_SQL_FILE não encontrado localmente — baixando do GitHub..."
     fi
@@ -214,7 +220,7 @@ fi
 # Revalidação estrita do arquivo antes de executar no PostgreSQL
 if ! is_sql_file_updated "$AUTH_SQL_FILE"; then
     echo "❌ Erro fatal: O arquivo 03-auth-users-sbjur.sql local ainda está na versão antiga incompatível!"
-    echo "Detalhe: O arquivo contém confirmed_at na lista de colunas de auth.users ou não contém provider_id."
+    echo "Detalhe: O arquivo não possui o selo de versão esperado ($EXPECTED_SQL_MARKER)."
     echo "Caminho do arquivo verificado: $AUTH_SQL_FILE"
     echo ""
     echo "Dica: Você pode baixar manualmente a versão sem cache via:"
@@ -222,7 +228,7 @@ if ! is_sql_file_updated "$AUTH_SQL_FILE"; then
     exit 1
 fi
 
-echo "✅ Arquivo local 03-auth-users-sbjur.sql validado com sucesso (confirmado sem confirmed_at no INSERT e com provider_id)."
+echo "✅ Arquivo local 03-auth-users-sbjur.sql validado com sucesso (selo $EXPECTED_SQL_MARKER confirmado)."
 
 echo "⏳ Aplicando 03-auth-users-sbjur.sql no banco PostgreSQL local..."
 run_psql_cmd -v ON_ERROR_STOP=1 < "$AUTH_SQL_FILE"
