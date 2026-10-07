@@ -21,7 +21,22 @@ Este kit fornece todas as instruções e scripts para disponibilizar e testar as
 | :--- | :--- |
 | **`01-implantar-funcoes-vps.sh`** | Script bash autônomo para baixar e copiar as funções para o contêiner de Edge Functions do Supabase no EasyPanel. |
 | **`02-testar-endpoints.sh`** | Script de teste avançado com `curl`: aceita URL externa como argumento (`$1`), testa Kong interno na porta 8000 e URL externa com diagnóstico automático de 405 do nginx do frontend. |
-| **`RUNBOOK-EASYPANEL.md`** | Passo a passo completo para o Douglas: configuração no Registro.br, subdomínio no EasyPanel, variáveis de ambiente e teste final. |
+| **`RUNBOOK-EASYPANEL.md`** | Passo a passo completo para o Douglas: configuração no Registro.br, subdomínio no EasyPanel, configuração da chave no SBJur e teste final. |
+
+---
+
+## 🔑 Configuração da Chave da API do Asaas (Dentro do App)
+
+O EasyPanel no VPS utiliza template Compose com editor `docker-compose.yaml` vazio, impedindo a injeção confiável de variáveis nos contêineres internos do stack Supabase. Por esse motivo, a chave da API agora é gerenciada **diretamente dentro do SBJur**:
+
+1. Acesse `https://sistema.advdouglaspsantos.com.br`.
+2. Abra **Configurações** no menu lateral.
+3. Acesse a aba **Integrações**.
+4. Cole sua **Chave de API do Asaas** (campo com visualização protegida e botão mostrar/ocultar).
+5. Confirme a **URL da API** (`https://api.asaas.com/v3`).
+6. Clique em **Salvar Configurações do Asaas**.
+
+*O app enviará a chave automaticamente nas requisições às Edge Functions (`x-asaas-api-key`). O fallback para variáveis de ambiente locais (`ASAAS_API_KEY`) continua suportado, mas é estritamente opcional.*
 
 ---
 
@@ -61,18 +76,9 @@ bash 01-implantar-funcoes-vps.sh
 
 ---
 
-## ⚙️ Configuração de Variáveis de Ambiente no EasyPanel
+## ⚙️ Configuração de Variáveis de Ambiente no EasyPanel (OPCIONAL / Não Necessário)
 
-Acesse o **EasyPanel** (`http://2.25.181.69:3000`), vá no projeto onde está o Supabase:
-
-1. Clique no serviço do **Supabase** (ou especificamente no container de **functions/edge-runtime** se estiver em serviço separado).
-2. Na aba **Environment**, adicione:
-   ```env
-   ASAAS_API_KEY=$aact_sua_chave_real_do_asaas_aqui
-   ASAAS_API_URL=https://api.asaas.com/v3
-   ```
-   *(Caso queira testar em sandbox antes: use a chave do sandbox e `ASAAS_API_URL=https://api-sandbox.asaas.com/v3`)*
-3. Clique em **Save & Restart**.
+Como a chave agora é salva na interface do SBJur (em **Configurações → Integrações**), **não é necessário cadastrar variáveis de ambiente no Compose do EasyPanel**. Caso deseje manter um fallback local no container do edge-runtime, a variável `ASAAS_API_KEY` continuará sendo reconhecida pelas funções.
 
 ---
 

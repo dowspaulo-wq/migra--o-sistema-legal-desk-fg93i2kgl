@@ -18,6 +18,10 @@ import {
   Check,
   X,
   Wallet,
+  Link2,
+  Eye,
+  EyeOff,
+  ExternalLink,
 } from 'lucide-react'
 import { FinancialEntitiesTab } from '@/components/FinancialEntitiesTab'
 import useLegalStore from '@/stores/useLegalStore'
@@ -274,6 +278,56 @@ export default function Settings() {
   const isAdmin = state.currentUser.role === 'Admin'
   const s = state.settings
 
+  const [asaasApiKeyInput, setAsaasApiKeyInput] = useState(s.asaasApiKey || '')
+  const [asaasApiUrlInput, setAsaasApiUrlInput] = useState(
+    s.asaasApiUrl || 'https://api.asaas.com/v3',
+  )
+  const [showAsaasKey, setShowAsaasKey] = useState(false)
+  const [isSavingAsaas, setIsSavingAsaas] = useState(false)
+
+  // Sincroniza se os settings carregarem depois
+  const currentApiKeyInStore = s.asaasApiKey || ''
+  const currentApiUrlInStore = s.asaasApiUrl || 'https://api.asaas.com/v3'
+  if (asaasApiKeyInput === '' && currentApiKeyInStore !== '') {
+    setAsaasApiKeyInput(currentApiKeyInStore)
+  }
+  if (
+    asaasApiUrlInput === 'https://api.asaas.com/v3' &&
+    currentApiUrlInStore !== 'https://api.asaas.com/v3'
+  ) {
+    setAsaasApiUrlInput(currentApiUrlInStore)
+  }
+
+  const handleSaveAsaas = async () => {
+    setIsSavingAsaas(true)
+    try {
+      const cleanKey = asaasApiKeyInput.trim()
+      const cleanUrl = asaasApiUrlInput.trim() || 'https://api.asaas.com/v3'
+
+      await updateItem('settings', s.id, {
+        asaasApiKey: cleanKey || null,
+        asaasApiUrl: cleanUrl,
+      })
+
+      addLog('Atualizar', 'Configurações', 'Configurações de integração com Asaas atualizadas.')
+
+      toast({
+        title: 'Integração salva',
+        description: cleanKey
+          ? 'Chave da API do Asaas atualizada com sucesso!'
+          : 'Configurações salvas (sem chave cadastrada).',
+      })
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao salvar',
+        description: err.message || 'Não foi possível salvar a integração Asaas.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsSavingAsaas(false)
+    }
+  }
+
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -404,6 +458,9 @@ export default function Settings() {
               <TabsTrigger value="financeiro">
                 <Wallet className="h-4 w-4 mr-2" /> Financeiro
               </TabsTrigger>
+              <TabsTrigger value="integracoes">
+                <Link2 className="h-4 w-4 mr-2" /> Integrações
+              </TabsTrigger>
               <TabsTrigger value="users">
                 <Users className="h-4 w-4 mr-2" /> Usuários & Permissões
               </TabsTrigger>
@@ -523,6 +580,136 @@ export default function Settings() {
 
             <TabsContent value="financeiro" className="space-y-6">
               <FinancialEntitiesTab />
+            </TabsContent>
+
+            <TabsContent value="integracoes" className="space-y-6">
+              <Card className="shadow-sm border">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-xl flex items-center gap-2">
+                        <Link2 className="h-5 w-5 text-blue-600" />
+                        Integração Asaas
+                      </CardTitle>
+                      <CardDescription className="mt-1">
+                        Configure as credenciais da API do Asaas para cobranças, PIX/Boleto e
+                        extrato de conciliação.
+                      </CardDescription>
+                    </div>
+                    {s.asaasApiKey ? (
+                      <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white font-normal text-xs">
+                        Configurada
+                      </Badge>
+                    ) : (
+                      <Badge
+                        variant="outline"
+                        className="border-amber-400 text-amber-700 bg-amber-50 font-normal text-xs"
+                      >
+                        Chave ausente
+                      </Badge>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="rounded-lg bg-blue-50/70 p-4 border border-blue-200 text-xs text-blue-900 space-y-1.5">
+                    <p className="font-semibold text-sm text-blue-950">
+                      Onde obter sua chave da API:
+                    </p>
+                    <p>
+                      Acesse sua conta no{' '}
+                      <a
+                        href="https://www.asaas.com"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline font-semibold inline-flex items-center gap-1 hover:text-blue-700"
+                      >
+                        Asaas <ExternalLink className="h-3 w-3 inline" />
+                      </a>{' '}
+                      → <strong>Minha Conta</strong> → <strong>Configurações da Conta</strong> →{' '}
+                      <strong>Integrações</strong> → <strong>Chaves de API</strong>.
+                    </p>
+                    <p className="text-blue-800">
+                      Cole a chave abaixo. As chamadas do app aos serviços de sincronização e
+                      extrato enviarão essa chave com segurança para as Edge Functions.
+                    </p>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="asaas-api-key" className="text-sm font-semibold">
+                        Chave da API do Asaas (API Key)
+                      </Label>
+                      <div className="relative">
+                        <Input
+                          id="asaas-api-key"
+                          type={showAsaasKey ? 'text' : 'password'}
+                          value={asaasApiKeyInput}
+                          onChange={(e) => setAsaasApiKeyInput(e.target.value)}
+                          placeholder="$aact_YTU5YTE0M2M6N2Z..."
+                          className="pr-10 font-mono text-sm"
+                          disabled={!isAdmin || isSavingAsaas}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowAsaasKey((prev) => !prev)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          title={showAsaasKey ? 'Ocultar chave' : 'Mostrar chave'}
+                        >
+                          {showAsaasKey ? (
+                            <EyeOff className="h-4 w-4" />
+                          ) : (
+                            <Eye className="h-4 w-4" />
+                          )}
+                        </button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        A chave é salva de forma protegida no banco de dados e enviada apenas via
+                        HTTPS aos serviços autorizados.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="asaas-api-url" className="text-sm font-semibold">
+                        URL da API do Asaas
+                      </Label>
+                      <Input
+                        id="asaas-api-url"
+                        type="text"
+                        value={asaasApiUrlInput}
+                        onChange={(e) => setAsaasApiUrlInput(e.target.value)}
+                        placeholder="https://api.asaas.com/v3"
+                        className="font-mono text-sm"
+                        disabled={!isAdmin || isSavingAsaas}
+                      />
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <span>
+                          Padrão produção:{' '}
+                          <code className="bg-muted px-1.5 py-0.5 rounded font-mono">
+                            https://api.asaas.com/v3
+                          </code>
+                        </span>
+                        <span>•</span>
+                        <span>
+                          Sandbox/testes:{' '}
+                          <code className="bg-muted px-1.5 py-0.5 rounded font-mono">
+                            https://api-sandbox.asaas.com/v3
+                          </code>
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 flex justify-end">
+                      <Button
+                        onClick={handleSaveAsaas}
+                        disabled={!isAdmin || isSavingAsaas}
+                        className="bg-blue-600 hover:bg-blue-700"
+                      >
+                        {isSavingAsaas ? 'Salvando...' : 'Salvar Configurações do Asaas'}
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </TabsContent>
 
             <TabsContent value="users">

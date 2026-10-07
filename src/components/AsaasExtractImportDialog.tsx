@@ -172,11 +172,13 @@ export function AsaasExtractImportDialog({
               <div>
                 <p className="font-semibold">Não foi possível importar:</p>
                 <p>{errorMessage}</p>
-                {errorMessage.includes('ASAAS_API_KEY') && (
+                {(errorMessage.includes('ASAAS_API_KEY') ||
+                  errorMessage.includes('não configurada') ||
+                  errorMessage.includes('Cadastre-a em Configurações')) && (
                   <p className="mt-1 text-slate-700">
-                    Dica: Configure a variável{' '}
-                    <code className="font-mono bg-red-100 px-1 rounded">ASAAS_API_KEY</code> no
-                    EasyPanel do VPS e execute o script de implantação.
+                    Dica: Cadastre sua chave da API em{' '}
+                    <strong className="text-slate-900">Configurações → Integrações</strong> no menu
+                    lateral do SBJur.
                   </p>
                 )}
               </div>

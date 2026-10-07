@@ -235,6 +235,15 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           id: dbSettings?.id || 'default',
         }
 
+        if (mergedSettings.asaasApiKey || mergedSettings.asaasApiUrl) {
+          import('@/services/asaas').then(({ setCachedAsaasConfig }) => {
+            setCachedAsaasConfig({
+              apiKey: mergedSettings.asaasApiKey,
+              apiUrl: mergedSettings.asaasApiUrl,
+            })
+          })
+        }
+
         // Auto-assign colors to appointmentTypes if they are strings
         if (mergedSettings.appointmentTypes?.some((t: any) => typeof t === 'string')) {
           const colors = [
@@ -400,6 +409,20 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
 
       if (table === 'settings') {
         setState((prev) => ({ ...prev, settings: { ...prev.settings, ...changes } }))
+        if (changes.asaasApiKey !== undefined || changes.asaasApiUrl !== undefined) {
+          import('@/services/asaas').then(({ setCachedAsaasConfig }) => {
+            setCachedAsaasConfig({
+              apiKey:
+                changes.asaasApiKey !== undefined
+                  ? changes.asaasApiKey
+                  : state.settings.asaasApiKey,
+              apiUrl:
+                changes.asaasApiUrl !== undefined
+                  ? changes.asaasApiUrl
+                  : state.settings.asaasApiUrl,
+            })
+          })
+        }
         if (id && id !== 'default') {
           await supabase
             .from(table as any)

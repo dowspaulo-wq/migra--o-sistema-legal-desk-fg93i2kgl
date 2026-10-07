@@ -140,6 +140,8 @@ export interface Settings {
   bankAccounts?: any[]
   clientPositions?: string[]
   subprocessTypes?: string[]
+  asaasApiKey?: string | null
+  asaasApiUrl?: string | null
 }
 export interface WhatsAppMessage {
   id: string
@@ -213,5 +215,7 @@ export const initialData: LegalState = {
     taskStatuses: ['pendente', 'em andamento', 'Concluída'],
     taskTypes: ['Cartórios', 'Petições', 'Recorrer', 'Redigir inicial', 'interna e adm'],
     captacaoOptions: ['Douglas', 'Eduardo', 'Luisito', 'MB', 'Zeno'],
+    asaasApiKey: null,
+    asaasApiUrl: 'https://api.asaas.com/v3',
   },
 }

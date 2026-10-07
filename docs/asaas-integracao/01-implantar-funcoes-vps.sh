@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # DPSjur / SBJur - Kit de Implantação Edge Functions Asaas no VPS (EasyPanel)
-# Versão: v1.0.0
-# SCRIPT_VERSION: v1.0.0
-# KIT-SQL-VERSION: v1.0.0
+# Versão: v1.2.0
+# SCRIPT_VERSION: v1.2.0
+# KIT-SQL-VERSION: v1.2.0
 # ==============================================================================
 set -euo pipefail
 
-SCRIPT_VERSION="v1.0.0"
+SCRIPT_VERSION="v1.2.0"
 REPO_RAW_BASE="https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main"
 
 echo "====================================================================="
@@ -114,12 +114,12 @@ echo "====================================================================="
 echo "🎉 DEPLOY CONCLUÍDO COM SUCESSO!"
 echo "====================================================================="
 echo ""
-echo "Próximos passos no EasyPanel:"
-echo "1. No painel do EasyPanel, acesse o serviço do Supabase ou Functions."
-echo "2. Na aba 'Environment' (Variáveis de Ambiente), certifique-se de definir:"
-echo "   ASAAS_API_KEY=\$sua_chave_de_producao_ou_sandbox"
-echo "   ASAAS_API_URL=https://api.asaas.com/v3   (ou https://api-sandbox.asaas.com/v3)"
+echo "Próximos passos recomendados:"
+echo "1. Abra o sistema SBJur no navegador (https://sistema.advdouglaspsantos.com.br)."
+echo "2. Acesse 'Configurações' no menu lateral e vá para a aba 'Integrações'."
+echo "3. Cole sua Chave de API do Asaas e clique em 'Salvar Configurações do Asaas'."
+echo "   (Opcional / Fallback: definir ASAAS_API_KEY no ambiente do Supabase no EasyPanel se desejar)."
 echo ""
-echo "3. Teste o endpoint com o script:"
+echo "4. Teste o endpoint com o script:"
 echo "   bash /root/sbjur-asaas/02-testar-endpoints.sh"
 echo "====================================================================="

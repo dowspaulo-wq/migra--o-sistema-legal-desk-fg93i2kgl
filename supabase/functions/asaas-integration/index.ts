@@ -5,15 +5,31 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers':
-    'authorization, x-client-info, x-supabase-client-platform, apikey, content-type',
+    'authorization, x-client-info, x-supabase-client-platform, apikey, content-type, x-asaas-api-key, x-asaas-api-url',
 }
 
-function getAsaasBaseUrl(): string {
+function getAsaasBaseUrl(req?: Request): string {
+  const headerUrl = req?.headers?.get('x-asaas-api-url')
+  if (headerUrl && headerUrl.trim()) {
+    return headerUrl.trim().replace(/\/+$/, '')
+  }
   const customUrl = Deno.env.get('ASAAS_API_URL')
   if (customUrl && customUrl.trim()) {
     return customUrl.trim().replace(/\/+$/, '')
   }
   return 'https://api.asaas.com/v3'
+}
+
+function getAsaasApiKey(req?: Request): string | null {
+  const headerKey = req?.headers?.get('x-asaas-api-key')
+  if (headerKey && headerKey.trim()) {
+    return headerKey.trim()
+  }
+  const envKey = Deno.env.get('ASAAS_API_KEY')
+  if (envKey && envKey.trim()) {
+    return envKey.trim()
+  }
+  return null
 }
 
 const ASAAS_STATUS_MAP: Record<string, string> = {
@@ -71,10 +87,10 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const apiKey = Deno.env.get('ASAAS_API_KEY')
+    const apiKey = getAsaasApiKey(req)
     if (!apiKey) {
       throw new Error(
-        'ASAAS_API_KEY não configurada. Defina a chave da API nos segredos do Supabase.',
+        'Chave da API do Asaas não configurada. Cadastre-a em Configurações → Integrações no SBJur.',
       )
     }
 
@@ -87,7 +103,7 @@ Deno.serve(async (req: Request) => {
     const supabase = createClient(supabaseUrl, supabaseKey)
     const requestData = await req.json().catch(() => ({}))
     const { action, clientId, transactionId } = requestData
-    const asaasBaseUrl = getAsaasBaseUrl()
+    const asaasBaseUrl = getAsaasBaseUrl(req)
 
     if (action === 'syncClient') {
       const { data: client, error: clientErr } = await supabase

@@ -5,15 +5,31 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers':
-    'authorization, x-client-info, x-supabase-client-platform, apikey, content-type, x-asaas-webhook-token',
+    'authorization, x-client-info, x-supabase-client-platform, apikey, content-type, x-asaas-webhook-token, x-asaas-api-key, x-asaas-api-url',
 }
 
-function getAsaasBaseUrl(): string {
+function getAsaasBaseUrl(req?: Request): string {
+  const headerUrl = req?.headers?.get('x-asaas-api-url')
+  if (headerUrl && headerUrl.trim()) {
+    return headerUrl.trim().replace(/\/+$/, '')
+  }
   const customUrl = Deno.env.get('ASAAS_API_URL')
   if (customUrl && customUrl.trim()) {
     return customUrl.trim().replace(/\/+$/, '')
   }
   return 'https://api.asaas.com/v3'
+}
+
+function getAsaasApiKey(req?: Request): string | null {
+  const headerKey = req?.headers?.get('x-asaas-api-key')
+  if (headerKey && headerKey.trim()) {
+    return headerKey.trim()
+  }
+  const envKey = Deno.env.get('ASAAS_API_KEY')
+  if (envKey && envKey.trim()) {
+    return envKey.trim()
+  }
+  return null
 }
 
 const EVENT_STATUS_MAP: Record<string, string> = {
@@ -134,10 +150,12 @@ Deno.serve(async (req: Request) => {
     }
 
     if (eventType === 'PAYMENT_CONFIRMED') {
-      const apiKey = Deno.env.get('ASAAS_API_KEY')
-      const asaasBaseUrl = getAsaasBaseUrl()
+      const apiKey = getAsaasApiKey(req)
+      const asaasBaseUrl = getAsaasBaseUrl(req)
       if (!apiKey) {
-        console.error('ASAAS_API_KEY não configurada. Não foi possível emitir NF.')
+        console.warn(
+          'Chave da API do Asaas não configurada (ausente nos headers e no ambiente). Registro do evento mantido, emissão/verificação de NF ignorada.',
+        )
       } else {
         try {
           const listRes = await fetch(`${asaasBaseUrl}/payments/${asaasPaymentId}/invoices`, {

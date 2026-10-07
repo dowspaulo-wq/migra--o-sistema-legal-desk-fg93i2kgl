@@ -60,32 +60,40 @@ A solução definitiva e recomendada pela arquitetura do Supabase é criar um su
 
 ---
 
-### Etapa 4: Cadastrar a chave de API do Asaas no Supabase
+### Etapa 4: Cadastrar a chave de API do Asaas diretamente no SBJur (Recomendado)
+
+> ✨ **Novidade (sem mexer no Compose/EasyPanel):** A configuração da chave agora é feita diretamente dentro do sistema web! As chamadas passam a chave com segurança para as Edge Functions através de headers protegidos por HTTPS.
 
 1. Obtenha sua chave no painel do **Asaas** (https://www.asaas.com > _Minha Conta_ > _Configurações da Conta_ > _Integrações_ > _Chaves de API_).
-2. No EasyPanel, no serviço do **Supabase** (ou no container de edge-runtime/functions):
-3. Na aba **Environment**, adicione:
-   ```env
-   ASAAS_API_KEY=$aact_sua_chave_real_do_asaas_aqui
-   ASAAS_API_URL=https://api.asaas.com/v3
-   ```
-   _(Caso utilize o ambiente de testes sandbox do Asaas: `ASAAS_API_URL=https://api-sandbox.asaas.com/v3`)_
-4. Clique em **Salvar** e **Restart**.
+2. Acesse o **SBJur no navegador**: `https://sistema.advdouglaspsantos.com.br`.
+3. No menu lateral, clique em **Configurações**.
+4. Clique na aba **Integrações**.
+5. No campo **Chave da API do Asaas (API Key)**, cole sua chave (`$aact_...`).
+6. O campo **URL da API do Asaas** já vem preenchido com `https://api.asaas.com/v3` (padrão de produção). Caso queira usar sandbox futuramente, basta alterar para `https://api-sandbox.asaas.com/v3`.
+7. Clique em **Salvar Configurações do Asaas**.
+
+> 💡 **Nota sobre EasyPanel / Compose (OPCIONAL / Não Necessário):** Como o editor `docker-compose.yaml` do Compose no EasyPanel aparece vazio (configuração gerada por template Git), você **NÃO precisa editar o arquivo docker-compose.yaml nem cadastrar variáveis de ambiente no painel do EasyPanel**. O sistema lê a chave salva no banco de dados do SBJur e injeta automaticamente nas requisições. O suporte a variáveis de ambiente no container (`ASAAS_API_KEY`) foi mantido apenas como fallback.
 
 ---
 
 ### Etapa 5: Teste Final no VPS
 
-Acesse o terminal do VPS via SSH (`ssh root@2.25.181.69`) e rode o script de teste passando a nova URL da API:
+1. **Pelo terminal do VPS (verificação de infraestrutura e conectividade):**
+   Acesse o terminal do VPS via SSH (`ssh root@2.25.181.69`) e rode o script de teste:
 
-```bash
-bash /root/sbjur-asaas/02-testar-endpoints.sh https://api.advdouglaspsantos.com.br
-```
+   ```bash
+   bash /root/sbjur-asaas/02-testar-endpoints.sh https://api.advdouglaspsantos.com.br
+   ```
 
-**Resultado esperado:**
+   **Resultado esperado no terminal:**
+   - ✅ Kong interno respondeu com sucesso;
+   - ✅ Conexão externa com o Kong e Edge Function BEM-SUCEDIDA (retornando JSON válido, sem erro 405 do nginx).
 
-- ✅ Kong interno respondeu com sucesso;
-- ✅ Conexão externa com o Kong e Edge Function BEM-SUCEDIDA (retornando JSON válido, sem erro 405 do nginx).
+2. **Pelo sistema SBJur no navegador (teste fim-a-fim de sincronização):**
+   - Acesse **Clientes** no menu lateral e abra a ficha de um cliente real.
+   - Clique no botão **"Sincronizar com Asaas"**.
+   - O cliente será criado/atualizado no Asaas imediatamente e o badge/status indicará sucesso.
+   - Acesse **Financeiro > Conciliação** e clique em **"Importar Extrato Asaas"** para conferir as movimentações do período.
 
 ---
 
