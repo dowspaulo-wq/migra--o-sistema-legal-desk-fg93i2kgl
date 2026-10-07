@@ -18,7 +18,6 @@ import Logs from './pages/Logs'
 import Acessos from './pages/Acessos'
 import Backups from './pages/Backups'
 import SettingsPage from './pages/Settings'
-import { SystemManagement } from './components/SystemManagement'
 import NotFound from './pages/NotFound'
 import Login from './pages/Login'
 import GoogleCallback from './pages/GoogleCallback'
@@ -27,15 +26,6 @@ import { LegalStoreProvider } from './stores/useLegalStore'
 import { AuthProvider } from './hooks/use-auth'
 import { RequireAdmin } from './components/RequireAdmin'
 import { SystemIconOverlay } from './components/SystemIconOverlay'
-
-const SettingsWrapper = () => (
-  <div className="flex flex-col h-full overflow-y-auto">
-    <SettingsPage />
-    <div className="px-4 md:px-8 pb-12 w-full max-w-7xl mx-auto mt-6">
-      <SystemManagement />
-    </div>
-  </div>
-)
 
 const App = () => (
   <AuthProvider>
@@ -95,7 +85,7 @@ const App = () => (
                   </RequireAdmin>
                 }
               />
-              <Route path="/configuracoes" element={<SettingsWrapper />} />
+              <Route path="/configuracoes" element={<SettingsPage />} />
 
               {/* Aliases to satisfy English path assumptions and potential external links */}
               <Route path="/cases" element={<Navigate to="/processos" replace />} />

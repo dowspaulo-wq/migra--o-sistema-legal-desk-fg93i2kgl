@@ -24,6 +24,7 @@ import {
   ExternalLink,
 } from 'lucide-react'
 import { FinancialEntitiesTab } from '@/components/FinancialEntitiesTab'
+import { SystemManagement } from '@/components/SystemManagement'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import {
@@ -998,6 +999,8 @@ export default function Settings() {
                   </div>
                 </CardContent>
               </Card>
+
+              <SystemManagement />
             </TabsContent>
 
             <TabsContent value="backup" className="space-y-6">
