@@ -1,9 +1,9 @@
--- KIT-SQL-VERSION: v0.0.512
+-- KIT-SQL-VERSION: v0.0.513
 -- ==============================================================================
 -- DPSjur - Restauração de Usuários no Schema auth (com senhas preservadas)
 -- Gerado para: Fase 4 da Migração para Supabase Self-Hosted (EasyPanel)
 -- Origem: Projeto SBJur (cpcafthwnqazopqftemj)
--- Versão: v0.0.512
+-- Versão: v0.0.513
 -- Contém: 7 usuários com hashes bcrypt reais e identidades email sincronizadas.
 -- As senhas atuais continuarão funcionando sem necessidade de redefinição!
 --

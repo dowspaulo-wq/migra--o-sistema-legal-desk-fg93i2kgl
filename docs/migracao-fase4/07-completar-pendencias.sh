@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur - Resolução de Pendências Pós-Exportação REST (Fase 4 - VPS Local)
 # ==============================================================================
-# Versão: v0.0.512
+# Versão: v0.0.513
 # Execução: EXCLUSIVAMENTE NO TERMINAL DO VPS (Hostinger KVM 1 - IP 2.25.181.69)
 # Contexto: O script 06b exportou 6.035 registros com sucesso via REST API.
 #           Este script 07 fecha as 4 pendências identificadas na auditoria:
@@ -27,8 +27,8 @@ set -euo pipefail
 # Garante que terminal restaure echo mesmo se abortado via Ctrl+C
 trap 'stty echo 2>/dev/null || true' EXIT INT TERM
 
-SCRIPT_VERSION="0.0.512"
-EXPECTED_SQL_MARKER="-- KIT-SQL-VERSION: v0.0.512"
+SCRIPT_VERSION="0.0.513"
+EXPECTED_SQL_MARKER="-- KIT-SQL-VERSION: v0.0.513"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK_DIR="/root/sbjur-migracao"
 REST_EXPORT_DIR="${WORK_DIR}/rest-export"
@@ -81,17 +81,17 @@ CONTAINER_LOCAL="${DB_CONTAINER:-}"
 
 if [ -z "$CONTAINER_LOCAL" ]; then
     # 1. Busca contêiner que contenha simultaneamente 'supabase' e 'db' (ex: sbjur-local_supabase-db-1)
-    CONTAINER_LOCAL=$(docker ps --format '{{.Names}}' | grep -i 'supabase' | grep -i 'db' | head -n 1 || true)
+    CONTAINER_LOCAL=$(docker ps --format '{{.Names}}' | grep -i -- 'supabase' | grep -i -- 'db' | head -n 1 || true)
 fi
 
 if [ -z "$CONTAINER_LOCAL" ]; then
     # 2. Padrão regex tradicional
-    CONTAINER_LOCAL=$(docker ps --format '{{.Names}}' | grep -E 'supabase.*db|supabase-db' | head -n 1 || true)
+    CONTAINER_LOCAL=$(docker ps --format '{{.Names}}' | grep -E -- 'supabase.*db|supabase-db' | head -n 1 || true)
 fi
 
 if [ -z "$CONTAINER_LOCAL" ]; then
     echo "⚠️  Contêiner com padrão 'supabase...db' não localizado de imediato. Buscando contêiner postgres/db..."
-    CONTAINER_LOCAL=$(docker ps --format '{{.Names}}' | grep -E 'postgres|db' | grep -v -E 'dpsjur-web|web|frontend' | head -n 1 || true)
+    CONTAINER_LOCAL=$(docker ps --format '{{.Names}}' | grep -E -- 'postgres|db' | grep -v -E -- 'dpsjur-web|web|frontend' | head -n 1 || true)
 fi
 
 if [ -z "$CONTAINER_LOCAL" ]; then
@@ -144,7 +144,8 @@ is_sql_file_updated() {
     fi
 
     # 1. Validação primária: presença exata do selo de versão explícito (KIT-SQL-VERSION)
-    if grep -Fxq "$EXPECTED_SQL_MARKER" "$file"; then
+    # NOTA: O separador '--' é OBRIGATÓRIO pois o marcador começa com '--' e grep interpretaria como argumento
+    if grep -Fxq -- "$EXPECTED_SQL_MARKER" "$file"; then
         return 0
     fi
 
@@ -152,13 +153,13 @@ is_sql_file_updated() {
     #    - Deve conter provider_id em auth.identities
     #    - A lista de colunas do INSERT INTO auth.users NÃO pode conter confirmed_at
     #    (isola estritamente a cláusula de colunas antes do VALUES, evitando falsos positivos no bloco DO $$)
-    if ! grep -q "provider_id" "$file"; then
+    if ! grep -q -- "provider_id" "$file"; then
         return 1
     fi
 
     local insert_cols
     insert_cols=$(awk '/INSERT[[:space:]]+INTO[[:space:]]+auth\.users[[:space:]]*\(/,/\)[[:space:]]*VALUES/{print; if (/\)[[:space:]]*VALUES/) exit}' "$file" 2>/dev/null || true)
-    if [ -n "$insert_cols" ] && echo "$insert_cols" | grep -Eq '^[[:space:]]*confirmed_at[,[:space:]]*$'; then
+    if [ -n "$insert_cols" ] && echo "$insert_cols" | grep -Eq -- '^[[:space:]]*confirmed_at[,[:space:]]*$'; then
         return 1
     fi
 

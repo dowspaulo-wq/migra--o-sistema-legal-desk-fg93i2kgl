@@ -2,14 +2,14 @@
 # ==============================================================================
 # DPSjur - Bootstrap Autônomo de Migração (Executar no Terminal do VPS)
 # ==============================================================================
-# Versão: v0.0.512
+# Versão: v0.0.513
 # Servidor: VPS Hostinger KVM 1 (srv1737667 - IP 2.25.181.69)
 # Função: Baixa o kit completo da Fase 4 sem precisar de git clone nem login GitHub,
 #         organiza os arquivos em /root/sbjur-migracao/ e deixa tudo pronto para executar.
 # ==============================================================================
 set -euo pipefail
 
-BOOTSTRAP_VERSION="0.0.511"
+BOOTSTRAP_VERSION="0.0.513"
 DEST_DIR="/root/sbjur-migracao"
 REPO_RAW_BASE="https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4"
 
@@ -44,9 +44,13 @@ echo "⏳ Baixando os arquivos do kit de migração..."
 DOWNLOAD_SUCCESS=0
 for f in "${FILES[@]}"; do
     printf "   ➜ Baixando %s... " "$f"
-    # Cache buster de cabeçalho para garantir download da versão mais recente
-    if curl -sSf -L -H "Cache-Control: no-cache" -H "Pragma: no-cache" "$REPO_RAW_BASE/$f" -o "$f" 2>/dev/null; then
-        echo "✅"
+    # Cache buster de cabeçalho para garantir download da versão mais recente (via GitHub API ou raw)
+    GITHUB_API_FILE_URL="https://api.github.com/repos/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/contents/docs/migracao-fase4/$f?ref=main"
+    if curl -sSf -L -H "Accept: application/vnd.github.v3.raw" -H "User-Agent: DPSjur-Migration" "$GITHUB_API_FILE_URL" -o "$f" 2>/dev/null; then
+        echo "✅ (via GitHub API)"
+        ((DOWNLOAD_SUCCESS++)) || true
+    elif curl -sSf -L -H "Cache-Control: no-cache, no-store, must-revalidate" -H "Pragma: no-cache" -H "Expires: 0" "$REPO_RAW_BASE/$f" -o "$f" 2>/dev/null; then
+        echo "✅ (via raw)"
         ((DOWNLOAD_SUCCESS++)) || true
     elif wget -q --no-cache -O "$f" "$REPO_RAW_BASE/$f" 2>/dev/null; then
         echo "✅ (via wget)"
