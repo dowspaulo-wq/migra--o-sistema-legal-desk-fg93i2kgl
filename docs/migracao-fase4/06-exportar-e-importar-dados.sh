@@ -106,11 +106,21 @@ echo ""
 # ------------------------------------------------------------------------------
 echo "Etapa 2/6: Localizando o contêiner do PostgreSQL local no EasyPanel..."
 
-CONTAINER_LOCAL=$(docker ps --format '{{.Names}}' | grep -E 'supabase.*db|supabase-db' | head -n 1 || true)
+CONTAINER_LOCAL="${DB_CONTAINER:-}"
 
 if [ -z "$CONTAINER_LOCAL" ]; then
-    echo "⚠️  Contêiner com padrão 'supabase.*db' não localizado de imediato. Buscando contêiner postgres/db do Supabase..."
-    CONTAINER_LOCAL=$(docker ps --format '{{.Names}}' | grep -E 'postgres|db' | grep -v 'dpsjur-web' | head -n 1 || true)
+    # 1. Procura primeiro contêiner que contenha 'supabase' E 'db' no nome (ex: sbjur-local_supabase-db-1)
+    CONTAINER_LOCAL=$(docker ps --format '{{.Names}}' | grep -i 'supabase' | grep -i 'db' | head -n 1 || true)
+fi
+
+if [ -z "$CONTAINER_LOCAL" ]; then
+    # 2. Tenta padrão clássico
+    CONTAINER_LOCAL=$(docker ps --format '{{.Names}}' | grep -E 'supabase.*db|supabase-db' | head -n 1 || true)
+fi
+
+if [ -z "$CONTAINER_LOCAL" ]; then
+    echo "⚠️  Contêiner com padrão 'supabase...db' não localizado de imediato. Buscando contêiner postgres/db do Supabase..."
+    CONTAINER_LOCAL=$(docker ps --format '{{.Names}}' | grep -E 'postgres|db' | grep -v -E 'dpsjur-web|web|frontend' | head -n 1 || true)
 fi
 
 if [ -z "$CONTAINER_LOCAL" ]; then

@@ -14,17 +14,28 @@ echo ""
 
 # Localiza o contêiner de banco do Supabase no EasyPanel
 echo "🔍 Localizando contêiner do PostgreSQL do Supabase..."
-CONTAINER_DB=$(docker ps --format '{{.Names}}' | grep -E 'supabase.*db|supabase-db' | head -n 1)
+CONTAINER_DB="${DB_CONTAINER:-}"
 
 if [ -z "$CONTAINER_DB" ]; then
-    echo "⚠️ Contêiner com nome padrão 'supabase.*db' não encontrado. Listando todos os contêineres postgres..."
-    CONTAINER_DB=$(docker ps --format '{{.Names}}' | grep -E 'postgres|db' | grep -v 'dpsjur-db' | head -n 1)
+    # 1. Procura primeiro contêiner que contenha supabase E db no nome (ex: sbjur-local_supabase-db-1)
+    CONTAINER_DB=$(docker ps --format '{{.Names}}' | grep -i 'supabase' | grep -i 'db' | head -n 1 || true)
+fi
+
+if [ -z "$CONTAINER_DB" ]; then
+    # 2. Tenta padrão regex supabase-db ou supabase.*db
+    CONTAINER_DB=$(docker ps --format '{{.Names}}' | grep -E 'supabase.*db|supabase-db' | head -n 1 || true)
+fi
+
+if [ -z "$CONTAINER_DB" ]; then
+    # 3. Fallback: qualquer contêiner com postgres ou db, exceto dpsjur-web e apps de frontend
+    echo "⚠️ Contêiner com padrão 'supabase...db' não encontrado de imediato. Buscando contêiner postgres/db do Supabase..."
+    CONTAINER_DB=$(docker ps --format '{{.Names}}' | grep -E 'postgres|db' | grep -v -E 'dpsjur-web|web|frontend' | head -n 1 || true)
 fi
 
 if [ -z "$CONTAINER_DB" ]; then
     echo "❌ Erro: Não foi possível localizar o contêiner PostgreSQL do Supabase!"
     echo "Execute 'docker ps' no terminal do VPS para verificar o nome do contêiner e execute manualmente:"
-    echo "  docker exec -i <NOME_CONTAINER> psql -U postgres -d postgres < arquivo.sql"
+    echo "  DB_CONTAINER=sbjur-local_supabase-db-1 bash $0"
     exit 1
 fi
 

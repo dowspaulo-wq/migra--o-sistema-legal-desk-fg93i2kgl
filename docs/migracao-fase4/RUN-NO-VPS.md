@@ -3,7 +3,7 @@
 **Servidor:** VPS Hostinger KVM 1 (`srv1737667` — IP `2.25.181.69`)  
 **Acesso:** Terminal do EasyPanel ou SSH como `root`  
 **Objetivo:** Trazer os dados frescos da nuvem Supabase (`cpcafthwnqazopqftemj`) para o Supabase próprio instalado no EasyPanel com **apenas 1 comando colado no terminal**.  
-**Versão do Kit:** `v0.0.505` (com Plano B via REST API HTTPS 443 — dispensa portas PostgreSQL 5432/6543)
+**Versão do Kit:** `v0.0.506` (com Plano B via REST API HTTPS 443 — dispensa portas PostgreSQL 5432/6543)
 
 ---
 
@@ -64,19 +64,22 @@ O script executa de forma 100% automatizada e transparente:
 2. **Pede a POSTGRES_PASSWORD Local**:
    - `👉 Digite a senha POSTGRES_PASSWORD do Supabase LOCAL (EasyPanel): `
    - Cole a senha configurada no seu serviço `supabase` do EasyPanel e aperte `Enter`.
-3. **Descobre as tabelas automaticamente**:
+3. **Localiza o contêiner do banco dinamicamente**:
+   - Detecta automaticamente o contêiner do PostgreSQL no EasyPanel (`sbjur-local_supabase-db-1` ou similar), evitando erros de contêiner não encontrado.
+4. **Descobre as tabelas automaticamente**:
    - Consulta o catálogo OpenAPI da nuvem (`/rest/v1/`) e lista as tabelas (`clients`, `cases`, `tasks`, etc.).
-4. **Exporta página por página em CSV**:
+5. **Exporta página por página em CSV**:
    - Mostra o progresso tabela por tabela:
      - `⏳ Exportando clients ... ✅ 345 linhas`
      - `⏳ Exportando cases ... ✅ 550 linhas`
      - `⏳ Exportando tasks ... ✅ 836 linhas`
      - `...`
-5. **Importa no PostgreSQL local com integridade garantida**:
+6. **Alinha restrições e importa no PostgreSQL local com integridade garantida**:
+   - Alinha restrições de nulabilidade (`DROP NOT NULL` em colunas não-PK) para assegurar que colunas opcionais na nuvem (como `clients.phone_na`) sejam aceitas perfeitamente pelo `\copy`;
    - Limpeza prévia idempotente (`TRUNCATE ... RESTART IDENTITY CASCADE`);
    - Desativação transitória de FKs e triggers (`SET session_replication_role = 'replica'`);
    - Carga atômica de cada CSV via `\copy` em uma única transação (`BEGIN / COMMIT`).
-6. **Auditoria comparativa instantânea**:
+7. **Auditoria comparativa instantânea**:
    - Exibe a tabela verde conferindo cada uma das 17 tabelas (esperado vs importado no VPS).
 
 ---

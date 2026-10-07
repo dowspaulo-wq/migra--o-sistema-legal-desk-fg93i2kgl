@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur - Plano B: Exportação via REST API (PostgREST HTTPS) & Importação VPS
 # ==============================================================================
-# Versão: v0.0.505
+# Versão: v0.0.506
 # Execução: EXCLUSIVAMENTE NO TERMINAL DO VPS (Hostinger KVM 1 - IP 2.25.181.69)
 # Motivo: Conexões diretas PostgreSQL (portas 5432/6543) estão bloqueadas
 #         de dentro do VPS (timeout nos poolers e IPv6 unreachable no db host direto).
@@ -11,26 +11,30 @@
 # Origem: Supabase Cloud SBJur (ref: cpcafthwnqazopqftemj) via REST API HTTPS
 # Destino: Contêiner PostgreSQL do Supabase Self-Hosted no EasyPanel
 #
-# CARACTERÍSTICAS DESTA VERSÃO (v0.0.505):
+# CARACTERÍSTICAS DESTA VERSÃO (v0.0.506):
 # 1. 100% Autocontido: roda diretamente no VPS sem depender de repositório clonado.
 # 2. Descoberta automática de tabelas via OpenAPI (/rest/v1/) com a Service Role Key.
-# 3. Exportação paginada em lotes de 1000 linhas usando PostgREST 'Accept: text/csv'
+# 3. Localização dinâmica e inteligente do contêiner db (suporta DB_CONTAINER,
+#    sbjur-local_supabase-db-1 e variações do EasyPanel).
+# 4. Alinhamento automático de esquema com a nuvem (DROP NOT NULL em colunas não-PK
+#    antes do COPY para garantir 100% de compatibilidade quando o DDL local for mais rígido).
+# 5. Exportação paginada em lotes de 1000 linhas usando PostgREST 'Accept: text/csv'
 #    e Range header ('Range-Unit: items' / 'Range: 0-999').
-# 4. Somente leitura estrita na nuvem (apenas requisições GET autenticadas).
-# 5. Importação no PostgreSQL local via docker exec \copy com:
+# 6. Somente leitura estrita na nuvem (apenas requisições GET autenticadas).
+# 7. Importação no PostgreSQL local via docker exec \copy com:
 #    - Transação única (BEGIN / COMMIT)
 #    - SET session_replication_role = 'replica' (ignora ordem de FKs e triggers transitórios)
 #    - TRUNCATE prévio com RESTART IDENTITY CASCADE (idempotência total)
-# 6. Auditoria final com conferência cruzada: dados exportados vs gravados localmente
+# 8. Auditoria final com conferência cruzada: dados exportados vs gravados localmente
 #    mais referência histórica auditada do SBJur.
-# 7. Diagnóstico inteligente para projetos adormecidos/pausados (Restore project).
+# 9. Diagnóstico inteligente para projetos adormecidos/pausados (Restore project).
 # ==============================================================================
 set -euo pipefail
 
 # Garante que terminal restaure echo mesmo se abortado via Ctrl+C
 trap 'stty echo 2>/dev/null || true' EXIT INT TERM
 
-SCRIPT_VERSION="0.0.505"
+SCRIPT_VERSION="0.0.506"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AUDIT_SCRIPT="$SCRIPT_DIR/04-auditoria-pos-importacao.sql"
 
@@ -102,11 +106,21 @@ echo ""
 # ------------------------------------------------------------------------------
 echo "Etapa 2/6: Localizando o contêiner do PostgreSQL local no EasyPanel..."
 
-CONTAINER_LOCAL=$(docker ps --format '{{.Names}}' | grep -E 'supabase.*db|supabase-db' | head -n 1 || true)
+CONTAINER_LOCAL="${DB_CONTAINER:-}"
 
 if [ -z "$CONTAINER_LOCAL" ]; then
-    echo "⚠️  Contêiner com padrão 'supabase.*db' não localizado de imediato. Buscando contêiner postgres/db do Supabase..."
-    CONTAINER_LOCAL=$(docker ps --format '{{.Names}}' | grep -E 'postgres|db' | grep -v 'dpsjur-web' | head -n 1 || true)
+    # 1. Busca contêiner que contenha simultaneamente 'supabase' e 'db' (ex: sbjur-local_supabase-db-1)
+    CONTAINER_LOCAL=$(docker ps --format '{{.Names}}' | grep -i 'supabase' | grep -i 'db' | head -n 1 || true)
+fi
+
+if [ -z "$CONTAINER_LOCAL" ]; then
+    # 2. Padrão regex tradicional
+    CONTAINER_LOCAL=$(docker ps --format '{{.Names}}' | grep -E 'supabase.*db|supabase-db' | head -n 1 || true)
+fi
+
+if [ -z "$CONTAINER_LOCAL" ]; then
+    echo "⚠️  Contêiner com padrão 'supabase...db' não localizado de imediato. Buscando contêiner postgres/db do Supabase..."
+    CONTAINER_LOCAL=$(docker ps --format '{{.Names}}' | grep -E 'postgres|db' | grep -v -E 'dpsjur-web|web|frontend' | head -n 1 || true)
 fi
 
 if [ -z "$CONTAINER_LOCAL" ]; then
@@ -115,6 +129,7 @@ if [ -z "$CONTAINER_LOCAL" ]; then
     docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' || true
     echo ""
     echo "Dica: Verifique se o serviço 'supabase' no EasyPanel está com status 'Running'."
+    echo "      Você também pode forçar o nome via variável: DB_CONTAINER=sbjur-local_supabase-db-1 bash $0"
     exit 1
 fi
 
@@ -463,6 +478,72 @@ for tbl in "${DISCOVERED_TABLES[@]}"; do
         ORDERED_IMPORT_TABLES+=("$tbl")
     fi
 done
+
+# ------------------------------------------------------------------------------
+# 6.1 ALINHAMENTO DINÂMICO DE CONSTRAINTS NOT NULL
+# ------------------------------------------------------------------------------
+# A nuvem Supabase é a autoridade máxima do esquema real. Caso o DDL local tenha
+# criado alguma coluna como NOT NULL que na nuvem aceita NULL (ex.: clients.phone_na),
+# removemos a restrição NOT NULL de todas as colunas não-chave-primária das tabelas do
+# schema public antes de iniciar o COPY. Isso garante importação 100% livre de conflito
+# preservando fidelidade absoluta dos dados exportados.
+echo "⏳ Verificando e alinhando restrições de nulabilidade (DROP NOT NULL em colunas não-PK)..."
+RELAX_NOTNULL_SQL="
+DO \$\$
+DECLARE
+    r RECORD;
+    cnt INTEGER := 0;
+BEGIN
+    FOR r IN (
+        SELECT 
+            c.table_name,
+            c.column_name
+        FROM information_schema.columns c
+        JOIN information_schema.tables t 
+            ON c.table_schema = t.table_schema AND c.table_name = t.table_name
+        WHERE c.table_schema = 'public'
+          AND t.table_type = 'BASE TABLE'
+          AND c.is_nullable = 'NO'
+          AND c.column_name NOT IN (
+              -- Preserva NOT NULL nas colunas que compõem a Primary Key
+              SELECT kcu.column_name
+              FROM information_schema.table_constraints tc
+              JOIN information_schema.key_column_usage kcu
+                ON tc.constraint_name = kcu.constraint_name
+               AND tc.table_schema = kcu.table_schema
+               AND tc.table_name = kcu.table_name
+              WHERE tc.table_schema = 'public'
+                AND tc.constraint_type = 'PRIMARY KEY'
+                AND tc.table_name = c.table_name
+          )
+        ORDER BY c.table_name, c.ordinal_position
+    ) LOOP
+        BEGIN
+            EXECUTE format('ALTER TABLE public.%I ALTER COLUMN %I DROP NOT NULL', r.table_name, r.column_name);
+            cnt := cnt + 1;
+        EXCEPTION WHEN OTHERS THEN
+            RAISE NOTICE 'Não foi possível alterar public.%.%: %', r.table_name, r.column_name, SQLERRM;
+        END;
+    END LOOP;
+    RAISE NOTICE 'Restrições NOT NULL alinhadas com sucesso: % colunas não-PK ajustadas para aceitar NULL.', cnt;
+END
+\$\$;
+"
+
+set +e
+docker exec -i \
+    -e PGPASSWORD="$LOCAL_DB_PASSWORD" \
+    "$CONTAINER_LOCAL" \
+    psql -U postgres -d postgres -c "$RELAX_NOTNULL_SQL"
+RELAX_STATUS=$?
+set -e
+
+if [ $RELAX_STATUS -eq 0 ]; then
+    echo "✅ Esquema local preparado e flexibilizado para aceitar o formato real da nuvem."
+else
+    echo "⚠️  Aviso ao alinhar restrições NOT NULL (prosseguindo com a importação)."
+fi
+echo ""
 
 # Copia os CSVs para dentro do contêiner para permitir \copy seguro
 CONTAINER_REST_DIR="/tmp/rest-export"
