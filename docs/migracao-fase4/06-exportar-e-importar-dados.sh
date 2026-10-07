@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur - Script Unificado de Exportação da Nuvem e Importação no VPS (EasyPanel)
 # ==============================================================================
-# Versão: v0.0.501
+# Versão: v0.0.502
 # Execução: EXCLUSIVAMENTE NO TERMINAL DO VPS (Hostinger KVM 1 - IP 2.25.181.69)
 # Motivo: Conexões TCP diretas nas portas 5432/6543 da nuvem Supabase são
 #         bloqueadas em sandboxes de build, mas funcionam perfeitamente no VPS,
@@ -11,12 +11,13 @@
 # Origem: Supabase Nuvem SBJur (ref: cpcafthwnqazopqftemj)
 # Destino: Contêiner PostgreSQL do Supabase Self-Hosted no EasyPanel
 #
-# NOVIDADE v0.0.501:
-# Fallback automático inteligente de conexão:
-#   1. Pooler aws-0 (aws-0-<região>.pooler.supabase.com)
-#   2. Pooler aws-1 (aws-1-<região>.pooler.supabase.com)
-#   3. Conexão DIRETA (db.<ref>.supabase.co:5432, usuário "postgres")
-# Diagnóstico preciso diferenciando "tenant not found" de "password authentication failed".
+# NOVIDADE v0.0.502:
+# Correção do teste de conectividade: uso da env PGCONNECT_TIMEOUT=10 (em vez de
+# flag CLI malformada que impedia a sonda em qualquer versão do psql 17).
+#
+# HISTÓRICO:
+# v0.0.501: Fallback automático de endpoints (aws-0 pooler, aws-1 pooler, direto)
+#           e diagnóstico de credencial vs rede/tenant.
 #
 # SEGURANÇA:
 # NENHUMA senha fica gravada em arquivo, histórico de comandos (.bash_history)
@@ -27,7 +28,7 @@ set -euo pipefail
 # Garante que terminal restaure echo mesmo se abortado via Ctrl+C
 trap 'stty echo 2>/dev/null || true' EXIT INT TERM
 
-SCRIPT_VERSION="0.0.501"
+SCRIPT_VERSION="0.0.502"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AUDIT_SCRIPT="$SCRIPT_DIR/04-auditoria-pos-importacao.sql"
 
@@ -174,13 +175,13 @@ for candidate in "${CANDIDATES[@]}"; do
     set +e
     TEST_OUT=$(docker run --rm \
         -e PGPASSWORD="$CLOUD_DB_PASSWORD" \
+        -e PGCONNECT_TIMEOUT=10 \
         "$DOCKER_PG_IMAGE" \
         psql \
         -h "$c_host" \
         -p "$c_port" \
         -U "$c_user" \
         -d "$CLOUD_DB_NAME" \
-        --connect-timeout=10 \
         -c "SELECT 1;" 2>&1)
     TEST_STATUS=$?
     set -e

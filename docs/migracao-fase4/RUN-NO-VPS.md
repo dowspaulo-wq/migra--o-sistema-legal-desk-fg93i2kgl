@@ -3,7 +3,7 @@
 **Servidor:** VPS Hostinger KVM 1 (`srv1737667` — IP `2.25.181.69`)  
 **Acesso:** Terminal do EasyPanel ou SSH como `root`  
 **Objetivo:** Trazer os dados frescos da nuvem Supabase (`cpcafthwnqazopqftemj`) para o Supabase próprio instalado no EasyPanel com **apenas 1 comando colado no terminal**.  
-**Versão do Kit:** `v0.0.501` (com fallback automático sequencial de endpoints da nuvem)
+**Versão do Kit:** `v0.0.502` (com fallback automático sequencial de endpoints e PGCONNECT_TIMEOUT corrigido)
 
 ---
 
@@ -36,7 +36,7 @@ bash bootstrap-vps.sh && \
 bash 06-exportar-e-importar-dados.sh
 ```
 
-> 💡 **Nota da versão 0.0.501**: O script agora testa automaticamente e em sequência os endpoints da Supabase Cloud:
+> 💡 **Nota da versão 0.0.502**: O script agora testa automaticamente e em sequência os endpoints da Supabase Cloud (com timeout via variável de ambiente `PGCONNECT_TIMEOUT=10` compatível com PostgreSQL 17):
 >
 > 1. `aws-0-sa-east-1.pooler.supabase.com` (pooler legado / sessão);
 > 2. `aws-1-sa-east-1.pooler.supabase.com` (pooler novo / projetos migrados);

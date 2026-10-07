@@ -15,7 +15,7 @@ Este diretório contém o kit completo e auditado para implantação do **Supaba
 | **`05-importar-no-supabase-local.sh`** | Script bash automatizado para aplicar DDL, RLS e usuários locais no contêiner do Supabase no VPS. |
 | **`RUN-NO-VPS.md`** | **Guia rápido para leigo com comando único:** como colar no terminal do VPS sem precisar de git clone nem login GitHub. |
 | **`bootstrap-vps.sh`** | Script de bootstrap automático que baixa o kit completo para `/root/sbjur-migracao/` com 1 comando. |
-| **`06-exportar-e-importar-dados.sh`** | Script unificado v0.0.501 e 100% autônomo que roda no terminal do VPS: testa automaticamente endpoints da nuvem (aws-0 pooler, aws-1 pooler e direto db.<ref>.supabase.co), exporta dados frescos via `docker run postgres:17 pg_dump`, importa no banco local em transação única e audita contagens. |
+| **`06-exportar-e-importar-dados.sh`** | Script unificado v0.0.502 e 100% autônomo que roda no terminal do VPS: testa automaticamente endpoints da nuvem com timeout robusto via env (`PGCONNECT_TIMEOUT=10`), exporta dados frescos via `docker run postgres:17 pg_dump`, importa no banco local em transação única e audita contagens. |
 | **`06-sync-storage-assets.ts`** | Script Node.js/TypeScript para baixar os 32 arquivos essenciais de Storage (avatares, modelos DOCX, ícones de sistemas judiciais). |
 | **`07-guia-instalacao-supabase-easypanel.md`** | Manual passo a passo em linguagem simples para leigo: instalação do template Supabase no EasyPanel, configuração de SMTP e obtenção das chaves. |
 | **`08-procedimento-exportacao-sbjur.md`** | Procedimento detalhado de exportação fresca do projeto SBJur, analisando opções viáveis com e sem a service_role key. |
