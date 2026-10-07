@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur - Resolução de Pendências Pós-Exportação REST (Fase 4 - VPS Local)
 # ==============================================================================
-# Versão: v0.0.508
+# Versão: v0.0.509
 # Execução: EXCLUSIVAMENTE NO TERMINAL DO VPS (Hostinger KVM 1 - IP 2.25.181.69)
 # Contexto: O script 06b exportou 6.035 registros com sucesso via REST API.
 #           Este script 07 fecha as 4 pendências identificadas na auditoria:
@@ -26,7 +26,7 @@ set -euo pipefail
 # Garante que terminal restaure echo mesmo se abortado via Ctrl+C
 trap 'stty echo 2>/dev/null || true' EXIT INT TERM
 
-SCRIPT_VERSION="0.0.508"
+SCRIPT_VERSION="0.0.509"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK_DIR="/root/sbjur-migracao"
 REST_EXPORT_DIR="${WORK_DIR}/rest-export"
@@ -136,7 +136,7 @@ if [ ! -f "$AUTH_SQL_FILE" ]; then
     echo "ℹ️  Arquivo $AUTH_SQL_FILE não encontrado localmente. Tentando baixar do GitHub..."
     mkdir -p "$WORK_DIR"
     AUTH_SQL_FILE="${WORK_DIR}/03-auth-users-sbjur.sql"
-    curl -sSf -L -H "Cache-Control: no-cache" \
+    curl -sSf -L -H "Cache-Control: no-cache" -H "Pragma: no-cache" \
         "https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4/03-auth-users-sbjur.sql" \
         -o "$AUTH_SQL_FILE" || true
 fi
@@ -150,17 +150,22 @@ fi
 echo "⏳ Aplicando 03-auth-users-sbjur.sql no banco PostgreSQL local..."
 run_psql_cmd -v ON_ERROR_STOP=1 < "$AUTH_SQL_FILE"
 
-# Verificação do total de usuários em auth.users
+# Verificação rigorosa de auth.users e auth.identities
 AUTH_USERS_COUNT=$(run_psql_cmd -tAc "SELECT count(*) FROM auth.users;")
 AUTH_IDENTITIES_COUNT=$(run_psql_cmd -tAc "SELECT count(*) FROM auth.identities;")
+AUTH_PASSWORDS_COUNT=$(run_psql_cmd -tAc "SELECT count(*) FROM auth.users WHERE encrypted_password IS NOT NULL AND (encrypted_password LIKE '\$2a\$%' OR encrypted_password LIKE '\$2b\$%');")
 
 echo "📊 Usuários cadastrados em auth.users: $AUTH_USERS_COUNT (esperado: 7)"
 echo "📊 Identidades cadastradas em auth.identities: $AUTH_IDENTITIES_COUNT (esperado: 7)"
+echo "📊 Senhas com hash Bcrypt válido: $AUTH_PASSWORDS_COUNT (esperado: 7)"
 
-if [ "$AUTH_USERS_COUNT" -ne 7 ]; then
-    echo "⚠️  Aviso: Esperavam-se 7 usuários em auth.users, encontrados: $AUTH_USERS_COUNT."
+if [ "$AUTH_USERS_COUNT" -ne 7 ] || [ "$AUTH_IDENTITIES_COUNT" -ne 7 ] || [ "$AUTH_PASSWORDS_COUNT" -ne 7 ]; then
+    echo "⚠️  Aviso de inconsistência no schema auth:"
+    echo "   - Usuários: $AUTH_USERS_COUNT/7"
+    echo "   - Identidades: $AUTH_IDENTITIES_COUNT/7"
+    echo "   - Hashes de senha válidos: $AUTH_PASSWORDS_COUNT/7"
 else
-    echo "✅ auth.users restaurado perfeitamente com os 7 usuários originais!"
+    echo "✅ auth.users e auth.identities restaurados com sucesso (7 usuários com senhas Bcrypt prontas para login)!"
 fi
 echo ""
 
@@ -512,7 +517,11 @@ SELECT
         WHEN u.encrypted_password LIKE '\$2a\$%' OR u.encrypted_password LIKE '\$2b\$%' THEN '✅ BCRYPT VÁLIDO'
         ELSE '⚠️ SEM HASH'
     END AS \"Hash Senha\",
-    CASE WHEN u.confirmed_at IS NOT NULL THEN '✅ CONFIRMADO' ELSE 'PENDENTE' END AS \"E-mail Conf.\"
+    CASE 
+        WHEN u.email_confirmed_at IS NOT NULL THEN '✅ CONFIRMADO' 
+        ELSE 'PENDENTE' 
+    END AS \"E-mail Conf.\",
+    (SELECT count(*) FROM auth.identities i WHERE i.user_id = u.id) AS \"Identidades\"
 FROM auth.users u
 LEFT JOIN public.profiles p ON u.id = p.id
 ORDER BY u.created_at ASC;

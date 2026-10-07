@@ -3,7 +3,7 @@
 **Servidor:** VPS Hostinger KVM 1 (`srv1737667` — IP `2.25.181.69`)  
 **Acesso:** Terminal do EasyPanel ou SSH como `root`  
 **Objetivo:** Trazer os dados frescos da nuvem Supabase (`cpcafthwnqazopqftemj`) para o Supabase próprio instalado no EasyPanel com **apenas 1 comando colado no terminal**.  
-**Versão do Kit:** `v0.0.508` (com Plano B via REST API HTTPS 443 + Fechamento de Pendências com Script 07)
+**Versão do Kit:** `v0.0.509` (com Plano B via REST API HTTPS 443 + Fechamento de Pendências com Script 07)
 
 ---
 

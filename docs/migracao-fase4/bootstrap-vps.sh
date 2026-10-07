@@ -2,14 +2,14 @@
 # ==============================================================================
 # DPSjur - Bootstrap Autônomo de Migração (Executar no Terminal do VPS)
 # ==============================================================================
-# Versão: v0.0.508
+# Versão: v0.0.509
 # Servidor: VPS Hostinger KVM 1 (srv1737667 - IP 2.25.181.69)
 # Função: Baixa o kit completo da Fase 4 sem precisar de git clone nem login GitHub,
 #         organiza os arquivos em /root/sbjur-migracao/ e deixa tudo pronto para executar.
 # ==============================================================================
 set -euo pipefail
 
-BOOTSTRAP_VERSION="0.0.508"
+BOOTSTRAP_VERSION="0.0.509"
 DEST_DIR="/root/sbjur-migracao"
 REPO_RAW_BASE="https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/migracao-fase4"
 
