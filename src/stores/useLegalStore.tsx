@@ -64,6 +64,7 @@ interface LegalContextType {
   addTransaction: (t: Omit<Transaction, 'id'> | Omit<Transaction, 'id'>[]) => void
   addSupplier: (s: Omit<Supplier, 'id'>) => void
   addPetition: (p: Omit<any, 'id' | 'created_at'>) => void
+  reloadTransactions: () => Promise<void>
   addClientFee: (fee: {
     amount: number
     description: string
@@ -881,6 +882,18 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         updateUser,
         addUser,
         renameType,
+        reloadTransactions: async () => {
+          const { data } = await supabase.from('transactions').select('*')
+          if (data) {
+            setState((prev) => ({
+              ...prev,
+              transactions: (data as any[]).sort(
+                (a: any, b: any) =>
+                  new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime(),
+              ),
+            }))
+          }
+        },
       }}
     >
       {children}

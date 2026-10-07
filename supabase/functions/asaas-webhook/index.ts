@@ -8,7 +8,13 @@ const corsHeaders = {
     'authorization, x-client-info, x-supabase-client-platform, apikey, content-type, x-asaas-webhook-token',
 }
 
-const ASAAS_BASE_URL = 'https://api.asaas.com/v3'
+function getAsaasBaseUrl(): string {
+  const customUrl = Deno.env.get('ASAAS_API_URL')
+  if (customUrl && customUrl.trim()) {
+    return customUrl.trim().replace(/\/+$/, '')
+  }
+  return 'https://api.asaas.com/v3'
+}
 
 const EVENT_STATUS_MAP: Record<string, string> = {
   PAYMENT_CONFIRMED: 'Paga',
@@ -129,11 +135,12 @@ Deno.serve(async (req: Request) => {
 
     if (eventType === 'PAYMENT_CONFIRMED') {
       const apiKey = Deno.env.get('ASAAS_API_KEY')
+      const asaasBaseUrl = getAsaasBaseUrl()
       if (!apiKey) {
         console.error('ASAAS_API_KEY não configurada. Não foi possível emitir NF.')
       } else {
         try {
-          const listRes = await fetch(`${ASAAS_BASE_URL}/payments/${asaasPaymentId}/invoices`, {
+          const listRes = await fetch(`${asaasBaseUrl}/payments/${asaasPaymentId}/invoices`, {
             method: 'GET',
             headers: { access_token: apiKey, 'Content-Type': 'application/json' },
           })
@@ -171,7 +178,7 @@ Deno.serve(async (req: Request) => {
             }
           }
 
-          const invoiceRes = await fetch(`${ASAAS_BASE_URL}/invoices`, {
+          const invoiceRes = await fetch(`${asaasBaseUrl}/invoices`, {
             method: 'POST',
             headers: { access_token: apiKey, 'Content-Type': 'application/json' },
             body: JSON.stringify({ payment: asaasPaymentId }),

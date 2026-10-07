@@ -170,11 +170,15 @@ export function LinkConciliationDialog({
 
   const isIncome = transaction.type === 'income'
   const originLabel =
-    transaction.origem === 'ASAAS_WEBHOOK'
+    transaction.origem === 'ASAAS_WEBHOOK' || transaction.origem === 'ASAAS'
       ? 'Asaas'
-      : transaction.origem === 'IMPORT_SICOOB'
+      : transaction.origem === 'IMPORT_SICOOB' ||
+          transaction.origem === 'SICOOB' ||
+          transaction.origem === 'EXTRATO_SICOOB'
         ? 'SICOOB'
-        : transaction.origem || 'Manual'
+        : (transaction.origem || '').startsWith('EXTRATO_')
+          ? (transaction.origem || '').replace('EXTRATO_', '')
+          : transaction.origem || 'Manual'
 
   return (
     <Dialog open={open} onOpenChange={(v) => !saving && !ignoring && onOpenChange(v)}>

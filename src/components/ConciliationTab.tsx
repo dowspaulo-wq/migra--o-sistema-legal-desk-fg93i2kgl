@@ -19,7 +19,17 @@ import {
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { ArrowUpRight, ArrowDownRight, Filter, Link2, Inbox, Clock, RotateCcw } from 'lucide-react'
+import {
+  ArrowUpRight,
+  ArrowDownRight,
+  Filter,
+  Link2,
+  Inbox,
+  Clock,
+  RotateCcw,
+  Download,
+  FileUp,
+} from 'lucide-react'
 import { formatSafeLocalDate, cn } from '@/lib/utils'
 import { LinkConciliationDialog } from '@/components/LinkConciliationDialog'
 import { supabase } from '@/lib/supabase/client'
@@ -31,6 +41,8 @@ interface ConciliationTabProps {
   cases: any[]
   suppliers?: any[]
   onUpdateTransaction: (id: string, changes: any) => Promise<void> | void
+  onOpenAsaasImport?: () => void
+  onOpenPdfImport?: () => void
 }
 
 export function ConciliationTab({
@@ -39,6 +51,8 @@ export function ConciliationTab({
   cases,
   suppliers = [],
   onUpdateTransaction,
+  onOpenAsaasImport,
+  onOpenPdfImport,
 }: ConciliationTabProps) {
   // Filtros
   const [filterOrigin, setFilterOrigin] = useState<string>('Todas')
@@ -79,7 +93,16 @@ export function ConciliationTab({
       if (filterOrigin === 'Asaas') {
         if (t.origem !== 'ASAAS_WEBHOOK' && t.origem !== 'ASAAS') return false
       } else if (filterOrigin === 'SICOOB') {
-        if (t.origem !== 'IMPORT_SICOOB' && t.origem !== 'SICOOB') return false
+        if (t.origem !== 'IMPORT_SICOOB' && t.origem !== 'SICOOB' && t.origem !== 'EXTRATO_SICOOB')
+          return false
+      } else if (filterOrigin === 'Outros Bancos') {
+        if (
+          t.origem === 'ASAAS_WEBHOOK' ||
+          t.origem === 'ASAAS' ||
+          t.origem === 'IMPORT_SICOOB' ||
+          t.origem === 'SICOOB'
+        )
+          return false
       }
 
       // Filtro de Período
@@ -106,13 +129,25 @@ export function ConciliationTab({
       )
     }
 
-    if (upper === 'IMPORT_SICOOB' || upper === 'SICOOB') {
+    if (upper === 'IMPORT_SICOOB' || upper === 'SICOOB' || upper === 'EXTRATO_SICOOB') {
       return (
         <Badge
           variant="outline"
           className="bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 font-medium"
         >
           SICOOB
+        </Badge>
+      )
+    }
+
+    if (upper.startsWith('EXTRATO_')) {
+      const bankName = upper.replace('EXTRATO_', '')
+      return (
+        <Badge
+          variant="outline"
+          className="bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100 font-medium"
+        >
+          {bankName}
         </Badge>
       )
     }
@@ -225,6 +260,40 @@ export function ConciliationTab({
 
   return (
     <div className="space-y-4">
+      {/* Barra de Ações com os botões solicitados pelo usuário */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white p-4 rounded-lg border shadow-sm">
+        <div>
+          <h2 className="text-base font-semibold text-slate-900">Fila de Conciliação Financeira</h2>
+          <p className="text-xs text-muted-foreground">
+            Puxe extratos de contas a pagar/receber e concilie manualmente sem IA.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {onOpenAsaasImport && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onOpenAsaasImport}
+              className="gap-1.5 border-blue-200 text-blue-700 hover:bg-blue-50"
+            >
+              <Download className="h-4 w-4 text-blue-600" />
+              Importar extrato do Asaas
+            </Button>
+          )}
+          {onOpenPdfImport && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onOpenPdfImport}
+              className="gap-1.5 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+            >
+              <FileUp className="h-4 w-4 text-emerald-600" />
+              Importar extrato (PDF)
+            </Button>
+          )}
+        </div>
+      </div>
+
       {/* 1. Resumo no topo */}
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="bg-amber-50/70 border-amber-200">
@@ -312,6 +381,7 @@ export function ConciliationTab({
                     <SelectItem value="Todas">Todas</SelectItem>
                     <SelectItem value="Asaas">Asaas</SelectItem>
                     <SelectItem value="SICOOB">SICOOB</SelectItem>
+                    <SelectItem value="Outros Bancos">Outros Bancos</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

@@ -27,3 +27,14 @@ export async function syncHistoryWithAsaas() {
   })
   return { data, error }
 }
+
+export async function importAsaasExtract(startDate: string, finishDate: string) {
+  const { data, error } = await supabase.functions.invoke('asaas-integration', {
+    body: {
+      action: 'import-extract',
+      startDate,
+      finishDate,
+    },
+  })
+  return { data, error }
+}

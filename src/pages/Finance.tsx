@@ -55,9 +55,12 @@ import { toast } from '@/hooks/use-toast'
 import { Link2 } from 'lucide-react'
 import { RecurringTransactionEditDialog } from '@/components/RecurringTransactionEditDialog'
 import { ConciliationTab } from '@/components/ConciliationTab'
+import { AsaasExtractImportDialog } from '@/components/AsaasExtractImportDialog'
+import { BankPdfImportDialog } from '@/components/BankPdfImportDialog'
 
 export default function Finance() {
-  const { state, updateItem, deleteItem, addTransaction, addSupplier } = useLegalStore() as any
+  const { state, updateItem, deleteItem, addTransaction, addSupplier, reloadTransactions } =
+    useLegalStore() as any
 
   const now = new Date()
   const firstDay = new Date(now.getFullYear(), now.getMonth(), 1)
@@ -117,6 +120,8 @@ export default function Finance() {
   const [syncingAsaasId, setSyncingAsaasId] = useState<string | null>(null)
   const [syncingHistory, setSyncingHistory] = useState(false)
   const [linkingTx, setLinkingTx] = useState<any>(null)
+  const [asaasExtractDialogOpen, setAsaasExtractDialogOpen] = useState(false)
+  const [pdfImportDialogOpen, setPdfImportDialogOpen] = useState(false)
   const [txToDelete, setTxToDelete] = useState<any>(null)
   const [deletingTx, setDeletingTx] = useState(false)
   const [txDeleteError, setTxDeleteError] = useState<string | null>(null)
@@ -466,7 +471,23 @@ export default function Finance() {
           <h1 className="text-3xl font-bold tracking-tight">Financeiro</h1>
           <p className="text-muted-foreground">Controle de honorários e despesas.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setAsaasExtractDialogOpen(true)}
+            className="border-blue-200 text-blue-700 hover:bg-blue-50"
+          >
+            <Download className="mr-2 h-4 w-4 text-blue-600" />
+            Importar extrato do Asaas
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setPdfImportDialogOpen(true)}
+            className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+          >
+            <Download className="mr-2 h-4 w-4 text-emerald-600" />
+            Importar extrato (PDF)
+          </Button>
           <Button variant="outline" onClick={handleSyncHistory} disabled={syncingHistory}>
             <Send className={`mr-2 h-4 w-4 ${syncingHistory ? 'animate-pulse' : ''}`} />
             {syncingHistory ? 'Sincronizando...' : 'Sincronizar com Asaas'}
@@ -881,9 +902,29 @@ export default function Finance() {
               onUpdateTransaction={(id: string, changes: any) =>
                 updateItem('transactions', id, changes)
               }
+              onOpenAsaasImport={() => setAsaasExtractDialogOpen(true)}
+              onOpenPdfImport={() => setPdfImportDialogOpen(true)}
             />
           </div>
         )}
+
+        {/* Dialogs de importação de extrato */}
+        <AsaasExtractImportDialog
+          open={asaasExtractDialogOpen}
+          onOpenChange={setAsaasExtractDialogOpen}
+          onSuccess={async () => {
+            if (reloadTransactions) await reloadTransactions()
+          }}
+        />
+
+        <BankPdfImportDialog
+          open={pdfImportDialogOpen}
+          onOpenChange={setPdfImportDialogOpen}
+          bankAccounts={bankOptions}
+          onSuccess={async () => {
+            if (reloadTransactions) await reloadTransactions()
+          }}
+        />
 
         {activeTab === 'fornecedores' && (
           <Card className="mt-4">

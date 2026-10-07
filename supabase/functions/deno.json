@@ -2,12 +2,12 @@
   "_versions": {
     "create-user": 19,
     "google-calendar": 21,
-    "asaas-integration": 18,
-    "asaas-webhook": 8,
+    "asaas-integration": 19,
+    "asaas-webhook": 9,
     "datajud-sync": 4,
-    "database-backup": 116,
-    "electronic-signature": 97,
-    "zapsign-integration": 97,
+    "database-backup": 118,
+    "electronic-signature": 99,
+    "zapsign-integration": 99,
     "backup-export": 14
   }
 }

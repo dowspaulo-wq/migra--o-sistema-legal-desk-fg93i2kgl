@@ -8,7 +8,13 @@ const corsHeaders = {
     'authorization, x-client-info, x-supabase-client-platform, apikey, content-type',
 }
 
-const ASAAS_BASE_URL = 'https://api.asaas.com/v3'
+function getAsaasBaseUrl(): string {
+  const customUrl = Deno.env.get('ASAAS_API_URL')
+  if (customUrl && customUrl.trim()) {
+    return customUrl.trim().replace(/\/+$/, '')
+  }
+  return 'https://api.asaas.com/v3'
+}
 
 const ASAAS_STATUS_MAP: Record<string, string> = {
   PENDING: 'Pendente',
@@ -79,7 +85,9 @@ Deno.serve(async (req: Request) => {
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey)
-    const { action, clientId, transactionId } = await req.json()
+    const requestData = await req.json().catch(() => ({}))
+    const { action, clientId, transactionId } = requestData
+    const asaasBaseUrl = getAsaasBaseUrl()
 
     if (action === 'syncClient') {
       const { data: client, error: clientErr } = await supabase
@@ -132,7 +140,7 @@ Deno.serve(async (req: Request) => {
       })
 
       if (asaasId) {
-        const res = await fetch(`${ASAAS_BASE_URL}/customers/${asaasId}`, {
+        const res = await fetch(`${asaasBaseUrl}/customers/${asaasId}`, {
           method: 'PUT',
           headers: { access_token: apiKey, 'Content-Type': 'application/json' },
           body: JSON.stringify(customerData),
@@ -151,7 +159,7 @@ Deno.serve(async (req: Request) => {
           },
         )
       } else {
-        const res = await fetch(`${ASAAS_BASE_URL}/customers`, {
+        const res = await fetch(`${asaasBaseUrl}/customers`, {
           method: 'POST',
           headers: { access_token: apiKey, 'Content-Type': 'application/json' },
           body: JSON.stringify(customerData),
@@ -250,7 +258,7 @@ Deno.serve(async (req: Request) => {
       if (txAsaasId) {
         // Cobrança já existe no Asaas -> Atualizar / Reativar
         // Se no Asaas ela estivesse deletada/cancelada, tentar reativar ou atualizar
-        const updateRes = await fetch(`${ASAAS_BASE_URL}/payments/${txAsaasId}`, {
+        const updateRes = await fetch(`${asaasBaseUrl}/payments/${txAsaasId}`, {
           method: 'PUT',
           headers: { access_token: apiKey, 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -274,7 +282,7 @@ Deno.serve(async (req: Request) => {
         }
 
         // Se o PUT falhou (ex: cobrança foi excluída no Asaas), recria no Asaas e atualiza o asaas_id
-        const recreateRes = await fetch(`${ASAAS_BASE_URL}/payments`, {
+        const recreateRes = await fetch(`${asaasBaseUrl}/payments`, {
           method: 'POST',
           headers: { access_token: apiKey, 'Content-Type': 'application/json' },
           body: JSON.stringify(paymentData),
@@ -303,7 +311,7 @@ Deno.serve(async (req: Request) => {
       }
 
       // Cobrança ainda não tem asaas_id -> criar nova no Asaas
-      const res = await fetch(`${ASAAS_BASE_URL}/payments`, {
+      const res = await fetch(`${asaasBaseUrl}/payments`, {
         method: 'POST',
         headers: { access_token: apiKey, 'Content-Type': 'application/json' },
         body: JSON.stringify(paymentData),
@@ -348,7 +356,7 @@ Deno.serve(async (req: Request) => {
         )
       }
 
-      const delRes = await fetch(`${ASAAS_BASE_URL}/payments/${asaasPayId}`, {
+      const delRes = await fetch(`${asaasBaseUrl}/payments/${asaasPayId}`, {
         method: 'DELETE',
         headers: { access_token: apiKey, 'Content-Type': 'application/json' },
       })
@@ -400,7 +408,7 @@ Deno.serve(async (req: Request) => {
       const customerCache = new Map<string, any>()
 
       while (hasMore) {
-        const url = `${ASAAS_BASE_URL}/payments?offset=${offset}&limit=${limit}&status=RECEIVED,CONFIRMED,PENDING,OVERDUE,REFUNDED`
+        const url = `${asaasBaseUrl}/payments?offset=${offset}&limit=${limit}&status=RECEIVED,CONFIRMED,PENDING,OVERDUE,REFUNDED`
         const res = await fetch(url, {
           method: 'GET',
           headers: { access_token: apiKey, 'Content-Type': 'application/json' },
@@ -421,7 +429,7 @@ Deno.serve(async (req: Request) => {
 
           if (!matchedClient && !customerCache.has(asaasCustomerId)) {
             try {
-              const custRes = await fetch(`${ASAAS_BASE_URL}/customers/${asaasCustomerId}`, {
+              const custRes = await fetch(`${asaasBaseUrl}/customers/${asaasCustomerId}`, {
                 method: 'GET',
                 headers: { access_token: apiKey, 'Content-Type': 'application/json' },
               })
@@ -504,6 +512,233 @@ Deno.serve(async (req: Request) => {
           synced: syncedCount,
           unmatched: unmatchedCount,
           unmatchedDetails: unmatchedPayments.slice(0, 20),
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
+    if (action === 'import-extract' || action === 'importExtract') {
+      const { startDate, finishDate } = requestData
+      if (!startDate || !finishDate) {
+        throw new Error(
+          'Data inicial (startDate) e final (finishDate) são obrigatórias no formato AAAA-MM-DD.',
+        )
+      }
+
+      // Buscar clientes cadastrados para casamento por nome/documento
+      const { data: clients } = await supabase
+        .from('clients')
+        .select('id, name, document, asaas_id')
+      const clientByAsaasId = new Map<string, any>()
+      const clientByDocument = new Map<string, any>()
+      const clientByName = new Map<string, any>()
+
+      const normalizeName = (name: string) =>
+        (name || '')
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-z0-9]/g, '')
+
+      for (const c of clients || []) {
+        if (c.asaas_id) clientByAsaasId.set(c.asaas_id, c)
+        if (c.document) {
+          const normDoc = normalizeDocument(c.document)
+          if (normDoc) clientByDocument.set(normDoc, c)
+        }
+        if (c.name) {
+          const normName = normalizeName(c.name)
+          if (normName) clientByName.set(normName, c)
+        }
+      }
+
+      // Buscar fornecedores cadastrados para casamento em saídas
+      const { data: suppliers } = await supabase.from('suppliers').select('id, name, document')
+      const supplierByDocument = new Map<string, any>()
+      const supplierByName = new Map<string, any>()
+      for (const s of suppliers || []) {
+        if (s.document) {
+          const normDoc = normalizeDocument(s.document)
+          if (normDoc) supplierByDocument.set(normDoc, s)
+        }
+        if (s.name) {
+          const normName = normalizeName(s.name)
+          if (normName) supplierByName.set(normName, s)
+        }
+      }
+
+      // Buscar transações existentes no período para casar automaticamente
+      // (ex.: lançamentos já agendados de honorários ou contas a pagar com valor e data próximos)
+      const { data: existingTxs } = await supabase
+        .from('transactions')
+        .select('id, amount, date, type, clientId, supplierId, asaas_id, pendente_vinculo, status')
+        .gte('date', startDate)
+        .lte('date', finishDate)
+
+      let offset = 0
+      const limit = 100
+      let hasMore = true
+      let totalFetched = 0
+      let insertedCount = 0
+      let preReconciledCount = 0
+      let pendingReviewCount = 0
+      let skippedExistingCount = 0
+
+      const processedAsaasIds = new Set<string>()
+
+      while (hasMore) {
+        const url = `${asaasBaseUrl}/financialTransactions?startDate=${encodeURIComponent(startDate)}&finishDate=${encodeURIComponent(finishDate)}&offset=${offset}&limit=${limit}&order=asc`
+        const res = await fetch(url, {
+          method: 'GET',
+          headers: { access_token: apiKey, 'Content-Type': 'application/json' },
+        })
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          const msg = (err as any)?.errors?.[0]?.description || res.statusText
+          throw new Error(`Erro ao buscar extrato financeiro do ASAAS: ${msg}`)
+        }
+
+        const result = await res.json()
+        const items: any[] = result.data || []
+        totalFetched += items.length
+
+        for (const item of items) {
+          const ftId = item.id ? String(item.id) : ''
+          if (!ftId || processedAsaasIds.has(ftId)) continue
+          processedAsaasIds.add(ftId)
+
+          // Verifica se já existe uma transação com este asaas_id
+          const alreadyExists = (existingTxs || []).some((tx: any) => tx.asaas_id === ftId)
+          if (alreadyExists) {
+            skippedExistingCount++
+            continue
+          }
+
+          const rawValue = Number(item.value ?? 0)
+          const absAmount = Math.abs(rawValue)
+          const isIncome = rawValue >= 0
+          const txDate = item.date || item.paymentDate || startDate
+
+          const description =
+            item.description ||
+            item.transfer?.description ||
+            item.bill?.description ||
+            `Extrato Asaas: ${item.type || 'Movimentação'}`
+
+          // Tentativa de casamento por regras simples (sem IA)
+          let matchedClientId: string | null = null
+          let matchedSupplierId: string | null = null
+          let matchedExistingTxId: string | null = null
+
+          // 1. Tentar casar cliente via item.customer ou dados da transferência
+          if (item.customer && clientByAsaasId.has(item.customer)) {
+            matchedClientId = clientByAsaasId.get(item.customer).id
+          }
+
+          // 2. Se for saída, verificar se casa com fornecedor conhecido pelo nome/descrição
+          if (!isIncome) {
+            const descNorm = normalizeName(description)
+            for (const [normSName, sup] of supplierByName.entries()) {
+              if (descNorm.includes(normSName) && normSName.length >= 3) {
+                matchedSupplierId = sup.id
+                break
+              }
+            }
+          }
+
+          // 3. Tentar casar com lançamento existente não conciliado (mesmo valor, tipo idêntico e data com tolerância de até 3 dias)
+          const itemTime = new Date(txDate).getTime()
+          const matchedTx = (existingTxs || []).find((tx: any) => {
+            if (tx.asaas_id && tx.asaas_id !== ftId) return false
+            if (tx.type !== (isIncome ? 'income' : 'expense')) return false
+            const diffAmount = Math.abs(Number(tx.amount || 0) - absAmount)
+            if (diffAmount > 0.01) return false
+            if (!tx.date) return false
+            const txTime = new Date(tx.date).getTime()
+            const diffDays = Math.abs(itemTime - txTime) / (1000 * 60 * 60 * 24)
+            return diffDays <= 3
+          })
+
+          if (matchedTx) {
+            matchedExistingTxId = matchedTx.id
+            if (!matchedClientId && matchedTx.clientId) matchedClientId = matchedTx.clientId
+            if (!matchedSupplierId && matchedTx.supplierId) matchedSupplierId = matchedTx.supplierId
+          }
+
+          // Se casou com lançamento existente, podemos atualizar o lançamento existente com asaas_id e dar baixa/conciliar
+          if (matchedExistingTxId) {
+            const { error: patchErr } = await supabase
+              .from('transactions')
+              .update({
+                asaas_id: ftId,
+                status: 'Pago',
+                bankAccount: 'ASAAS',
+                pendente_vinculo: false,
+              })
+              .eq('id', matchedExistingTxId)
+
+            if (!patchErr) {
+              preReconciledCount++
+              continue
+            }
+          }
+
+          // Caso não tenha casado com lançamento pré-existente no sistema,
+          // cria um lançamento novo na fila de conciliação
+          const isPreReconciled = Boolean(matchedClientId || matchedSupplierId)
+          const newTx = {
+            description,
+            amount: absAmount,
+            type: isIncome ? 'income' : 'expense',
+            category: isIncome
+              ? 'Honorários Contratuais'
+              : (item.type || '').includes('FEE')
+                ? 'Taxas Bancárias'
+                : 'Despesas Gerais',
+            status: 'Pago',
+            date: txDate,
+            clientId: matchedClientId,
+            supplierId: matchedSupplierId,
+            asaas_id: ftId,
+            sendToFinance: true,
+            bankAccount: 'ASAAS',
+            payment_method: (item.type || '').includes('PIX')
+              ? 'PIX'
+              : (item.type || '').includes('BOLETO')
+                ? 'BOLETO'
+                : 'TRANSFERÊNCIA',
+            pendente_vinculo: !isPreReconciled,
+            origem: 'ASAAS',
+          }
+
+          const { error: insertErr } = await supabase.from('transactions').insert(newTx)
+          if (!insertErr) {
+            insertedCount++
+            if (isPreReconciled) {
+              preReconciledCount++
+            } else {
+              pendingReviewCount++
+            }
+          } else {
+            console.error('Erro ao inserir movimentação do extrato Asaas:', insertErr.message)
+          }
+        }
+
+        hasMore = Boolean(result.hasMore)
+        offset += limit
+        if (offset > 10000) break
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: `Extrato Asaas importado com sucesso: ${totalFetched} itens lidos (${insertedCount} novos lançamentos, ${preReconciledCount} pré-conciliados, ${pendingReviewCount} para conferência manual, ${skippedExistingCount} já existiam).`,
+          totalFetched,
+          insertedCount,
+          preReconciledCount,
+          pendingReviewCount,
+          skippedExistingCount,
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       )
