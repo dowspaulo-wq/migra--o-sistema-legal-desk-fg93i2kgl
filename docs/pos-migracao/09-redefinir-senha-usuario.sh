@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur / SBJur - Kit Pós-Migração VPS (Hostinger KVM 1 - IP 2.25.181.69)
 # Script: docs/pos-migracao/09-redefinir-senha-usuario.sh
-# Versão: v0.0.538
+# Versão: v0.0.539
 # ==============================================================================
 # Execução direta no terminal do VPS:
 #   bash docs/pos-migracao/09-redefinir-senha-usuario.sh "<email>" "<nova_senha>"
@@ -16,7 +16,7 @@
 #   USUARIO_EMAIL="<email>" NOVA_SENHA="<nova_senha>" curl -sSf -L ... | bash
 # ==============================================================================
 
-SCRIPT_VERSION="v0.0.538"
+SCRIPT_VERSION="v0.0.539"
 
 # (1) Banner no padrão dos scripts anteriores
 echo "====================================================================="
@@ -94,16 +94,11 @@ echo ""
 # (5) Validar se o usuário existe em auth.users (à prova de falha silenciosa)
 echo "🔎 3. Verificando existência do usuário ${TARGET_EMAIL}..."
 
-TMP_SQL_CHECK="/tmp/sbjur_check_user_$$.sql"
-cat << 'EOF_CHECK' > "${TMP_SQL_CHECK}"
-SELECT count(*) FROM auth.users WHERE email ILIKE :'target_email';
-EOF_CHECK
-
+# Usamos consulta via -c "..." exatamente como a listagem de conferência que já funciona comprovadamente,
+# sem depender de redirecionamento de stdin em subshell (que quebrava quando o script era consumido via pipe de curl)
 echo "⏳ EXECUTANDO consulta no PostgreSQL..."
-CHECK_RESULT=$(docker exec "${DB_CONTAINER}" psql -U postgres -d postgres -t -A -v "target_email=${TARGET_EMAIL}" -f - < "${TMP_SQL_CHECK}" 2>&1)
+CHECK_RESULT=$(docker exec "${DB_CONTAINER}" psql -U postgres -d postgres -t -A -v "target_email=${TARGET_EMAIL}" -c "SELECT count(*) FROM auth.users WHERE email ILIKE :'target_email';" 2>&1)
 rc_check=$?
-
-rm -f "${TMP_SQL_CHECK}" 2>/dev/null || true
 
 echo "📋 Retorno do PostgreSQL: rc=${rc_check}, resultado='${CHECK_RESULT}'"
 
@@ -117,7 +112,14 @@ fi
 # Extrair apenas dígitos da resposta
 USER_CHECK_COUNT=$(echo "${CHECK_RESULT}" | grep -E '^[0-9]+$' | tr -d '[:space:]' || true)
 
-if [ -z "${USER_CHECK_COUNT}" ] || [ "${USER_CHECK_COUNT}" -eq 0 ]; then
+# Se o resultado veio vazio ou não numérico, NÃO tratar silenciosamente como 'não encontrado'
+if [ -z "${USER_CHECK_COUNT}" ]; then
+    echo "❌ FALHA EXPLICITA: Resposta inesperada do PostgreSQL (esperado número, recebido '${CHECK_RESULT}')!"
+    echo "A verificação falhou sem retornar contagem válida."
+    exit 1
+fi
+
+if [ "${USER_CHECK_COUNT}" -eq 0 ]; then
     echo "❌ Usuário NÃO encontrado em auth.users com o e-mail: '${TARGET_EMAIL}'"
     echo ""
     echo "Nenhuma alteração foi realizada."
@@ -136,7 +138,8 @@ echo "✅ Usuário encontrado no banco de dados (${USER_CHECK_COUNT} registro)! 
 echo ""
 
 # (6) Redefinir a senha com pgcrypto e limpar tokens pendentes
-# Passamos TARGET_EMAIL e NEW_PASSWORD com segurança via arquivo SQL e variáveis psql -v
+# Passamos TARGET_EMAIL e NEW_PASSWORD com segurança via docker cp de arquivo SQL temporário
+# ou variáveis psql -v, garantindo isolamento total do stdin do curl.
 # Usamos extensões do PostgreSQL de forma resiliente: pgcrypto (crypt + gen_salt('bf', 10))
 # IMPORTANTE:
 # - confirmed_at e email são colunas GENERATED e NUNCA devem ser atualizadas diretamente.
@@ -146,8 +149,10 @@ echo ""
 echo "🚀 4. Atualizando senha e higienizando tokens no auth.users..."
 echo "---------------------------------------------------------------------"
 
-TMP_SQL_UPDATE="/tmp/sbjur_update_pass_$$.sql"
-cat << 'EOSQL' > "${TMP_SQL_UPDATE}"
+TMP_LOCAL_SQL="/tmp/sbjur_update_pass_$$.sql"
+TMP_CONTAINER_SQL="/tmp/sbjur_update_pass_$$.sql"
+
+cat << 'EOSQL' > "${TMP_LOCAL_SQL}"
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 DO $$
@@ -234,14 +239,30 @@ END $$;
 EOSQL
 
 echo "⏳ EXECUTANDO atualização de senha e higienização no PostgreSQL..."
-docker exec "${DB_CONTAINER}" \
-    psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
-    -v "target_email=${TARGET_EMAIL}" \
-    -v "new_pass=${NEW_PASSWORD}" \
-    -f - < "${TMP_SQL_UPDATE}"
-rc=$?
+# Copiamos o arquivo SQL para dentro do contêiner para que o psql leia via -f local ao contêiner,
+# eliminando completamente qualquer dependência de pipe/stdin
+docker cp "${TMP_LOCAL_SQL}" "${DB_CONTAINER}:${TMP_CONTAINER_SQL}" >/dev/null 2>&1
+cp_rc=$?
 
-rm -f "${TMP_SQL_UPDATE}" 2>/dev/null || true
+if [ ${cp_rc} -eq 0 ]; then
+    docker exec "${DB_CONTAINER}" \
+        psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
+        -v "target_email=${TARGET_EMAIL}" \
+        -v "new_pass=${NEW_PASSWORD}" \
+        -f "${TMP_CONTAINER_SQL}"
+    rc=$?
+    docker exec "${DB_CONTAINER}" rm -f "${TMP_CONTAINER_SQL}" >/dev/null 2>&1 || true
+else
+    # Fallback caso docker cp falhe por permissão: executa via arquivo redirecionado com -i
+    docker exec -i "${DB_CONTAINER}" \
+        psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
+        -v "target_email=${TARGET_EMAIL}" \
+        -v "new_pass=${NEW_PASSWORD}" \
+        -f - < "${TMP_LOCAL_SQL}"
+    rc=$?
+fi
+
+rm -f "${TMP_LOCAL_SQL}" 2>/dev/null || true
 
 echo "---------------------------------------------------------------------"
 
