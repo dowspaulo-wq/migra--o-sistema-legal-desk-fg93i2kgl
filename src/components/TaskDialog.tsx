@@ -60,9 +60,13 @@ export function TaskDialog({
   settings,
 }: any) {
   const [formData, setFormData] = useState<any>({})
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [submitAttempted, setSubmitAttempted] = useState(false)
 
   useEffect(() => {
     if (open && data) {
+      setErrors({})
+      setSubmitAttempted(false)
       if (data.isNew) {
         const draft = loadDraft()
         if (draft) {
@@ -72,7 +76,7 @@ export function TaskDialog({
             description: draft.description || '',
             dueDate: draft.dueDate || '',
             status: 'Pendente',
-            priority: draft.priority || 'Média',
+            priority: draft.priority || 'Baixa',
             responsibleId: draft.responsibleId || '',
             relatedProcessId: data.lockedProcessId || draft.relatedProcessId || '',
             type: draft.type || 'Outro',
@@ -89,7 +93,7 @@ export function TaskDialog({
         description: data.description || '',
         dueDate: data.dueDate || '',
         status: data.status || 'Pendente',
-        priority: data.priority || 'Média',
+        priority: data.priority || 'Baixa',
         responsibleId: data.responsibleId || '',
         relatedProcessId: data.relatedProcessId || '',
         type: data.type || 'Outro',
@@ -116,7 +120,55 @@ export function TaskDialog({
     }
   }, [formData, open])
 
+  const validateFields = (current: any) => {
+    const errs: Record<string, string> = {}
+    if (!current.title || !current.title.trim()) {
+      errs.title = 'Título é obrigatório.'
+    }
+    if (!current.dueDate || !current.dueDate.trim()) {
+      errs.dueDate = 'Data de vencimento é obrigatória.'
+    }
+    if (!current.priority || !current.priority.trim()) {
+      errs.priority = 'Prioridade é obrigatória.'
+    }
+    if (!current.status || !current.status.trim()) {
+      errs.status = 'Status é obrigatório.'
+    }
+    if (!current.type || !current.type.trim()) {
+      errs.type = 'Tipo de tarefa é obrigatório.'
+    }
+    if (!current.responsibleId || !current.responsibleId.trim()) {
+      errs.responsibleId = 'Responsável é obrigatório.'
+    }
+    if (!current.clientId || current.clientId === 'none' || !String(current.clientId).trim()) {
+      errs.clientId = 'Cliente relacionado é obrigatório.'
+    }
+    if (
+      !current.relatedProcessId ||
+      current.relatedProcessId === 'none' ||
+      !String(current.relatedProcessId).trim()
+    ) {
+      errs.relatedProcessId = 'Processo relacionado é obrigatório.'
+    }
+    return errs
+  }
+
+  const handleFieldChange = (field: string, value: any) => {
+    const updated = { ...formData, [field]: value }
+    setFormData(updated)
+    if (submitAttempted) {
+      setErrors(validateFields(updated))
+    }
+  }
+
   const handleSave = () => {
+    setSubmitAttempted(true)
+    const errs = validateFields(formData)
+    setErrors(errs)
+    if (Object.keys(errs).length > 0) {
+      return
+    }
+
     const { isNew, ...payload } = formData
     if (payload.clientId === 'none') payload.clientId = null
     if (payload.relatedProcessId === 'none') payload.relatedProcessId = null
@@ -177,29 +229,44 @@ export function TaskDialog({
           )}
 
           <div className="space-y-2">
-            <Label>Título</Label>
+            <Label className="flex items-center gap-1 font-medium">
+              Título <span className="text-red-500 font-bold">*</span>
+            </Label>
             <Input
               value={formData.title}
-              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+              onChange={(e) => handleFieldChange('title', e.target.value)}
+              className={errors.title ? 'border-red-500 focus-visible:ring-red-500' : ''}
+              placeholder="Digite o título da tarefa..."
             />
+            {errors.title && <p className="text-xs text-red-500 font-medium">{errors.title}</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Data de Vencimento</Label>
+              <Label className="flex items-center gap-1 font-medium">
+                Data de Vencimento <span className="text-red-500 font-bold">*</span>
+              </Label>
               <Input
                 type="date"
                 value={formData.dueDate}
-                onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
+                onChange={(e) => handleFieldChange('dueDate', e.target.value)}
+                className={errors.dueDate ? 'border-red-500 focus-visible:ring-red-500' : ''}
               />
+              {errors.dueDate && (
+                <p className="text-xs text-red-500 font-medium">{errors.dueDate}</p>
+              )}
             </div>
             <div className="space-y-2">
-              <Label>Prioridade</Label>
+              <Label className="flex items-center gap-1 font-medium">
+                Prioridade <span className="text-red-500 font-bold">*</span>
+              </Label>
               <Select
                 value={formData.priority}
-                onValueChange={(v) => setFormData({ ...formData, priority: v })}
+                onValueChange={(v) => handleFieldChange('priority', v)}
               >
-                <SelectTrigger>
+                <SelectTrigger
+                  className={errors.priority ? 'border-red-500 focus-visible:ring-red-500' : ''}
+                >
                   <SelectValue placeholder="Selecione..." />
                 </SelectTrigger>
                 <SelectContent>
@@ -210,15 +277,20 @@ export function TaskDialog({
                   ))}
                 </SelectContent>
               </Select>
+              {errors.priority && (
+                <p className="text-xs text-red-500 font-medium">{errors.priority}</p>
+              )}
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Status</Label>
+              <Label className="flex items-center gap-1 font-medium">
+                Status <span className="text-red-500 font-bold">*</span>
+              </Label>
               <Select
                 value={formData.status}
-                onValueChange={(v) => setFormData({ ...formData, status: v })}
+                onValueChange={(v) => handleFieldChange('status', v)}
                 disabled={
                   isCompleted ||
                   (() => {
@@ -229,7 +301,9 @@ export function TaskDialog({
                   })()
                 }
               >
-                <SelectTrigger>
+                <SelectTrigger
+                  className={errors.status ? 'border-red-500 focus-visible:ring-red-500' : ''}
+                >
                   <SelectValue placeholder="Selecione..." />
                 </SelectTrigger>
                 <SelectContent>
@@ -243,14 +317,16 @@ export function TaskDialog({
                   {isCompleted && <SelectItem value="Concluído">Concluído</SelectItem>}
                 </SelectContent>
               </Select>
+              {errors.status && <p className="text-xs text-red-500 font-medium">{errors.status}</p>}
             </div>
             <div className="space-y-2">
-              <Label>Tipo</Label>
-              <Select
-                value={formData.type}
-                onValueChange={(v) => setFormData({ ...formData, type: v })}
-              >
-                <SelectTrigger>
+              <Label className="flex items-center gap-1 font-medium">
+                Tipo <span className="text-red-500 font-bold">*</span>
+              </Label>
+              <Select value={formData.type} onValueChange={(v) => handleFieldChange('type', v)}>
+                <SelectTrigger
+                  className={errors.type ? 'border-red-500 focus-visible:ring-red-500' : ''}
+                >
                   <SelectValue placeholder="Selecione..." />
                 </SelectTrigger>
                 <SelectContent>
@@ -261,16 +337,21 @@ export function TaskDialog({
                   ))}
                 </SelectContent>
               </Select>
+              {errors.type && <p className="text-xs text-red-500 font-medium">{errors.type}</p>}
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label>Responsável</Label>
+            <Label className="flex items-center gap-1 font-medium">
+              Responsável <span className="text-red-500 font-bold">*</span>
+            </Label>
             <Select
               value={formData.responsibleId}
-              onValueChange={(v) => setFormData({ ...formData, responsibleId: v })}
+              onValueChange={(v) => handleFieldChange('responsibleId', v)}
             >
-              <SelectTrigger>
+              <SelectTrigger
+                className={errors.responsibleId ? 'border-red-500 focus-visible:ring-red-500' : ''}
+              >
                 <SelectValue placeholder="Selecione..." />
               </SelectTrigger>
               <SelectContent>
@@ -281,20 +362,40 @@ export function TaskDialog({
                 ))}
               </SelectContent>
             </Select>
+            {errors.responsibleId && (
+              <p className="text-xs text-red-500 font-medium">{errors.responsibleId}</p>
+            )}
           </div>
 
           <div className="space-y-2">
-            <Label>Cliente Relacionado</Label>
+            <Label className="flex items-center gap-1 font-medium">
+              Cliente Relacionado <span className="text-red-500 font-bold">*</span>
+            </Label>
             <Select
               value={formData.clientId || 'none'}
-              onValueChange={(v) => setFormData({ ...formData, clientId: v })}
+              onValueChange={(v) => {
+                const nextClient = v === 'none' ? '' : v
+                const updated: any = { ...formData, clientId: nextClient }
+                // Se o processo atual não pertencer ao novo cliente, limpa
+                if (updated.relatedProcessId) {
+                  const currCase = cases?.find((c: any) => c.id === updated.relatedProcessId)
+                  if (currCase && currCase.clientId !== nextClient) {
+                    updated.relatedProcessId = ''
+                  }
+                }
+                setFormData(updated)
+                if (submitAttempted) {
+                  setErrors(validateFields(updated))
+                }
+              }}
               disabled={!!data?.lockedClientId}
             >
-              <SelectTrigger>
+              <SelectTrigger
+                className={errors.clientId ? 'border-red-500 focus-visible:ring-red-500' : ''}
+              >
                 <SelectValue placeholder="Selecione um cliente..." />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">Sem Cliente</SelectItem>
                 {clients?.map((c: any) => (
                   <SelectItem key={c.id} value={c.id}>
                     {c.name}
@@ -302,34 +403,64 @@ export function TaskDialog({
                 ))}
               </SelectContent>
             </Select>
+            {errors.clientId && (
+              <p className="text-xs text-red-500 font-medium">{errors.clientId}</p>
+            )}
           </div>
 
           <div className="space-y-2">
-            <Label>Processo Relacionado</Label>
+            <Label className="flex items-center gap-1 font-medium">
+              Processo Relacionado <span className="text-red-500 font-bold">*</span>
+            </Label>
             <Select
               value={formData.relatedProcessId || 'none'}
-              onValueChange={(v) => setFormData({ ...formData, relatedProcessId: v })}
+              onValueChange={(v) => {
+                const nextProcess = v === 'none' ? '' : v
+                const updated: any = { ...formData, relatedProcessId: nextProcess }
+                if (nextProcess && (!updated.clientId || updated.clientId === 'none')) {
+                  const selCase = cases?.find((c: any) => c.id === nextProcess)
+                  if (selCase?.clientId) {
+                    updated.clientId = selCase.clientId
+                  }
+                }
+                setFormData(updated)
+                if (submitAttempted) {
+                  setErrors(validateFields(updated))
+                }
+              }}
               disabled={!!data?.lockedProcessId}
             >
-              <SelectTrigger>
+              <SelectTrigger
+                className={
+                  errors.relatedProcessId ? 'border-red-500 focus-visible:ring-red-500' : ''
+                }
+              >
                 <SelectValue placeholder="Selecione um processo..." />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">Sem Processo</SelectItem>
-                {cases?.map((c: any) => (
+                {(formData.clientId && formData.clientId !== 'none'
+                  ? cases?.filter((c: any) => c.clientId === formData.clientId)
+                  : cases
+                )?.map((c: any) => (
                   <SelectItem key={c.id} value={c.id}>
                     {c.number}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            {errors.relatedProcessId && (
+              <p className="text-xs text-red-500 font-medium">{errors.relatedProcessId}</p>
+            )}
           </div>
 
           <div className="space-y-2">
-            <Label>Descrição</Label>
+            <div className="flex items-center justify-between">
+              <Label className="font-medium">Descrição</Label>
+              <span className="text-xs text-muted-foreground font-normal">(Opcional)</span>
+            </div>
             <RichTextEditor
               value={formData.description || ''}
-              onChange={(v) => setFormData({ ...formData, description: v })}
+              onChange={(v) => handleFieldChange('description', v)}
               className="min-h-[120px]"
             />
           </div>
