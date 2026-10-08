@@ -137,7 +137,13 @@ export default function Index() {
   const todayAppts = state.appointments.filter((a) => a.date === todayStr)
 
   // Compute Task Management Dashboard stats
-  const userTasksStats = activeUsers
+  const currentUserId = state.currentUser?.id
+  const taskUsers =
+    state.currentUser && !activeUsers.some((u) => u.id === state.currentUser.id)
+      ? [state.currentUser, ...activeUsers]
+      : activeUsers
+
+  const userTasksStats = taskUsers
     .map((user) => {
       const userTasks = state.tasks.filter((t) => t.responsibleId === user.id)
       const total = userTasks.length
@@ -245,8 +251,14 @@ export default function Index() {
         types: sortedTypes,
       }
     })
-    .filter((u) => u.total > 0)
-    .sort((a, b) => b.total - a.total)
+    .filter((u) => u.user.id === currentUserId || u.total > 0)
+    .sort((a, b) => {
+      const isALoggedUser = a.user.id === currentUserId
+      const isBLoggedUser = b.user.id === currentUserId
+      if (isALoggedUser) return -1
+      if (isBLoggedUser) return 1
+      return b.total - a.total
+    })
 
   // Compute Agenda Management Dashboard stats
   const userAgendaStats = activeUsers
