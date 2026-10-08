@@ -78,10 +78,31 @@ npm run format
 .
 ├── src/              # Código fonte da aplicação
 ├── public/           # Arquivos estáticos
+├── docs/             # Documentação de migração e infraestrutura VPS
+│   ├── backup-fase6/ # Fase 6: Sistema de backup automático, Google Drive e alertas
+│   ├── asaas-integracao/ # Integração com Asaas (Edge Functions no VPS)
+│   ├── pos-migracao/ # Scripts operacionais pós-migração
+│   └── migracao-fase4/ # Kit oficial de migração para o Supabase no VPS
 ├── dist/             # Build de produção (gerado)
 ├── node_modules/     # Dependências (gerado)
 └── package.json      # Configurações e dependências do projeto
 ```
+
+## 🛡️ Kits de Infraestrutura e Operação no VPS (Hostinger KVM 1)
+
+O sistema SBJur/DPSjur opera em infraestrutura própria no VPS Hostinger via EasyPanel e Docker. Abaixo estão os kits de automação e runbooks disponíveis:
+
+- **Fase 6 — Backup Automático e Cópia Externa (`docs/backup-fase6/`):**
+  - **[Runbook Completo (00-README.md)](docs/backup-fase6/00-README.md)** — Passo a passo ilustrado para o usuário Douglas;
+  - Dump diário automático às 03:00 via `pg_dump` no container PostgreSQL;
+  - Política de retenção inteligente: 7 dias diários, 30 dias de domingo (semanal), 1 ano de dia 1º (mensal);
+  - Sincronização em nuvem externa no **Google Drive** do escritório via `rclone`;
+  - Notificação diária de sucesso e alertas de falha por **e-mail** via Gmail SMTP;
+  - Script de teste de restauração em banco temporário paralelo (`sbjur_restore_test`) sem tocar nos dados de produção.
+- **Fase Asaas — Edge Functions no VPS (`docs/asaas-integracao/`):**
+  - Sincronização de cobranças e clientes com a API oficial do Asaas.
+- **Fase 4 — Migração Supabase Self-Hosted (`docs/migracao-fase4/`):**
+  - DDL, políticas RLS, credenciais GoTrue e importação de dados.
 
 ## 🎨 Componentes UI
 
