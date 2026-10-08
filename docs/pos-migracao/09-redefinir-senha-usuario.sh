@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur / SBJur - Kit Pós-Migração VPS (Hostinger KVM 1 - IP 2.25.181.69)
 # Script: docs/pos-migracao/09-redefinir-senha-usuario.sh
-# Versão: v0.0.539
+# Versão: v0.0.540
 # ==============================================================================
 # Execução direta no terminal do VPS:
 #   bash docs/pos-migracao/09-redefinir-senha-usuario.sh "<email>" "<nova_senha>"
@@ -16,7 +16,7 @@
 #   USUARIO_EMAIL="<email>" NOVA_SENHA="<nova_senha>" curl -sSf -L ... | bash
 # ==============================================================================
 
-SCRIPT_VERSION="v0.0.539"
+SCRIPT_VERSION="v0.0.540"
 
 # (1) Banner no padrão dos scripts anteriores
 echo "====================================================================="
@@ -55,6 +55,10 @@ fi
 
 echo "🎯 Alvo: ${TARGET_EMAIL}"
 echo ""
+
+# Escape seguro de aspas simples para literais SQL (dobra cada ' no valor)
+ESCAPED_EMAIL="${TARGET_EMAIL//\'/\'\'}"
+ESCAPED_PASSWORD="${NEW_PASSWORD//\'/\'\'}"
 
 # (3) Localizar contêiner PostgreSQL via docker ps
 echo "🔍 1. Localizando contêiner PostgreSQL do Supabase..."
@@ -96,8 +100,9 @@ echo "🔎 3. Verificando existência do usuário ${TARGET_EMAIL}..."
 
 # Usamos consulta via -c "..." exatamente como a listagem de conferência que já funciona comprovadamente,
 # sem depender de redirecionamento de stdin em subshell (que quebrava quando o script era consumido via pipe de curl)
+# e sem depender de interpolação de variáveis do psql (:'var'), inserindo o e-mail escapado diretamente no literal SQL.
 echo "⏳ EXECUTANDO consulta no PostgreSQL..."
-CHECK_RESULT=$(docker exec "${DB_CONTAINER}" psql -U postgres -d postgres -t -A -v "target_email=${TARGET_EMAIL}" -c "SELECT count(*) FROM auth.users WHERE email ILIKE :'target_email';" 2>&1)
+CHECK_RESULT=$(docker exec "${DB_CONTAINER}" psql -U postgres -d postgres -t -A -c "SELECT count(*) FROM auth.users WHERE email ILIKE '${ESCAPED_EMAIL}';" 2>&1)
 rc_check=$?
 
 echo "📋 Retorno do PostgreSQL: rc=${rc_check}, resultado='${CHECK_RESULT}'"
@@ -138,8 +143,8 @@ echo "✅ Usuário encontrado no banco de dados (${USER_CHECK_COUNT} registro)! 
 echo ""
 
 # (6) Redefinir a senha com pgcrypto e limpar tokens pendentes
-# Passamos TARGET_EMAIL e NEW_PASSWORD com segurança via docker cp de arquivo SQL temporário
-# ou variáveis psql -v, garantindo isolamento total do stdin do curl.
+# Passamos TARGET_EMAIL e NEW_PASSWORD com escape de aspas simples gerado no SQL temporário,
+# copiado via docker cp para o contêiner, garantindo isolamento total do stdin do curl.
 # Usamos extensões do PostgreSQL de forma resiliente: pgcrypto (crypt + gen_salt('bf', 10))
 # IMPORTANTE:
 # - confirmed_at e email são colunas GENERATED e NUNCA devem ser atualizadas diretamente.
@@ -152,13 +157,13 @@ echo "---------------------------------------------------------------------"
 TMP_LOCAL_SQL="/tmp/sbjur_update_pass_$$.sql"
 TMP_CONTAINER_SQL="/tmp/sbjur_update_pass_$$.sql"
 
-cat << 'EOSQL' > "${TMP_LOCAL_SQL}"
+cat << EOSQL > "${TMP_LOCAL_SQL}"
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
-DO $$
+DO \$\$
 DECLARE
-    v_target_email text := :'target_email';
-    v_new_password text := :'new_pass';
+    v_target_email text := '${ESCAPED_EMAIL}';
+    v_new_password text := '${ESCAPED_PASSWORD}';
     v_user_id uuid;
     v_user_email text;
 BEGIN
@@ -235,7 +240,7 @@ BEGIN
             );
         END IF;
     END IF;
-END $$;
+END \$\$;
 EOSQL
 
 echo "⏳ EXECUTANDO atualização de senha e higienização no PostgreSQL..."
@@ -247,8 +252,6 @@ cp_rc=$?
 if [ ${cp_rc} -eq 0 ]; then
     docker exec "${DB_CONTAINER}" \
         psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
-        -v "target_email=${TARGET_EMAIL}" \
-        -v "new_pass=${NEW_PASSWORD}" \
         -f "${TMP_CONTAINER_SQL}"
     rc=$?
     docker exec "${DB_CONTAINER}" rm -f "${TMP_CONTAINER_SQL}" >/dev/null 2>&1 || true
@@ -256,12 +259,9 @@ else
     # Fallback caso docker cp falhe por permissão: executa via arquivo redirecionado com -i
     docker exec -i "${DB_CONTAINER}" \
         psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
-        -v "target_email=${TARGET_EMAIL}" \
-        -v "new_pass=${NEW_PASSWORD}" \
         -f - < "${TMP_LOCAL_SQL}"
     rc=$?
 fi
-
 rm -f "${TMP_LOCAL_SQL}" 2>/dev/null || true
 
 echo "---------------------------------------------------------------------"
@@ -280,7 +280,7 @@ echo "📊 5. Conferência dos dados no banco..."
 echo ""
 
 echo ">> Registro do usuário atualizado em auth.users:"
-docker exec "${DB_CONTAINER}" psql -U postgres -d postgres -v "target_email=${TARGET_EMAIL}" -c "
+docker exec "${DB_CONTAINER}" psql -U postgres -d postgres -c "
 SELECT 
     id, 
     email, 
@@ -289,18 +289,18 @@ SELECT
     email_confirmed_at IS NOT NULL AS confirmado,
     updated_at
 FROM auth.users 
-WHERE email ILIKE :'target_email';
+WHERE email ILIKE '${ESCAPED_EMAIL}';
 " || {
     echo "⚠️ FALHA EXPLICITA: Consulta de conferência do usuário falhou."
 }
 echo ""
 
 echo ">> Sessões ativas em auth.sessions (informativo):"
-docker exec "${DB_CONTAINER}" psql -U postgres -d postgres -v "target_email=${TARGET_EMAIL}" -c "
+docker exec "${DB_CONTAINER}" psql -U postgres -d postgres -c "
 SELECT 
     count(*) AS sessoes_ativas 
 FROM auth.sessions 
-WHERE user_id IN (SELECT id FROM auth.users WHERE email ILIKE :'target_email');
+WHERE user_id IN (SELECT id FROM auth.users WHERE email ILIKE '${ESCAPED_EMAIL}');
 " || {
     echo "⚠️ FALHA EXPLICITA: Consulta de conferência de sessões falhou."
 }
