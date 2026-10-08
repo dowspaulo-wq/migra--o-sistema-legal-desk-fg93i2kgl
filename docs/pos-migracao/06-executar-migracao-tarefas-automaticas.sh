@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur / SBJur - Kit Pós-Migração VPS (Hostinger KVM 1 - IP 2.25.181.69)
 # Script: docs/pos-migracao/06-executar-migracao-tarefas-automaticas.sh
-# Versão: v0.0.532
+# Versão: v0.0.533
 # ==============================================================================
 # Execução no VPS:
 # curl -sSf -L -H "Accept: application/vnd.github.v3.raw" \
@@ -10,7 +10,7 @@
 #   | bash
 # ==============================================================================
 
-SCRIPT_VERSION="v0.0.532"
+SCRIPT_VERSION="v0.0.533"
 WORK_DIR="/root/sbjur-pos-migracao"
 SQL_FILE_NAME="20261008150000_create_auto_tasks_on_client_creation.sql"
 SQL_FILE_PATH="${WORK_DIR}/${SQL_FILE_NAME}"
@@ -125,8 +125,8 @@ echo ""
 echo "📊 5. Tabela de conferência do schema e das funções no VPS..."
 echo ""
 
-QUERY_VERIFICACAO="
-\echo '>> 1. Verificação das funções criadas em pg_proc:'
+echo ">> 1. Verificação das funções criadas em pg_proc:"
+docker exec -i "${DB_CONTAINER}" psql -U postgres -d postgres -c "
 SELECT 
     n.nspname AS schema,
     p.proname AS funcao,
@@ -137,9 +137,13 @@ JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE n.nspname = 'public'
   AND p.proname IN ('calculate_next_business_day', 'handle_new_client_tasks')
 ORDER BY p.proname;
+" || {
+    echo "⚠️  Aviso: A migração FOI APLICADA com sucesso no banco, mas a consulta de conferência das funções falhou."
+}
+echo ""
 
-\echo ''
-\echo '>> 2. Verificação do trigger em public.clients (pg_trigger):'
+echo ">> 2. Verificação do trigger em public.clients (pg_trigger):"
+docker exec -i "${DB_CONTAINER}" psql -U postgres -d postgres -c "
 SELECT 
     c.relname AS tabela,
     t.tgname AS trigger_nome,
@@ -151,10 +155,15 @@ JOIN pg_namespace n ON n.oid = c.relnamespace
 JOIN pg_proc p ON p.oid = t.tgfoid
 WHERE n.nspname = 'public'
   AND c.relname = 'clients'
-  AND t.tgname = 'on_client_created';
+  AND t.tgname = 'on_client_created'
+  AND NOT t.tgisinternal;
+" || {
+    echo "⚠️  Aviso: A migração FOI APLICADA com sucesso no banco, mas a consulta de conferência do trigger falhou."
+}
+echo ""
 
-\echo ''
-\echo '>> 3. Amostra de tarefas mais recentes em public.tasks (se houver):'
+echo ">> 3. Amostra de tarefas mais recentes em public.tasks (se houver):"
+docker exec -i "${DB_CONTAINER}" psql -U postgres -d postgres -c "
 SELECT 
     t.id,
     t.title,
@@ -171,10 +180,8 @@ LEFT JOIN public.profiles p ON p.id = t.\"responsibleId\"
 WHERE t.title IN ('Acompanhamento processual mensal', 'Redigir Inicial ou Defesa')
 ORDER BY t.created_at DESC
 LIMIT 2;
-"
-
-docker exec -i "${DB_CONTAINER}" psql -U postgres -d postgres -c "${QUERY_VERIFICACAO}" || {
-    echo "⚠️  Aviso: Consulta de conferência encontrou instabilidade temporária."
+" || {
+    echo "⚠️  Aviso: A migração FOI APLICADA com sucesso no banco, mas a consulta de conferência de amostra de tarefas falhou."
 }
 
 echo ""
