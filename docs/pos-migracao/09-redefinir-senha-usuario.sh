@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur / SBJur - Kit Pós-Migração VPS (Hostinger KVM 1 - IP 2.25.181.69)
 # Script: docs/pos-migracao/09-redefinir-senha-usuario.sh
-# Versão: v0.0.536
+# Versão: v0.0.537
 # ==============================================================================
 # Execução direta no terminal do VPS:
 #   bash docs/pos-migracao/09-redefinir-senha-usuario.sh "<email>" "<nova_senha>"
@@ -16,7 +16,7 @@
 #   USUARIO_EMAIL="<email>" NOVA_SENHA="<nova_senha>" curl -sSf -L ... | bash
 # ==============================================================================
 
-SCRIPT_VERSION="v0.0.536"
+SCRIPT_VERSION="v0.0.537"
 
 # (1) Banner no padrão dos scripts anteriores
 echo "====================================================================="
@@ -91,18 +91,39 @@ else
 fi
 echo ""
 
-# (5) Validar se o usuário existe em auth.users
+# (5) Validar se o usuário existe em auth.users (à prova de falha silenciosa)
 echo "🔎 3. Verificando existência do usuário ${TARGET_EMAIL}..."
-USER_CHECK_COUNT=$(docker exec -i -e TARGET_EMAIL="${TARGET_EMAIL}" "${DB_CONTAINER}" psql -U postgres -d postgres -tAc "SELECT count(*) FROM auth.users WHERE email ILIKE current_setting('target.email', true);" -c "SET target.email = '${TARGET_EMAIL}';" 2>/dev/null || true)
 
-# Validação alternativa sem mexer em settings caso venha vazio ou falhe:
-if [ -z "${USER_CHECK_COUNT}" ]; then
-    USER_CHECK_COUNT=$(docker exec -i -e TARGET_EMAIL="${TARGET_EMAIL}" "${DB_CONTAINER}" \
-        psql -U postgres -d postgres -v "target_email=${TARGET_EMAIL}" -tAc \
-        "SELECT count(*) FROM auth.users WHERE email ILIKE :'target_email';" 2>/dev/null || echo "0")
+TMP_OUT=$(mktemp 2>/dev/null || echo "/tmp/sbjur_user_check_$$")
+TMP_ERR=$(mktemp 2>/dev/null || echo "/tmp/sbjur_user_err_$$")
+
+# Executa consulta segura passando target_email via -v do psql
+# Redireciona stdout e stderr para arquivos temporários separados para nunca engolir erro
+docker exec -i "${DB_CONTAINER}" \
+    psql -U postgres -d postgres -tAc \
+    -v "target_email=${TARGET_EMAIL}" \
+    "SELECT count(*) FROM auth.users WHERE email ILIKE :'target_email';" > "${TMP_OUT}" 2> "${TMP_ERR}"
+rc_check=$?
+
+USER_CHECK_COUNT=$(tr -d '[:space:]' < "${TMP_OUT}" 2>/dev/null || echo "")
+CHECK_ERR=$(cat "${TMP_ERR}" 2>/dev/null || echo "")
+
+rm -f "${TMP_OUT}" "${TMP_ERR}" 2>/dev/null || true
+
+# Caso o psql tenha falhado com erro de banco/conexão/sintaxe
+if [ ${rc_check} -ne 0 ]; then
+    echo "❌ Erro ao consultar o banco de dados (código ${rc_check})!"
+    if [ -n "${CHECK_ERR}" ]; then
+        echo "Detalhes do erro retornado pelo PostgreSQL:"
+        echo "${CHECK_ERR}"
+    else
+        echo "PostgreSQL não retornou mensagem de erro detalhada."
+    fi
+    exit ${rc_check}
 fi
 
-if [ "${USER_CHECK_COUNT}" = "0" ] || [ -z "${USER_CHECK_COUNT}" ]; then
+# Se não retornou número válido ou retornou 0: usuário não encontrado
+if [ -z "${USER_CHECK_COUNT}" ] || ! [[ "${USER_CHECK_COUNT}" =~ ^[0-9]+$ ]] || [ "${USER_CHECK_COUNT}" -eq 0 ]; then
     echo "❌ Usuário não encontrado em auth.users com o e-mail: '${TARGET_EMAIL}'"
     echo ""
     echo "Nenhuma alteração foi realizada."
@@ -111,15 +132,17 @@ if [ "${USER_CHECK_COUNT}" = "0" ] || [ -z "${USER_CHECK_COUNT}" ]; then
         SELECT id, email, created_at, email_confirmed_at IS NOT NULL AS confirmado 
         FROM auth.users 
         ORDER BY email;
-    " 2>/dev/null || true
+    " || {
+        echo "⚠️  Não foi possível listar os usuários de auth.users."
+    }
     exit 1
 fi
 
-echo "✅ Usuário encontrado no banco de dados! Prosseguindo com a redefinição de senha..."
+echo "✅ Usuário encontrado no banco de dados (${USER_CHECK_COUNT} registro)! Prosseguindo com a redefinição de senha..."
 echo ""
 
 # (6) Redefinir a senha com pgcrypto e limpar tokens pendentes
-# Passamos TARGET_EMAIL e NEW_PASSWORD com segurança via docker exec -e
+# Passamos TARGET_EMAIL e NEW_PASSWORD com segurança via variáveis psql -v
 # Usamos extensões do PostgreSQL de forma resiliente: pgcrypto (crypt + gen_salt('bf', 10))
 # IMPORTANTE:
 # - confirmed_at e email são colunas GENERATED e NUNCA devem ser atualizadas diretamente.
@@ -129,8 +152,6 @@ echo ""
 echo "🚀 4. Atualizando senha e higienizando tokens no auth.users..."
 echo "---------------------------------------------------------------------"
 docker exec -i \
-    -e TARGET_EMAIL="${TARGET_EMAIL}" \
-    -e NEW_PASSWORD="${NEW_PASSWORD}" \
     "${DB_CONTAINER}" \
     psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
     -v "target_email=${TARGET_EMAIL}" \
@@ -139,12 +160,10 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 DO $$
 DECLARE
-    v_crypt_func text;
     v_target_email text := :'target_email';
     v_new_password text := :'new_pass';
     v_user_id uuid;
     v_user_email text;
-    v_has_identities boolean := false;
 BEGIN
     -- Obter ID e email exato do usuário
     SELECT id, email INTO v_user_id, v_user_email
