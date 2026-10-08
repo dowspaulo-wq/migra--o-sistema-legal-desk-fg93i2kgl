@@ -20,8 +20,10 @@ set -euo pipefail
 # Garante que terminal restaure echo em caso de interrupção
 trap 'stty echo 2>/dev/null || true' EXIT INT TERM
 
-SCRIPT_VERSION="v0.0.524"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_VERSION="v0.0.525"
+# Quando executado via pipe (curl | bash), BASH_SOURCE[0] vem vazio sob `set -u`
+SCRIPT_ENTRY="${BASH_SOURCE[0]:-$0}"
+SCRIPT_DIR="$(cd "$(dirname "${SCRIPT_ENTRY}")" 2>/dev/null && pwd || echo "/root/sbjur-pos-migracao")"
 WORK_DIR="/root/sbjur-pos-migracao"
 SQL_FILE_NAME="04-recriar-processos-guilherme.sql"
 SQL_FILE_PATH="${SCRIPT_DIR}/${SQL_FILE_NAME}"
@@ -124,48 +126,102 @@ DB_USER="${POSTGRES_USER:-postgres}"
 DB_NAME="${POSTGRES_DB:-postgres}"
 LOCAL_DB_PASSWORD="${POSTGRES_PASSWORD:-${LOCAL_DB_PASSWORD:-}}"
 
-# Teste 3.1: conexão direta como postgres sem senha (ou com a senha já fornecida)
+# Função auxiliar para testar conexão com usuário e senha específicos
+test_db_connection() {
+    local u="$1"
+    local p="$2"
+    if [ -n "$p" ]; then
+        docker exec -i -e PGPASSWORD="$p" "$DB_CONTAINER" psql -U "$u" -d "$DB_NAME" -tAc "SELECT 1;" 2>&1
+    else
+        docker exec -i "$DB_CONTAINER" psql -U "$u" -d "$DB_NAME" -tAc "SELECT 1;" 2>&1
+    fi
+}
+
+CONN_OK=0
+
+# Teste 3.1: Testar com usuário postgres e senha existente (se já fornecida em env) ou sem senha
 set +e
-if [ -n "$LOCAL_DB_PASSWORD" ]; then
-    TEST_OUT=$(docker exec -i -e PGPASSWORD="$LOCAL_DB_PASSWORD" "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT 1;" 2>&1)
-    TEST_STATUS=$?
-else
-    TEST_OUT=$(docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT 1;" 2>&1)
-    TEST_STATUS=$?
-fi
+TEST_OUT=$(test_db_connection "$DB_USER" "$LOCAL_DB_PASSWORD")
+TEST_STATUS=$?
 set -e
 
-if [ $TEST_STATUS -eq 0 ]; then
+if [ $TEST_STATUS -eq 0 ] && [ "${TEST_OUT//[$'\t\r\n ']/}" = "1" ]; then
+    CONN_OK=1
     echo "✅ Conexão bem-sucedida via usuário '$DB_USER'!"
 else
-    # Teste 3.2: usuário supabase_admin
+    # Teste 3.2: Tentar supabase_admin
     set +e
-    TEST_OUT_ADMIN=$(docker exec -i "$DB_CONTAINER" psql -U supabase_admin -d "$DB_NAME" -tAc "SELECT 1;" 2>&1)
+    TEST_OUT_ADMIN=$(test_db_connection "supabase_admin" "$LOCAL_DB_PASSWORD")
     TEST_STATUS_ADMIN=$?
     set -e
 
-    if [ $TEST_STATUS_ADMIN -eq 0 ]; then
+    if [ $TEST_STATUS_ADMIN -eq 0 ] && [ "${TEST_OUT_ADMIN//[$'\t\r\n ']/}" = "1" ]; then
         DB_USER="supabase_admin"
+        CONN_OK=1
         echo "✅ Conexão bem-sucedida via usuário 'supabase_admin'!"
-    else
-        echo "ℹ️  Conexão direta padrão exigiu senha. Solicitando POSTGRES_PASSWORD..."
-        printf "👉 Digite a senha POSTGRES_PASSWORD do Supabase (EasyPanel): "
-        stty -echo
-        read -r LOCAL_DB_PASSWORD
-        stty echo
-        echo ""
+    fi
+fi
 
+# Se não conectou direto, solicitar senha via prompt seguro (lendo do tty para suportar curl | bash)
+if [ $CONN_OK -eq 0 ]; then
+    echo "ℹ️  Conexão sem senha falhou ou exigiu autenticação."
+    if [ -n "$TEST_OUT" ]; then
+        echo "   [Diagnóstico 'postgres']: $(echo "$TEST_OUT" | tr '\n' ' ' | head -c 200)"
+    fi
+    if [ -n "${TEST_OUT_ADMIN:-}" ]; then
+        echo "   [Diagnóstico 'supabase_admin']: $(echo "$TEST_OUT_ADMIN" | tr '\n' ' ' | head -c 200)"
+    fi
+    echo ""
+    echo "🔑 Solicitando POSTGRES_PASSWORD do Supabase local (EasyPanel)..."
+
+    # Abre descritor para leitura interativa do terminal mesmo quando stdin for pipe (curl | bash)
+    TTY_IN="/dev/tty"
+    if [ ! -r "$TTY_IN" ]; then
+        TTY_IN="/dev/stdin"
+    fi
+
+    printf "👉 Digite a senha POSTGRES_PASSWORD do Supabase (EasyPanel): "
+    stty -echo < "$TTY_IN" 2>/dev/null || true
+    read -r LOCAL_DB_PASSWORD < "$TTY_IN"
+    stty echo < "$TTY_IN" 2>/dev/null || true
+    echo ""
+
+    if [ -z "$LOCAL_DB_PASSWORD" ]; then
+        echo "❌ Erro: Senha fornecida está vazia!"
+        exit 1
+    fi
+
+    # Tenta com postgres + senha
+    set +e
+    TEST_OUT_PW=$(test_db_connection "postgres" "$LOCAL_DB_PASSWORD")
+    TEST_STATUS_PW=$?
+    set -e
+
+    if [ $TEST_STATUS_PW -eq 0 ] && [ "${TEST_OUT_PW//[$'\t\r\n ']/}" = "1" ]; then
+        DB_USER="postgres"
+        CONN_OK=1
+        echo "✅ Conexão autenticada com sucesso via usuário 'postgres'!"
+    else
+        # Tenta com supabase_admin + senha
         set +e
-        TEST_OUT=$(docker exec -i -e PGPASSWORD="$LOCAL_DB_PASSWORD" "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT 1;" 2>&1)
-        TEST_STATUS=$?
+        TEST_OUT_ADMIN_PW=$(test_db_connection "supabase_admin" "$LOCAL_DB_PASSWORD")
+        TEST_STATUS_ADMIN_PW=$?
         set -e
 
-        if [ $TEST_STATUS -ne 0 ]; then
-            echo "❌ Erro fatal: Não foi possível autenticar no PostgreSQL!"
-            echo "Detalhe: $TEST_OUT"
+        if [ $TEST_STATUS_ADMIN_PW -eq 0 ] && [ "${TEST_OUT_ADMIN_PW//[$'\t\r\n ']/}" = "1" ]; then
+            DB_USER="supabase_admin"
+            CONN_OK=1
+            echo "✅ Conexão autenticada com sucesso via usuário 'supabase_admin'!"
+        else
+            echo "❌ Erro fatal: Não foi possível autenticar no PostgreSQL com a senha fornecida!"
+            echo "Detalhes do erro com 'postgres':"
+            echo "$TEST_OUT_PW"
+            echo "Detalhes do erro com 'supabase_admin':"
+            echo "$TEST_OUT_ADMIN_PW"
+            echo ""
+            echo "Verifique no EasyPanel a variável POSTGRES_PASSWORD do serviço Supabase."
             exit 1
         fi
-        echo "✅ Conexão autenticada com sucesso!"
     fi
 fi
 echo ""

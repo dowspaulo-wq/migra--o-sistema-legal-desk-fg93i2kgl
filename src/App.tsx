@@ -26,12 +26,14 @@ import { LegalStoreProvider } from './stores/useLegalStore'
 import { AuthProvider } from './hooks/use-auth'
 import { RequireAdmin } from './components/RequireAdmin'
 import { SystemIconOverlay } from './components/SystemIconOverlay'
+import { EnvironmentBanner } from './components/EnvironmentBanner'
 
 const App = () => (
   <AuthProvider>
     <LegalStoreProvider>
       <BrowserRouter>
         <TooltipProvider>
+          <EnvironmentBanner />
           <SystemIconOverlay />
           <Toaster />
           <Sonner />
