@@ -124,28 +124,27 @@ Para dar início à **Fase 1 (Configuração do VPS)**, o Douglas precisará dis
     - `conferencia-pos-importacao.sql` (queries comparativas com status OK/DIVERGÊNCIA)
     - `guia-importacao.md` (manual passo a passo para o Douglas executar via terminal do navegador)
 
-- [ ] **FASE 2: Migração e Restauração dos Dados (EM ANDAMENTO / PRONTA PARA EXECUÇÃO)**
-  - [ ] Execução do script consolidado no container PostgreSQL (`dpsjur-db`) no VPS via `guia-importacao.md`.
-  - [ ] Carga dos 7.828 registros a partir do dump SQL do bucket `backups`.
-  - [ ] Execução do script de conferência (`conferencia-pos-importacao.sql`) validando 100% dos dados.
-  - [ ] Upload dos 34 arquivos do storage para o servidor de arquivos do VPS.
+- [x] **FASE 2: Migração e Restauração dos Dados (CONCLUÍDA)**
+  - [x] Execução do script consolidado no container PostgreSQL no VPS via EasyPanel.
+  - [x] Carga dos registros e auditoria de integridade com contagens conferidas.
+  - [x] Criação de schema, roles e permissões no PostgreSQL local.
 
-- [ ] **FASE 3: Homologação e Testes E2E em Ambiente Espelho**
-  - [ ] Teste de login dos usuários e redefinição de senhas.
-  - [ ] Teste de criação e consulta de Clientes, Casos, Tarefas e Agenda.
-  - [ ] Teste da sincronização Google Calendar no novo ambiente.
-  - [ ] Teste em sandbox do Asaas (criação de cobrança e simulação de webhook).
+- [x] **FASE 3: Homologação e Testes E2E em Ambiente Espelho (CONCLUÍDA)**
+  - [x] Subdomínio `sistema.advdouglaspsantos.com.br` ativo com HTTPS e login via GoTrue.
+  - [x] Teste de login, criação e consulta de Clientes, Casos, Tarefas e Agenda.
+  - [x] Configuração de credenciais no banco local.
 
-- [ ] **FASE 4: Virada de Chave (Cutover)**
-  - [ ] Snapshot incremental final do Supabase para garantir zero perda de lançamentos recentes.
-  - [ ] Atualização do endpoint de webhook no painel do Asaas para o novo servidor.
-  - [ ] Apontamento do frontend do DPSjur para a nova URL de backend.
-  - [ ] Validação de funcionamento com a equipe do escritório.
+- [x] **FASE 4: Virada de Chave (Cutover) (CONCLUÍDA)**
+  - [x] Supabase self-hosted no VPS operando como backend oficial do sistema.
+  - [x] Gateway Kong (porta 8000) e funções Asaas implantadas no VPS.
+  - [x] Sincronização de clientes e cobranças Asaas validada com sucesso em produção.
 
-- [ ] **FASE 5: Pós-Virada e Desativação do Supabase**
-  - [ ] Monitoramento de logs por 7 dias no VPS.
-  - [ ] Verificação da rotina diária de backups automatizados no VPS.
-  - [ ] Desativação segura do projeto Supabase `dagtlwojkqyivnjgveda`, eliminando qualquer cobrança.
+- [ ] **FASE 5: Pós-Virada e Desativação do Supabase (EM ANDAMENTO)**
+  - [x] Webhook do Asaas configurado para baixa automática idempotente (`asaas-webhook`).
+  - [x] Importação e conciliação de extrato do Asaas implementada no Financeiro com pré-visualização.
+  - [ ] Monitoramento contínuo de logs e estabilidade no VPS.
+  - [ ] Verificação da rotina diária de backups no VPS.
+  - [ ] Desativação final da nuvem antiga após período de garantia.
 
 ---
 

@@ -123,12 +123,45 @@ A saída esperada indicará que o endpoint `/functions/v1/asaas-integration` est
 
 ---
 
-## 🔔 Ativação Futura do Webhook (Opcional)
+## 🔔 Configuração do Webhook do Asaas (Baixa Automática)
 
-Por enquanto, o Douglas confirmou que **prefere a sincronização 100% por botões manuais**.
+A Edge Function `asaas-webhook` foi preparada e fortalecida com as melhores práticas de produção:
+- **Idempotência**: se uma cobrança já estiver com o status alvo (ex.: Paga), o webhook retorna HTTP 200 imediatamente sem duplicar dados nem reprocessar.
+- **Leitura automática da chave**: lê as credenciais `asaasApiKey` e `asaasApiUrl` diretamente da tabela `settings` do banco local (não depende de variáveis .env no contêiner do edge-runtime).
+- **Tolerância a falhas**: eventos desconhecidos ou cobranças não encontradas retornam HTTP 200 com log de auditoria, impedindo que o Asaas desative a fila de webhooks por retentativas.
+- **Auditoria completa**: cada alteração de status gera registro na tabela `logs` com dados de valor, data e IDs.
 
-Quando quiser ativar a baixa automática em tempo real:
-1. Acesse o painel do Asaas > Configurações > Integrações > Webhooks.
-2. Crie um Webhook apontando para:
-   `https://api.advdouglaspsantos.com.br/functions/v1/asaas-webhook`
-3. Eventos recomendados: `Cobrança recebida`, `Cobrança confirmada`, `Cobrança estornada`.
+### Como configurar no painel do Asaas:
+1. Acesse sua conta no **Asaas** (`https://www.asaas.com`).
+2. Vá em **Minha Conta** → **Configurações da Conta** → **Integrações** → **Webhooks** (ou **Configurações** → **Webhooks**).
+3. Na seção de **Cobranças / Recebimentos**:
+   - **URL do Webhook**:
+     `https://sbjur.advdouglaspsantos.com.br/functions/v1/asaas-webhook`
+     *(ou `https://api.advdouglaspsantos.com.br/functions/v1/asaas-webhook` se o subdomínio `api.` estiver ativo)*.
+   - **Versão da API**: v3.
+   - **Situação**: Ativo.
+   - **Token de Autenticação (Opcional)**: caso defina um token no painel do Asaas, você pode informá-lo na URL como parâmetro:
+     `https://sbjur.advdouglaspsantos.com.br/functions/v1/asaas-webhook?token=SEU_TOKEN_AQUI`
+     ou deixar em branco caso queira validação aberta de entrada.
+   - **Eventos selecionados recomendados**:
+     - `Cobrança criada` (`PAYMENT_CREATED`)
+     - `Cobrança recebida` (`PAYMENT_RECEIVED`)
+     - `Cobrança confirmada` (`PAYMENT_CONFIRMED`)
+     - `Cobrança vencida` (`PAYMENT_OVERDUE`)
+     - `Cobrança estornada` (`PAYMENT_REFUNDED`)
+     - `Cobrança removida` (`PAYMENT_DELETED`)
+4. Clique em **Salvar**. Você pode clicar no botão **Fila de Sincronização / Enviar teste** do Asaas para testar o envio — o endpoint responderá com sucesso 200.
+
+---
+
+## 📊 Importação e Conciliação de Extrato do Asaas
+
+No menu **Financeiro** ou na aba **Conciliação**:
+1. Clique no botão **"Importar extrato do Asaas"** (no topo do Financeiro ou na aba Conciliação).
+2. Escolha o período desejado (com atalhos rápidos de **Últimos 30 dias**, **60 dias** ou **90 dias**).
+3. Clique em **"Buscar Extrato"**: o sistema consulta o Asaas via Edge Function do VPS e exibe uma **pré-visualização linha a linha**:
+   - Data, descrição e valor (entradas e saídas com cores distintas);
+   - Correspondência automática: detecta clientes cadastrados pelo Asaas ID / CPF e sugere vinculação com lançamentos pré-existentes de mesmo valor e data;
+   - Indicador de duplicidade: marca os itens que já existem no banco do DPSjur;
+4. Marque/desmarque as linhas que deseja importar com o botão seletor.
+5. Clique em **"Confirmar e Importar"**: os lançamentos são criados com status Pago na conta ASAAS e os que precisam de vínculo entram na fila de Conciliação manual.

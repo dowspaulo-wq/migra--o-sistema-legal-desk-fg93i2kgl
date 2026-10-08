@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # DPSjur / SBJur - Kit de Implantação Edge Functions Asaas no VPS (EasyPanel)
-# Versão: v1.2.0
-# SCRIPT_VERSION: v1.2.0
-# KIT-SQL-VERSION: v1.2.0
+# Versão: v1.3.0 (v0.0.529)
+# SCRIPT_VERSION: v1.3.0
+# KIT-SQL-VERSION: v1.3.0
 # ==============================================================================
 set -euo pipefail
 
-SCRIPT_VERSION="v1.2.0"
+SCRIPT_VERSION="v1.3.0"
 REPO_RAW_BASE="https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main"
 
 echo "====================================================================="

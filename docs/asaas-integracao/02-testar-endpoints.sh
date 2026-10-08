@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # DPSjur / SBJur - Teste e Diagnóstico dos Endpoints Supabase & Asaas
-# Versão: v1.1.0
-# SCRIPT_VERSION: v1.1.0
+# Versão: v1.3.0 (v0.0.529)
+# SCRIPT_VERSION: v1.3.0
 # ==============================================================================
 set -euo pipefail
 
-SCRIPT_VERSION="v1.1.0"
+SCRIPT_VERSION="v1.3.0"
 TARGET_URL=""
 CLI_KEY=""
 CLI_URL=""
@@ -178,6 +178,26 @@ WEBHOOK_RES=$(curl -s -o /dev/null -w "%{http_code}" -X OPTIONS "${TARGET_URL}/f
   -H "Access-Control-Request-Method: POST" \
   -H "Origin: https://www.asaas.com" || echo "000")
 echo "Status CORS webhook: $WEBHOOK_RES"
+echo ""
+
+echo "🔹 Teste B4: GET Healthcheck em ${TARGET_URL}/functions/v1/asaas-webhook"
+WEBHOOK_GET_BODY=$(curl -s "${TARGET_URL}/functions/v1/asaas-webhook" || echo "")
+echo "Resposta do webhook:"
+echo "$WEBHOOK_GET_BODY"
+echo ""
+
+echo "🔹 Teste B5: POST Simulação Webhook (PAYMENT_RECEIVED seguro com ID fictício)"
+WEBHOOK_POST_BODY=$(curl -s -X POST "${TARGET_URL}/functions/v1/asaas-webhook" \
+  -H "Content-Type: application/json" \
+  -d '{"event":"PAYMENT_RECEIVED","payment":{"id":"pay_teste_simulacao_999","value":10.00,"paymentDate":"2026-10-08"}}' || echo "")
+echo "Resposta da simulação:"
+echo "$WEBHOOK_POST_BODY"
+
+if echo "$WEBHOOK_POST_BODY" | grep -iq "sucesso\|não encontrada"; then
+  echo "✅ Webhook operacional: tratou evento simulado e respondeu 200 sem efeito colateral."
+else
+  echo "ℹ️ Resposta recebida da simulação."
+fi
 echo ""
 
 echo "====================================================================="

@@ -136,6 +136,21 @@ export async function syncHistoryWithAsaas() {
   return invokeAsaasFunction({ action: 'sync-history' })
 }
 
+export async function fetchAsaasExtractPreview(startDate: string, finishDate: string) {
+  return invokeAsaasFunction({
+    action: 'fetch-extract-preview',
+    startDate,
+    finishDate,
+  })
+}
+
+export async function importSelectedAsaasItems(items: any[]) {
+  return invokeAsaasFunction({
+    action: 'import-selected-items',
+    items,
+  })
+}
+
 export async function importAsaasExtract(startDate: string, finishDate: string) {
   return invokeAsaasFunction({
     action: 'import-extract',
