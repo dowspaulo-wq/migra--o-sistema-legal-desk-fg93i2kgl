@@ -561,7 +561,19 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       .select()
       .single()
     if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
-    setState((prev) => ({ ...prev, clients: [data as any, ...prev.clients] }))
+
+    // Sincroniza as tarefas automáticas geradas pelo trigger on_client_created
+    const { data: newTasks } = await supabase.from('tasks').select('*').eq('clientId', data.id)
+
+    setState((prev) => {
+      const existingTaskIds = new Set(prev.tasks.map((t) => t.id))
+      const freshTasks = (newTasks || []).filter((t: any) => !existingTaskIds.has(t.id))
+      return {
+        ...prev,
+        clients: [data as any, ...prev.clients],
+        tasks: freshTasks.length > 0 ? [...freshTasks, ...prev.tasks] : prev.tasks,
+      }
+    })
     toast({ title: 'Cliente adicionado' })
   }, [])
 
