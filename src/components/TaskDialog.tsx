@@ -467,7 +467,7 @@ export function TaskDialog({
         </div>
 
         <DialogFooter className="flex justify-between w-full sm:justify-between">
-          {!formData.isNew && onDelete ? (
+          {!formData.isNew && onDelete && currentUser?.role === 'Admin' ? (
             <Button
               variant="destructive"
               onClick={() => {

@@ -273,7 +273,9 @@ export default function CaseDetail() {
           }
           updateItem('tasks', editingTask?.id || d.id, updatePayload)
         }}
-        onDelete={(id: string) => deleteItem('tasks', id)}
+        onDelete={
+          state.currentUser?.role === 'Admin' ? (id: string) => deleteItem('tasks', id) : undefined
+        }
         users={state.users}
         currentUser={state.currentUser}
         clients={state.clients}
