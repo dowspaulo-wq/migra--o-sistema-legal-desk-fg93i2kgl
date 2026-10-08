@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur / SBJur - Kit Pós-Migração VPS (Hostinger KVM 1 - IP 2.25.181.69)
 # Script: docs/pos-migracao/09-redefinir-senha-usuario.sh
-# Versão: v0.0.540
+# Versão: v0.0.541
 # ==============================================================================
 # Execução direta no terminal do VPS:
 #   bash docs/pos-migracao/09-redefinir-senha-usuario.sh "<email>" "<nova_senha>"
@@ -16,7 +16,7 @@
 #   USUARIO_EMAIL="<email>" NOVA_SENHA="<nova_senha>" curl -sSf -L ... | bash
 # ==============================================================================
 
-SCRIPT_VERSION="v0.0.540"
+SCRIPT_VERSION="v0.0.541"
 
 # (1) Banner no padrão dos scripts anteriores
 echo "====================================================================="
@@ -185,16 +185,23 @@ BEGIN
     -- 1. Atualizar auth.users:
     -- - encrypted_password gerado com bcrypt (gen_salt bf 10)
     -- - email_confirmed_at preenchido se estava nulo (ativa confirmed_at gerado automaticamente)
-    -- - tokens pendentes limpos para que GoTrue não fique travado
+    -- - tokens pendentes limpos com string vazia '' (NUNCA NULL — GoTrue faz sql.Scan para struct com string)
     -- - updated_at atualizado
     UPDATE auth.users
     SET 
         encrypted_password = crypt(v_new_password, gen_salt('bf', 10)),
         email_confirmed_at = COALESCE(email_confirmed_at, now()),
-        confirmation_token = NULL,
-        recovery_token = NULL,
-        email_change_token_new = NULL,
-        email_change = NULL,
+        instance_id = COALESCE(instance_id, '00000000-0000-0000-0000-000000000000'::uuid),
+        aud = COALESCE(aud, 'authenticated'),
+        role = COALESCE(role, 'authenticated'),
+        confirmation_token = '',
+        recovery_token = '',
+        email_change_token_new = '',
+        email_change_token_current = '',
+        email_change = '',
+        phone_change = '',
+        phone_change_token = '',
+        reauthentication_token = '',
         updated_at = now()
     WHERE id = v_user_id;
 
