@@ -1,7 +1,7 @@
 -- ==============================================================================
 -- DPSjur / SBJur - Kit Pós-Migração VPS (Hostinger KVM 1)
 -- Script: docs/pos-migracao/04-recriar-processos-guilherme.sql
--- Versão: v0.0.524
+-- Versão: v0.0.527
 -- ==============================================================================
 -- Finalidade:
 -- Recriar no banco do VPS oficial (Supabase self-hosted) os 3 processos judiciais
@@ -16,7 +16,7 @@
 
 \echo '====================================================================='
 \echo '  DPSjur - Recriação de Processos de Guilherme Almeida no VPS        '
-\echo '  Versão: v0.0.524'
+\echo '  Versão: v0.0.527'
 \echo '====================================================================='
 \echo ''
 

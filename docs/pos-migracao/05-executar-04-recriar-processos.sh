@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur / SBJur - Kit Pós-Migração VPS (Hostinger KVM 1 - IP 2.25.181.69)
 # Script: docs/pos-migracao/05-executar-04-recriar-processos.sh
-# Versão: v0.0.526
+# Versão: v0.0.527
 # ==============================================================================
 # Finalidade:
 # Localizar automaticamente o contêiner PostgreSQL do Supabase Self-Hosted
@@ -15,13 +15,56 @@
 #   "https://api.github.com/repos/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/contents/docs/pos-migracao/05-executar-04-recriar-processos.sh?ref=main" \
 #   | bash
 # ==============================================================================
-set -euo pipefail
+set -u
+set -o pipefail
 
-# Garante que terminal restaure echo em caso de interrupção
-trap 'stty echo 2>/dev/null || true' EXIT INT TERM
+SCRIPT_VERSION="v0.0.527"
+SCRIPT_SUCCESS=0
+LAST_COMMAND=""
 
-SCRIPT_VERSION="v0.0.526"
-# Quando executado via pipe (curl | bash), BASH_SOURCE[0] vem vazio sob `set -u`
+# ------------------------------------------------------------------------------
+# TRAPS GLOBAIS: Previne encerramento silencioso em qualquer circunstância
+# ------------------------------------------------------------------------------
+trap 'LAST_COMMAND="$BASH_COMMAND"' DEBUG
+
+on_error_trap() {
+    local exit_code=$?
+    local line_no="${BASH_LINENO[0]:-desconhecida}"
+    # Se o script já concluiu com sucesso, ignora
+    if [ "${SCRIPT_SUCCESS:-0}" -eq 1 ]; then
+        return 0
+    fi
+    echo ""
+    echo "====================================================================="
+    echo "❌ FALHA DETECTADA: O script foi interrompido inesperadamente!"
+    echo "====================================================================="
+    echo "Linha do script : $line_no"
+    echo "Comando que falhou: ${LAST_COMMAND:-$BASH_COMMAND}"
+    echo "Código de saída : $exit_code"
+    echo "Versão do script: $SCRIPT_VERSION"
+    if [ -n "${LAST_CAPTURED_OUTPUT:-}" ]; then
+        echo "Última saída do processo:"
+        echo "$LAST_CAPTURED_OUTPUT" | sed 's/^/   /'
+    fi
+    echo "====================================================================="
+    stty echo 2>/dev/null || true
+    exit "$exit_code"
+}
+
+on_exit_trap() {
+    local exit_code=$?
+    stty echo 2>/dev/null || true
+    if [ "$exit_code" -ne 0 ] && [ "${SCRIPT_SUCCESS:-0}" -eq 0 ]; then
+        echo ""
+        echo "⚠️  Script encerrado com status de erro ($exit_code) antes da conclusão."
+    fi
+}
+
+trap 'on_error_trap' ERR
+trap 'on_exit_trap' EXIT
+trap 'stty echo 2>/dev/null || true; exit 130' INT TERM
+
+# BASH_SOURCE[0] vem unbound via pipe ('curl ... | bash') sob set -u
 SCRIPT_ENTRY="${BASH_SOURCE[0]:-$0}"
 SCRIPT_DIR="$(cd "$(dirname "${SCRIPT_ENTRY}")" 2>/dev/null && pwd || echo "/root/sbjur-pos-migracao")"
 WORK_DIR="/root/sbjur-pos-migracao"
@@ -49,26 +92,21 @@ if [ ! -f "$SQL_FILE_PATH" ]; then
     SQL_FILE_PATH="${WORK_DIR}/${SQL_FILE_NAME}"
     echo "⏳ Arquivo local não encontrado. Baixando do repositório GitHub..."
 
-    set +e
+    CURL_STATUS=0
     curl -sSf -L \
          -H "Accept: application/vnd.github.v3.raw" \
          -H "User-Agent: DPSjur-PosMigracao" \
          "$GITHUB_API_SQL_URL" \
-         -o "$SQL_FILE_PATH" 2>/dev/null
-    CURL_STATUS=$?
-    set -e
+         -o "$SQL_FILE_PATH" 2>/dev/null || CURL_STATUS=$?
 
-    if [ $CURL_STATUS -ne 0 ] || [ ! -s "$SQL_FILE_PATH" ]; then
+    if [ "$CURL_STATUS" -ne 0 ] || [ ! -s "$SQL_FILE_PATH" ]; then
         echo "ℹ️  Tentando via raw.githubusercontent.com com anti-cache..."
         CACHE_BUST=$(date +%s)
-        set +e
         curl -sSf -L \
              -H "Cache-Control: no-cache, no-store, must-revalidate" \
              -H "Pragma: no-cache" \
              "${GITHUB_RAW_SQL_URL}?ts=${CACHE_BUST}" \
-             -o "$SQL_FILE_PATH" 2>/dev/null
-        CURL_STATUS=$?
-        set -e
+             -o "$SQL_FILE_PATH" 2>/dev/null || CURL_STATUS=$?
     fi
 fi
 
@@ -90,18 +128,23 @@ echo "🔍 2. Localizando contêiner PostgreSQL do Supabase no VPS..."
 DB_CONTAINER="${DB_CONTAINER:-${CONTAINER_LOCAL:-}}"
 
 if [ -z "$DB_CONTAINER" ]; then
-    # 1. Busca contêiner que contenha 'supabase' e 'db' no nome
+    # 1. Busca contêiner que contenha 'supabase' e 'db'
     DB_CONTAINER=$(docker ps --format '{{.Names}}' | grep -i -- 'supabase' | grep -i -- 'db' | head -n 1 || true)
 fi
 
 if [ -z "$DB_CONTAINER" ]; then
-    # 2. Busca padrão regex clássico
-    DB_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E -- 'supabase.*db|supabase-db' | head -n 1 || true)
+    # 2. Tolera typos comuns como 'supbase' (ex: sbjur-local_supbase-db-1)
+    DB_CONTAINER=$(docker ps --format '{{.Names}}' | grep -i -E -- 'supbase.*db|supbase-db' | head -n 1 || true)
 fi
 
 if [ -z "$DB_CONTAINER" ]; then
-    # 3. Fallback: qualquer contêiner com postgres/db excluindo frontends
-    DB_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E -- 'postgres|db' | grep -v -E -- 'dpsjur-web|web|frontend' | head -n 1 || true)
+    # 3. Busca padrão regex amplo
+    DB_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E -- 'supa?base.*db|supa?base-db' | head -n 1 || true)
+fi
+
+if [ -z "$DB_CONTAINER" ]; then
+    # 4. Fallback: qualquer contêiner com postgres ou db excluindo frontends
+    DB_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E -- 'postgres|db' | grep -v -E -- 'dpsjur-web|web|frontend|traefik|redis' | head -n 1 || true)
 fi
 
 if [ -z "$DB_CONTAINER" ]; then
@@ -126,115 +169,83 @@ DB_USER="${POSTGRES_USER:-postgres}"
 DB_NAME="${POSTGRES_DB:-postgres}"
 LOCAL_DB_PASSWORD="${POSTGRES_PASSWORD:-${LOCAL_DB_PASSWORD:-}}"
 
-# Função auxiliar segura para testar conexão com usuário e senha específicos.
-# NUNCA deixa o shell abortar via set -e ou pipefail; retorna o exit code real do psql.
-# A saída combinada (stdout + stderr) é gravada na variável global TEST_OUT_RAW.
-TEST_OUT_RAW=""
+LAST_CAPTURED_OUTPUT=""
 test_db_connection() {
     local u="$1"
     local p="$2"
     local code=0
+    LAST_CAPTURED_OUTPUT=""
 
-    TEST_OUT_RAW=""
     if [ -n "$p" ]; then
-        TEST_OUT_RAW=$(docker exec -i -e PGPASSWORD="$p" "$DB_CONTAINER" psql -U "$u" -d "$DB_NAME" -tAc "SELECT 1;" 2>&1) || code=$?
+        LAST_CAPTURED_OUTPUT=$(docker exec -i -e PGPASSWORD="$p" "$DB_CONTAINER" psql -U "$u" -d "$DB_NAME" -tAc "SELECT 1;" 2>&1) || code=$?
     else
-        TEST_OUT_RAW=$(docker exec -i "$DB_CONTAINER" psql -U "$u" -d "$DB_NAME" -tAc "SELECT 1;" 2>&1) || code=$?
+        LAST_CAPTURED_OUTPUT=$(docker exec -i "$DB_CONTAINER" psql -U "$u" -d "$DB_NAME" -tAc "SELECT 1;" 2>&1) || code=$?
     fi
-    return $code
+    return "$code"
 }
 
-# 3.0: Tentar extrair POSTGRES_PASSWORD do ambiente interno do próprio contêiner
-# No EasyPanel / Supabase Docker Compose, a senha frequentemente reside nas env vars do contêiner db
-if [ -z "$LOCAL_DB_PASSWORD" ]; then
+is_select_one_ok() {
+    local text="$1"
+    # Normaliza removendo espaços e quebras de linha
+    local cleaned
+    cleaned=$(printf '%s' "$text" | tr -d '[:space:]')
+    [ "$cleaned" = "1" ]
+}
+
+CONN_OK=0
+
+# Passo 3.0: PRIORIDADE MÁXIMA - Acesso local via unix socket dentro do contêiner (sem senha)
+echo "   🔎 Testando acesso direto no contêiner com usuário '$DB_USER' (local socket)..."
+if test_db_connection "$DB_USER" "" && is_select_one_ok "$LAST_CAPTURED_OUTPUT"; then
+    CONN_OK=1
+    echo "   ✅ Conexão direta bem-sucedida via usuário '$DB_USER' (sem necessidade de senha)!"
+elif test_db_connection "supabase_admin" "" && is_select_one_ok "$LAST_CAPTURED_OUTPUT"; then
+    DB_USER="supabase_admin"
+    CONN_OK=1
+    echo "   ✅ Conexão direta bem-sucedida via usuário 'supabase_admin' (sem necessidade de senha)!"
+fi
+
+# Passo 3.1: Se a conexão sem senha não passou, verificar senha informada via env var do host
+if [ "$CONN_OK" -eq 0 ] && [ -n "$LOCAL_DB_PASSWORD" ]; then
+    echo "   🔎 Testando autenticação com POSTGRES_PASSWORD fornecida no ambiente do host..."
+    if test_db_connection "$DB_USER" "$LOCAL_DB_PASSWORD" && is_select_one_ok "$LAST_CAPTURED_OUTPUT"; then
+        CONN_OK=1
+        echo "   ✅ Autenticação bem-sucedida usando POSTGRES_PASSWORD do ambiente!"
+    elif test_db_connection "supabase_admin" "$LOCAL_DB_PASSWORD" && is_select_one_ok "$LAST_CAPTURED_OUTPUT"; then
+        DB_USER="supabase_admin"
+        CONN_OK=1
+        echo "   ✅ Autenticação bem-sucedida usando 'supabase_admin' e POSTGRES_PASSWORD do ambiente!"
+    fi
+fi
+
+# Passo 3.2: Tentar extrair POSTGRES_PASSWORD do ambiente interno do próprio contêiner
+if [ "$CONN_OK" -eq 0 ]; then
     echo "   🔎 Verificando se POSTGRES_PASSWORD está configurada no ambiente do contêiner..."
     DETECTED_CONTAINER_PW=""
-    set +e
     DETECTED_CONTAINER_PW=$(docker exec "$DB_CONTAINER" printenv POSTGRES_PASSWORD 2>/dev/null || true)
     if [ -z "$DETECTED_CONTAINER_PW" ]; then
         DETECTED_CONTAINER_PW=$(docker exec "$DB_CONTAINER" env 2>/dev/null | grep -E '^POSTGRES_PASSWORD=' | head -n 1 | cut -d '=' -f 2- || true)
     fi
-    set -e
 
     if [ -n "$DETECTED_CONTAINER_PW" ]; then
         echo "   ℹ️  POSTGRES_PASSWORD detectada no contêiner. Testando autenticação..."
-        if test_db_connection "$DB_USER" "$DETECTED_CONTAINER_PW"; then
-            if [ "${TEST_OUT_RAW//[$'\t\r\n ']/}" = "1" ]; then
-                LOCAL_DB_PASSWORD="$DETECTED_CONTAINER_PW"
-                echo "   ✅ Autenticação bem-sucedida usando POSTGRES_PASSWORD do contêiner!"
-            fi
-        elif test_db_connection "supabase_admin" "$DETECTED_CONTAINER_PW"; then
-            if [ "${TEST_OUT_RAW//[$'\t\r\n ']/}" = "1" ]; then
-                DB_USER="supabase_admin"
-                LOCAL_DB_PASSWORD="$DETECTED_CONTAINER_PW"
-                echo "   ✅ Autenticação bem-sucedida usando usuário 'supabase_admin' e POSTGRES_PASSWORD do contêiner!"
-            fi
-        fi
-    fi
-fi
-
-CONN_OK=0
-
-# Se já conectou com a senha detectada do contêiner ou se já temos credencial funcional:
-if [ -n "$LOCAL_DB_PASSWORD" ]; then
-    if test_db_connection "$DB_USER" "$LOCAL_DB_PASSWORD" && [ "${TEST_OUT_RAW//[$'\t\r\n ']/}" = "1" ]; then
-        CONN_OK=1
-        echo "✅ Conexão bem-sucedida via usuário '$DB_USER'!"
-    elif test_db_connection "supabase_admin" "$LOCAL_DB_PASSWORD" && [ "${TEST_OUT_RAW//[$'\t\r\n ']/}" = "1" ]; then
-        DB_USER="supabase_admin"
-        CONN_OK=1
-        echo "✅ Conexão bem-sucedida via usuário 'supabase_admin'!"
-    fi
-fi
-
-# Teste 3.1: Testar com usuário postgres sem senha (trust ou socket local) caso ainda não conectado
-DIAG_POSTGRES=""
-if [ $CONN_OK -eq 0 ]; then
-    echo "   Tentando conexão direta com usuário '$DB_USER'..."
-    if test_db_connection "$DB_USER" ""; then
-        if [ "${TEST_OUT_RAW//[$'\t\r\n ']/}" = "1" ]; then
+        if test_db_connection "$DB_USER" "$DETECTED_CONTAINER_PW" && is_select_one_ok "$LAST_CAPTURED_OUTPUT"; then
+            LOCAL_DB_PASSWORD="$DETECTED_CONTAINER_PW"
             CONN_OK=1
-            echo "✅ Conexão direta bem-sucedida via usuário '$DB_USER'!"
-        else
-            DIAG_POSTGRES="$TEST_OUT_RAW"
-        fi
-    else
-        DIAG_POSTGRES="$TEST_OUT_RAW"
-    fi
-fi
-
-# Teste 3.2: Tentar supabase_admin sem senha caso ainda não conectado
-DIAG_ADMIN=""
-if [ $CONN_OK -eq 0 ]; then
-    echo "   Tentando conexão direta com usuário 'supabase_admin'..."
-    if test_db_connection "supabase_admin" ""; then
-        if [ "${TEST_OUT_RAW//[$'\t\r\n ']/}" = "1" ]; then
+            echo "   ✅ Autenticação bem-sucedida usando POSTGRES_PASSWORD do contêiner!"
+        elif test_db_connection "supabase_admin" "$DETECTED_CONTAINER_PW" && is_select_one_ok "$LAST_CAPTURED_OUTPUT"; then
             DB_USER="supabase_admin"
+            LOCAL_DB_PASSWORD="$DETECTED_CONTAINER_PW"
             CONN_OK=1
-            echo "✅ Conexão direta bem-sucedida via usuário 'supabase_admin'!"
+            echo "   ✅ Autenticação bem-sucedida usando usuário 'supabase_admin' e POSTGRES_PASSWORD do contêiner!"
         else
-            DIAG_ADMIN="$TEST_OUT_RAW"
+            echo "   ⚠️  POSTGRES_PASSWORD encontrada no contêiner foi rejeitada na autenticação."
         fi
-    else
-        DIAG_ADMIN="$TEST_OUT_RAW"
     fi
 fi
 
-# Se não conectou sem senha, solicitar interativamente ou emitir diagnóstico detalhado
-if [ $CONN_OK -eq 0 ]; then
-    echo ""
-    echo "⚠️  Conexão inicial sem senha não foi aceita pelo PostgreSQL:"
-    if [ -n "$DIAG_POSTGRES" ]; then
-        echo "   [Diagnóstico 'postgres']:"
-        echo "$DIAG_POSTGRES" | sed 's/^/      /'
-    fi
-    if [ -n "$DIAG_ADMIN" ]; then
-        echo "   [Diagnóstico 'supabase_admin']:"
-        echo "$DIAG_ADMIN" | sed 's/^/      /'
-    fi
-    echo ""
-
-    # Determina se há terminal interativo disponível para digitação de senha
+# Passo 3.3: Se ainda não conectou, solicitar interativamente se houver terminal
+if [ "$CONN_OK" -eq 0 ]; then
     CAN_READ_INTERACTIVE=0
     TTY_DEV=""
     if [ -t 0 ]; then
@@ -245,7 +256,7 @@ if [ $CONN_OK -eq 0 ]; then
         TTY_DEV="/dev/tty"
     fi
 
-    if [ $CAN_READ_INTERACTIVE -eq 1 ] && [ -n "$TTY_DEV" ]; then
+    if [ "$CAN_READ_INTERACTIVE" -eq 1 ] && [ -n "$TTY_DEV" ]; then
         echo "🔑 Solicitando POSTGRES_PASSWORD do Supabase local (EasyPanel)..."
         printf "👉 Digite a senha POSTGRES_PASSWORD do Supabase (EasyPanel): "
         stty -echo < "$TTY_DEV" 2>/dev/null || true
@@ -255,58 +266,46 @@ if [ $CONN_OK -eq 0 ]; then
         echo ""
 
         if [ -n "$PROMPT_PW" ]; then
-            LOCAL_DB_PASSWORD="$PROMPT_PW"
-
-            # Tenta com postgres + senha
-            if test_db_connection "postgres" "$LOCAL_DB_PASSWORD" && [ "${TEST_OUT_RAW//[$'\t\r\n ']/}" = "1" ]; then
+            if test_db_connection "postgres" "$PROMPT_PW" && is_select_one_ok "$LAST_CAPTURED_OUTPUT"; then
                 DB_USER="postgres"
+                LOCAL_DB_PASSWORD="$PROMPT_PW"
                 CONN_OK=1
-                echo "✅ Conexão autenticada com sucesso via usuário 'postgres'!"
-            elif test_db_connection "supabase_admin" "$LOCAL_DB_PASSWORD" && [ "${TEST_OUT_RAW//[$'\t\r\n ']/}" = "1" ]; then
+                echo "   ✅ Conexão autenticada com sucesso via usuário 'postgres'!"
+            elif test_db_connection "supabase_admin" "$PROMPT_PW" && is_select_one_ok "$LAST_CAPTURED_OUTPUT"; then
                 DB_USER="supabase_admin"
+                LOCAL_DB_PASSWORD="$PROMPT_PW"
                 CONN_OK=1
-                echo "✅ Conexão autenticada com sucesso via usuário 'supabase_admin'!"
+                echo "   ✅ Conexão autenticada com sucesso via usuário 'supabase_admin'!"
             else
                 echo "❌ Erro: Não foi possível autenticar no PostgreSQL com a senha digitada!"
                 echo "Saída do psql:"
-                echo "$TEST_OUT_RAW" | sed 's/^/   /'
+                echo "$LAST_CAPTURED_OUTPUT" | sed 's/^/   /'
                 echo ""
             fi
-        else
-            echo "⚠️  Nenhuma senha digitada no prompt interativo."
         fi
-    fi
-
-    # Se ainda assim não conectou, encerra com instruções cristalinas e nunca em silêncio
-    if [ $CONN_OK -eq 0 ]; then
-        echo "====================================================================="
-        echo "❌ ERRO DE AUTENTICAÇÃO NO POSTGRESQL (Supabase local)"
-        echo "====================================================================="
-        echo "O banco de dados do contêiner '$DB_CONTAINER' exige senha."
-        if [ $CAN_READ_INTERACTIVE -eq 0 ]; then
-            echo "Aviso: Como o script foi executado via pipe ('curl | bash'), o terminal"
-            echo "não estava em modo interativo direto para captura segura de senha."
-        fi
-        echo ""
-        echo "Como resolver em 1 passo:"
-        echo "  Exporte a senha do Supabase do EasyPanel antes de rodar o comando:"
-        echo ""
-        echo "  export POSTGRES_PASSWORD=\"sua_senha_aqui\""
-        echo "  curl -sSf -L -H \"Accept: application/vnd.github.v3.raw\" \\"
-        echo "    \"https://api.github.com/repos/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/contents/docs/pos-migracao/05-executar-04-recriar-processos.sh?ref=main\" \\"
-        echo "    | bash"
-        echo ""
-        echo "Ou defina diretamente na mesma linha:"
-        echo "  POSTGRES_PASSWORD=\"sua_senha_aqui\" bash -c '\$(curl -sSf -L -H \"Accept: application/vnd.github.v3.raw\" \"https://api.github.com/repos/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/contents/docs/pos-migracao/05-executar-04-recriar-processos.sh?ref=main\")'"
-        echo ""
-        echo "Onde encontrar a senha:"
-        echo "  1. Acesse o EasyPanel no navegador (https://2.25.181.69:3000 ou domínio configurado)"
-        echo "  2. Abra o projeto do Supabase -> Serviço 'supabase' (ou 'supabase-db')"
-        echo "  3. Veja a variável 'POSTGRES_PASSWORD' na aba 'Environment'"
-        echo "====================================================================="
-        exit 1
     fi
 fi
+
+if [ "$CONN_OK" -eq 0 ]; then
+    echo "====================================================================="
+    echo "❌ ERRO DE CONEXÃO NO POSTGRESQL (Supabase local)"
+    echo "====================================================================="
+    echo "Não foi possível autenticar no banco de dados do contêiner '$DB_CONTAINER'."
+    if [ -n "${LAST_CAPTURED_OUTPUT:-}" ]; then
+        echo "Último erro retornado pelo PostgreSQL:"
+        echo "$LAST_CAPTURED_OUTPUT" | sed 's/^/   /'
+        echo ""
+    fi
+    echo "Como resolver em 1 passo:"
+    echo "  export POSTGRES_PASSWORD=\"sua_senha_aqui\""
+    echo "  curl -sSf -L -H \"Accept: application/vnd.github.v3.raw\" \\"
+    echo "    \"https://api.github.com/repos/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/contents/docs/pos-migracao/05-executar-04-recriar-processos.sh?ref=main\" \\"
+    echo "    | bash"
+    echo "====================================================================="
+    exit 1
+fi
+
+echo "✅ Conexão validada com sucesso! Usuário ativo: '$DB_USER'."
 echo ""
 
 # ------------------------------------------------------------------------------
@@ -316,19 +315,26 @@ echo "🚀 4. Executando ${SQL_FILE_NAME} no PostgreSQL..."
 echo "---------------------------------------------------------------------"
 
 APPLY_STATUS=0
+LAST_CAPTURED_OUTPUT=""
+
+# Executa o psql via stdin passando arquivo SQL, capturando stdout e stderr juntos
+# para que nunca haja falha silenciosa
 if [ -n "$LOCAL_DB_PASSWORD" ]; then
-    docker exec -i -e PGPASSWORD="$LOCAL_DB_PASSWORD" "$DB_CONTAINER" \
-        psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 < "$SQL_FILE_PATH" || APPLY_STATUS=$?
+    LAST_CAPTURED_OUTPUT=$(docker exec -i -e PGPASSWORD="$LOCAL_DB_PASSWORD" "$DB_CONTAINER" \
+        psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 < "$SQL_FILE_PATH" 2>&1) || APPLY_STATUS=$?
 else
-    docker exec -i "$DB_CONTAINER" \
-        psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 < "$SQL_FILE_PATH" || APPLY_STATUS=$?
+    LAST_CAPTURED_OUTPUT=$(docker exec -i "$DB_CONTAINER" \
+        psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 < "$SQL_FILE_PATH" 2>&1) || APPLY_STATUS=$?
 fi
 
+# Imprime na íntegra a saída emitida pelo psql
+printf '%s\n' "$LAST_CAPTURED_OUTPUT"
 echo "---------------------------------------------------------------------"
-if [ $APPLY_STATUS -ne 0 ]; then
-    echo "❌ Erro: Falha durante a execução do script SQL (código de saída: $APPLY_STATUS)!"
-    echo "Revise as mensagens acima emitidas pelo PostgreSQL para identificar o motivo."
-    exit $APPLY_STATUS
+
+if [ "$APPLY_STATUS" -ne 0 ]; then
+    echo "❌ Erro fatal: Falha durante a execução do script SQL (código de saída: $APPLY_STATUS)!"
+    echo "Revise as mensagens acima emitidas pelo PostgreSQL para identificar o erro."
+    exit "$APPLY_STATUS"
 fi
 
 echo "✅ Script SQL executado com sucesso!"
@@ -357,21 +363,25 @@ WHERE c.number IN (
 ORDER BY c.created_at;
 "
 
-set +e
+CONFIRM_STATUS=0
+CONFIRM_OUTPUT=""
 if [ -n "$LOCAL_DB_PASSWORD" ]; then
-    docker exec -i -e PGPASSWORD="$LOCAL_DB_PASSWORD" "$DB_CONTAINER" \
-        psql -U "$DB_USER" -d "$DB_NAME" -c "$QUERY_VERIFICACAO"
-    CONFIRM_STATUS=$?
+    CONFIRM_OUTPUT=$(docker exec -i -e PGPASSWORD="$LOCAL_DB_PASSWORD" "$DB_CONTAINER" \
+        psql -U "$DB_USER" -d "$DB_NAME" -c "$QUERY_VERIFICACAO" 2>&1) || CONFIRM_STATUS=$?
 else
-    docker exec -i "$DB_CONTAINER" \
-        psql -U "$DB_USER" -d "$DB_NAME" -c "$QUERY_VERIFICACAO"
-    CONFIRM_STATUS=$?
+    CONFIRM_OUTPUT=$(docker exec -i "$DB_CONTAINER" \
+        psql -U "$DB_USER" -d "$DB_NAME" -c "$QUERY_VERIFICACAO" 2>&1) || CONFIRM_STATUS=$?
 fi
-set -e
 
-if [ $CONFIRM_STATUS -ne 0 ]; then
+if [ -n "$CONFIRM_OUTPUT" ]; then
+    printf '%s\n' "$CONFIRM_OUTPUT"
+fi
+
+if [ "$CONFIRM_STATUS" -ne 0 ]; then
     echo "⚠️  Aviso: Consulta de conferência final retornou código $CONFIRM_STATUS."
 fi
+
+SCRIPT_SUCCESS=1
 
 echo ""
 echo "====================================================================="
@@ -379,3 +389,4 @@ echo "🎉 Recriação concluída com sucesso no VPS oficial!"
 echo "   Os 3 processos agora estão visíveis no sistema:"
 echo "   👉 https://sistema.advdouglaspsantos.com.br"
 echo "====================================================================="
+exit 0
