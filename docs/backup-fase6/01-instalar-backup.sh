@@ -524,7 +524,7 @@ if [ -n "${SMTP_PASS:-}" ] && [ "${SMTP_ENABLED:-true}" = "true" ]; then
 
     if [ "${STATUS_BACKUP}" = "SUCESSO" ]; then
         ASSUNTO="[SBJur] Backup Diario Concluido com Sucesso - ${DATE_STAMP}"
-        cat <<'EMAIL_EOF' > "${MSG_FILE}"
+        cat <<EOF > "${MSG_FILE}"
 From: SBJur Backup <${REMET_EMAIL}>
 To: ${DEST_EMAIL}
 Subject: ${ASSUNTO}
@@ -550,10 +550,10 @@ Politica de Retencao Aplicada:
  - Mensal: dia 1 mantido por 1 ano
 
 Seus dados estao seguros!
-EMAIL_EOF
+EOF
     else
         ASSUNTO="[ALERTA SBJur] FALHA no Backup Diario - ${DATE_STAMP}"
-        cat <<'EMAIL_EOF' > "${MSG_FILE}"
+        cat <<EOF > "${MSG_FILE}"
 From: SBJur Backup <${REMET_EMAIL}>
 To: ${DEST_EMAIL}
 Subject: ${ASSUNTO}
@@ -573,7 +573,7 @@ Log: /root/sbjur-backups/logs/backup.log
 
 Por favor, verifique o terminal do VPS ou execute manualmente:
   bash /root/sbjur-backups/02-testar-backup.sh
-EMAIL_EOF
+EOF
     fi
 
     # Envio via msmtp com fallback para curl
