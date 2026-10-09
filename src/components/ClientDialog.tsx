@@ -20,7 +20,7 @@ import { Toggle } from '@/components/ui/toggle'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Star } from 'lucide-react'
-import { RichTextEditor } from '@/components/RichTextEditor'
+import { ProtectedRichText } from '@/components/ProtectedRichText'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import { BRAZILIAN_STATES, fetchCepData } from '@/lib/cep'
@@ -65,7 +65,7 @@ function getEmptyForm(users: any[]) {
 
 export function ClientDialog({ open, onOpenChange, client, onSave, users, settings }: any) {
   const { state } = useLegalStore()
-  const isAdmin = state.currentUser?.role === 'Admin'
+  const isAdmin = ['admin', 'adm'].includes((state.currentUser?.role || '').toLowerCase())
   const sortedUsers = [...users].sort((a: any, b: any) => a.name.localeCompare(b.name))
   const sortedCaptacao = [...(settings?.captacaoOptions || [])].sort((a: string, b: string) =>
     a.localeCompare(b),
@@ -641,11 +641,12 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
 
             <div className="col-span-2 space-y-2">
               <Label>Observações</Label>
-              <RichTextEditor
-                value={fd.observacoes || ''}
+              <ProtectedRichText
+                initialValue={client ? client.observacoes || '' : ''}
+                isAdmin={isAdmin}
                 onChange={(v) => setFd({ ...fd, observacoes: v })}
-                readOnly={!isAdmin}
-                className={!isAdmin ? 'bg-muted/50 cursor-not-allowed' : ''}
+                placeholderNew="Adicionar novo texto às observações..."
+                className="min-h-[100px]"
               />
             </div>
           </div>

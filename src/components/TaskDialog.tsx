@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Check } from 'lucide-react'
-import { RichTextEditor } from '@/components/RichTextEditor'
+import { ProtectedRichText } from '@/components/ProtectedRichText'
 
 const TASK_DRAFT_KEY = 'task_draft'
 
@@ -62,6 +62,9 @@ export function TaskDialog({
   const [formData, setFormData] = useState<any>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitAttempted, setSubmitAttempted] = useState(false)
+  const [initialDescription, setInitialDescription] = useState<string>('')
+
+  const isAdmin = ['admin', 'adm'].includes((currentUser?.role || '').toLowerCase())
 
   useEffect(() => {
     if (open && data) {
@@ -70,6 +73,7 @@ export function TaskDialog({
       if (data.isNew) {
         const draft = loadDraft()
         if (draft) {
+          setInitialDescription('')
           setFormData({
             id: undefined,
             title: draft.title || '',
@@ -86,7 +90,11 @@ export function TaskDialog({
           })
           return
         }
+        setInitialDescription('')
+      } else {
+        setInitialDescription(data.description || '')
       }
+
       setFormData({
         id: data.id,
         title: data.title || '',
@@ -456,11 +464,15 @@ export function TaskDialog({
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label className="font-medium">Descrição</Label>
-              <span className="text-xs text-muted-foreground font-normal">(Opcional)</span>
+              <span className="text-xs text-muted-foreground font-normal">
+                {!isAdmin && initialDescription ? 'Apenas acréscimos permitidos' : '(Opcional)'}
+              </span>
             </div>
-            <RichTextEditor
-              value={formData.description || ''}
+            <ProtectedRichText
+              initialValue={initialDescription}
+              isAdmin={isAdmin}
               onChange={(v) => handleFieldChange('description', v)}
+              placeholderNew="Adicionar novo texto à descrição..."
               className="min-h-[120px]"
             />
           </div>

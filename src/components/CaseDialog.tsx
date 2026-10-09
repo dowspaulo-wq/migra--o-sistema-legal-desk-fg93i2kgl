@@ -21,7 +21,7 @@ import { Toggle } from '@/components/ui/toggle'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Star } from 'lucide-react'
-import { RichTextEditor } from '@/components/RichTextEditor'
+import { ProtectedRichText } from '@/components/ProtectedRichText'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import { getFeeTypeOptions, isSuccessFeeType } from '@/lib/fee-types'
@@ -52,7 +52,7 @@ export function CaseDialog({
   lockedClientId,
 }: any) {
   const { state } = useLegalStore()
-  const isAdmin = state.currentUser?.role === 'Admin'
+  const isAdmin = ['admin', 'adm'].includes((state.currentUser?.role || '').toLowerCase())
   const sortedUsers = [...users].sort((a: any, b: any) => a.name.localeCompare(b.name))
   const sortedClients = [...clients].sort((a: any, b: any) => a.name.localeCompare(b.name))
 
@@ -588,20 +588,22 @@ export function CaseDialog({
 
             <div className="col-span-full md:col-span-2 space-y-2">
               <Label>Descrição</Label>
-              <RichTextEditor
-                value={fd.description || ''}
+              <ProtectedRichText
+                initialValue={data && !data.isNew ? data.description || '' : ''}
+                isAdmin={isAdmin}
                 onChange={(v) => setFd({ ...fd, description: v })}
-                readOnly={!isAdmin}
-                className={!isAdmin ? 'bg-muted/50 cursor-not-allowed' : ''}
+                placeholderNew="Adicionar novo texto à descrição..."
+                className="min-h-[100px]"
               />
             </div>
             <div className="col-span-full md:col-span-1 space-y-2">
               <Label>Notas Internas</Label>
-              <RichTextEditor
-                value={fd.internalNotes || ''}
+              <ProtectedRichText
+                initialValue={data && !data.isNew ? data.internalNotes || '' : ''}
+                isAdmin={isAdmin}
                 onChange={(v) => setFd({ ...fd, internalNotes: v })}
-                readOnly={!isAdmin}
-                className={!isAdmin ? 'bg-muted/50 cursor-not-allowed' : ''}
+                placeholderNew="Adicionar novo texto às notas internas..."
+                className="min-h-[100px]"
               />
             </div>
           </div>
