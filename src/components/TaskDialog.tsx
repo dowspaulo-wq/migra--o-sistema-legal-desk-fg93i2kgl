@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/select'
 import { Check } from 'lucide-react'
 import { ProtectedRichText } from '@/components/ProtectedRichText'
+import { stripHtml } from '@/lib/utils'
 import useLegalStore from '@/stores/useLegalStore'
 
 const TASK_DRAFT_KEY = 'task_draft'
@@ -62,8 +63,12 @@ export function TaskDialog({
 }: any) {
   const { state } = useLegalStore()
   const effectiveUser = currentUser || state?.currentUser
-  const isAdmin = ['admin', 'adm'].includes((effectiveUser?.role || '').toLowerCase())
+  const currentUserRole = (effectiveUser?.role || state?.currentUser?.role || '')
+    .trim()
+    .toLowerCase()
+  const isAdmin = ['admin', 'adm'].includes(currentUserRole)
   const initialDescription = data && !data.isNew ? data.description || '' : ''
+  const hasExistingDescription = Boolean(stripHtml(initialDescription).trim())
 
   const [formData, setFormData] = useState<any>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -466,10 +471,13 @@ export function TaskDialog({
             <div className="flex items-center justify-between">
               <Label className="font-medium">Descrição</Label>
               <span className="text-xs text-muted-foreground font-normal">
-                {!isAdmin && initialDescription ? '(Apenas acréscimos permitidos)' : '(Opcional)'}
+                {!isAdmin && hasExistingDescription
+                  ? '(Apenas acréscimos permitidos)'
+                  : '(Opcional)'}
               </span>
             </div>
             <ProtectedRichText
+              key={data?.id || 'new'}
               initialValue={initialDescription}
               isAdmin={isAdmin}
               onChange={(v) => handleFieldChange('description', v)}
