@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/select'
 import { Check } from 'lucide-react'
 import { ProtectedRichText } from '@/components/ProtectedRichText'
+import useLegalStore from '@/stores/useLegalStore'
 
 const TASK_DRAFT_KEY = 'task_draft'
 
@@ -59,12 +60,14 @@ export function TaskDialog({
   cases,
   settings,
 }: any) {
+  const { state } = useLegalStore()
+  const effectiveUser = currentUser || state?.currentUser
+  const isAdmin = ['admin', 'adm'].includes((effectiveUser?.role || '').toLowerCase())
+  const initialDescription = data && !data.isNew ? data.description || '' : ''
+
   const [formData, setFormData] = useState<any>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitAttempted, setSubmitAttempted] = useState(false)
-  const [initialDescription, setInitialDescription] = useState<string>('')
-
-  const isAdmin = ['admin', 'adm'].includes((currentUser?.role || '').toLowerCase())
 
   useEffect(() => {
     if (open && data) {
@@ -73,7 +76,6 @@ export function TaskDialog({
       if (data.isNew) {
         const draft = loadDraft()
         if (draft) {
-          setInitialDescription('')
           setFormData({
             id: undefined,
             title: draft.title || '',
@@ -90,9 +92,6 @@ export function TaskDialog({
           })
           return
         }
-        setInitialDescription('')
-      } else {
-        setInitialDescription(data.description || '')
       }
 
       setFormData({
@@ -205,8 +204,8 @@ export function TaskDialog({
               <span className="text-sm font-medium text-slate-700">Status da Tarefa</span>
               {(() => {
                 const respUser = users?.find((u: any) => u.id === formData.responsibleId)
-                const isColaborador = currentUser?.role?.toLowerCase() === 'colaborador'
-                const isRespAdmin = respUser?.role?.toLowerCase() === 'admin'
+                const isColaborador = !isAdmin
+                const isRespAdmin = ['admin', 'adm'].includes((respUser?.role || '').toLowerCase())
                 const canComplete = !(isColaborador && isRespAdmin)
 
                 if (!canComplete && !isCompleted) {
@@ -303,8 +302,10 @@ export function TaskDialog({
                   isCompleted ||
                   (() => {
                     const respUser = users?.find((u: any) => u.id === formData.responsibleId)
-                    const isColaborador = currentUser?.role?.toLowerCase() === 'colaborador'
-                    const isRespAdmin = respUser?.role?.toLowerCase() === 'admin'
+                    const isColaborador = !isAdmin
+                    const isRespAdmin = ['admin', 'adm'].includes(
+                      (respUser?.role || '').toLowerCase(),
+                    )
                     return isColaborador && isRespAdmin
                   })()
                 }
@@ -465,7 +466,7 @@ export function TaskDialog({
             <div className="flex items-center justify-between">
               <Label className="font-medium">Descrição</Label>
               <span className="text-xs text-muted-foreground font-normal">
-                {!isAdmin && initialDescription ? 'Apenas acréscimos permitidos' : '(Opcional)'}
+                {!isAdmin && initialDescription ? '(Apenas acréscimos permitidos)' : '(Opcional)'}
               </span>
             </div>
             <ProtectedRichText
@@ -479,7 +480,7 @@ export function TaskDialog({
         </div>
 
         <DialogFooter className="flex justify-between w-full sm:justify-between">
-          {!formData.isNew && onDelete && currentUser?.role === 'Admin' ? (
+          {!formData.isNew && onDelete && isAdmin ? (
             <Button
               variant="destructive"
               onClick={() => {
