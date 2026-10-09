@@ -2,16 +2,118 @@
 # ==============================================================================
 # DPSjur / SBJur - Fase 6: Sistema de Backup Automático no VPS (Hostinger KVM 1)
 # Script: docs/backup-fase6/01-instalar-backup.sh
-# Versão: v1.0.0
+# Versão: v1.1.0
 # Destinatário padrão: advdouglaspsantos@gmail.com
 # ==============================================================================
 
-SCRIPT_VERSION="v1.0.0"
+set -u
+
+SCRIPT_VERSION="v1.1.0"
 WORK_DIR="/root/sbjur-backups"
 CONFIG_DIR="${WORK_DIR}/config"
 LOGS_DIR="${WORK_DIR}/logs"
 BACKUP_SCRIPT="${WORK_DIR}/backup.sh"
 DEFAULT_EMAIL="advdouglaspsantos@gmail.com"
+COPIA_SCRIPT_DEST="${WORK_DIR}/01-instalar-backup.sh"
+
+# ==============================================================================
+# 0. Auto-instalação e proteção contra execução em pipe (curl ... | bash)
+# Se o script estiver rodando via pipe/stdin sem TTY interativo, ele se salva
+# em /root/sbjur-backups/01-instalar-backup.sh (e baixa os scripts irmãos 02, 03 e 04)
+# e se re-executa localmente com TTY real (/dev/tty), permitindo que o assistente
+# do rclone config e demais leituras recebam a entrada do teclado do usuário.
+# ==============================================================================
+mkdir -p "${WORK_DIR}" 2>/dev/null || true
+mkdir -p "${CONFIG_DIR}" 2>/dev/null || true
+mkdir -p "${LOGS_DIR}" 2>/dev/null || true
+chmod 700 "${WORK_DIR}" 2>/dev/null || true
+
+download_aux_script() {
+    local script_name="$1"
+    local dest="${WORK_DIR}/${script_name}"
+    local gh_api="https://api.github.com/repos/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/contents/docs/backup-fase6/${script_name}?ref=main"
+    local gh_raw="https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/backup-fase6/${script_name}"
+
+    local script_dir
+    script_dir="$(dirname "${BASH_SOURCE[0]:-$0}")"
+    local local_src="${script_dir}/${script_name}"
+
+    if [ -s "${local_src}" ] && [ "${local_src}" != "${dest}" ]; then
+        cp -f "${local_src}" "${dest}" 2>/dev/null && chmod 755 "${dest}" 2>/dev/null && return 0
+    fi
+
+    # Baixar via API do GitHub (ou fallback raw)
+    curl -sSf -L \
+        -H "Accept: application/vnd.github.v3.raw" \
+        -H "User-Agent: DPSjur-BackupKit" \
+        "${gh_api}" -o "${dest}" </dev/null 2>/dev/null || \
+    curl -sSf -L -H "Cache-Control: no-cache" "${gh_raw}" -o "${dest}" </dev/null 2>/dev/null || true
+
+    chmod 755 "${dest}" 2>/dev/null || true
+}
+
+# Salvar o próprio script no destino permanente se executado de outro caminho ou via pipe
+SCRIPT_ORIGEM="${BASH_SOURCE[0]:-$0}"
+SCRIPT_JA_LOCAL=0
+
+if [ -f "${SCRIPT_ORIGEM}" ] && [ "${SCRIPT_ORIGEM}" = "${COPIA_SCRIPT_DEST}" ]; then
+    SCRIPT_JA_LOCAL=1
+elif [ -f "${SCRIPT_ORIGEM}" ]; then
+    cp -f "${SCRIPT_ORIGEM}" "${COPIA_SCRIPT_DEST}" 2>/dev/null && SCRIPT_JA_LOCAL=1
+fi
+
+if [ ${SCRIPT_JA_LOCAL} -eq 0 ]; then
+    GH_RAW="https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/backup-fase6/01-instalar-backup.sh"
+    GH_API="https://api.github.com/repos/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/contents/docs/backup-fase6/01-instalar-backup.sh?ref=main"
+
+    curl -sSf -L -H "Accept: application/vnd.github.v3.raw" -H "User-Agent: DPSjur-BackupKit" \
+        "${GH_API}" -o "${COPIA_SCRIPT_DEST}" </dev/null 2>/dev/null || \
+    curl -sSf -L -H "Cache-Control: no-cache" "${GH_RAW}" -o "${COPIA_SCRIPT_DEST}" </dev/null 2>/dev/null || true
+
+    if [ -s "${COPIA_SCRIPT_DEST}" ]; then
+        SCRIPT_JA_LOCAL=1
+    fi
+fi
+
+if [ -f "${COPIA_SCRIPT_DEST}" ]; then
+    chmod 755 "${COPIA_SCRIPT_DEST}" 2>/dev/null || true
+fi
+
+# Pré-baixar scripts irmãos 02, 03 e 04 para /root/sbjur-backups/
+download_aux_script "02-testar-backup.sh"
+download_aux_script "03-testar-restauracao.sh"
+download_aux_script "04-configurar-email.sh"
+
+# Se stdin não é terminal (rodando via `curl ... | bash`), re-executa o script local conectado ao /dev/tty
+if [ ! -t 0 ]; then
+    if [ -r /dev/tty ] && [ -f "${COPIA_SCRIPT_DEST}" ]; then
+        echo "🔄 Detectada execução via pipe/curl. Reiniciando a partir de ${COPIA_SCRIPT_DEST} com TTY interativo..."
+        exec bash "${COPIA_SCRIPT_DEST}" "$@" < /dev/tty
+    fi
+fi
+
+# Leitura segura de prompt interativo com fallback para /dev/tty
+read_interactive_input() {
+    local prompt_msg="$1"
+    local var_name="$2"
+    local default_val="${3:-}"
+    local val=""
+
+    if [ -t 0 ]; then
+        printf "%s" "${prompt_msg}"
+        read -r val || true
+    elif [ -r /dev/tty ]; then
+        printf "%s" "${prompt_msg}" > /dev/tty
+        read -r val < /dev/tty || true
+    else
+        read -r val || true
+    fi
+
+    if [ -z "${val}" ]; then
+        val="${default_val}"
+    fi
+    eval "${var_name}=\"\$val\""
+}
 
 echo "====================================================================="
 echo " DPSjur / SBJur - Fase 6: Instalação do Backup Automático no VPS"
@@ -58,18 +160,18 @@ fi
 
 if [ -n "${DEPS_TO_INSTALL}" ]; then
     echo "Instalando pacotes necessários:${DEPS_TO_INSTALL}..."
-    apt-get update -qq >/dev/null 2>&1 || true
-    # Instalação com flags não interativas
-    DEBIAN_FRONTEND=noninteractive apt-get install -y ${DEPS_TO_INSTALL} >/dev/null 2>&1 || {
+    apt-get update -qq </dev/null >/dev/null 2>&1 || true
+    # Instalação com flags não interativas e /dev/null
+    DEBIAN_FRONTEND=noninteractive apt-get install -y ${DEPS_TO_INSTALL} </dev/null >/dev/null 2>&1 || {
         echo "⚠️  Tentando instalação direta..."
-        apt-get install -y ${DEPS_TO_INSTALL} || true
+        apt-get install -y ${DEPS_TO_INSTALL} </dev/null || true
     }
 fi
 
 # Se rclone ainda não estiver instalado pelo apt, instala via script oficial
 if ! command -v rclone >/dev/null 2>&1; then
     echo "Instalando rclone via instalador oficial..."
-    curl -sSf -L https://rclone.org/install.sh | bash 2>/dev/null || true
+    curl -sSf -L https://rclone.org/install.sh </dev/null | bash 2>/dev/null || true
 fi
 
 if command -v rclone >/dev/null 2>&1; then
@@ -113,7 +215,6 @@ echo ""
 
 # 4. Verificação do remoto Google Drive no rclone
 echo "☁️  4. Verificando configuração do Google Drive no rclone..."
-RCLONE_CONFIG_FILE="/root/.config/rclone/rclone.conf"
 GDRIVE_CONFIGURED=0
 
 if command -v rclone >/dev/null 2>&1; then
@@ -128,8 +229,7 @@ if [ $GDRIVE_CONFIGURED -eq 0 ]; then
     echo "⚠️  O remoto 'gdrive:' ainda NÃO está configurado no rclone."
     echo ""
     echo "Deseja configurar a autorização do Google Drive agora? [S/n]"
-    printf "👉 Escolha: "
-    read -r RESPOSTA_RCLONE || RESPOSTA_RCLONE="s"
+    read_interactive_input "👉 Escolha: " RESPOSTA_RCLONE "s"
 
     if [ "$RESPOSTA_RCLONE" != "n" ] && [ "$RESPOSTA_RCLONE" != "N" ]; then
         echo ""
@@ -159,10 +259,16 @@ if [ $GDRIVE_CONFIGURED -eq 0 ]; then
         echo " 14. 'e/n/d/r/c/s/q> ': Digite 'q' (Quit config)"
         echo "====================================================================="
         echo ""
-        printf "Pressione [Enter] para iniciar o assistente do rclone..."
-        read -r _
+        read_interactive_input "Pressione [Enter] para iniciar o assistente do rclone..." _ ""
 
-        rclone config
+        # O assistente interativo do rclone roda diretamente no terminal sem redirecionamento /dev/null
+        if [ -t 0 ]; then
+            rclone config
+        elif [ -r /dev/tty ]; then
+            rclone config < /dev/tty
+        else
+            rclone config
+        fi
 
         if rclone listremotes 2>/dev/null | grep -q '^gdrive:'; then
             GDRIVE_CONFIGURED=1
@@ -186,24 +292,40 @@ EMAIL_ENV_FILE="${CONFIG_DIR}/email.conf"
 
 if [ ! -f "${EMAIL_ENV_FILE}" ]; then
     echo "ℹ️  Configuração de e-mail ainda não realizada."
-    printf "Deseja configurar o envio de notificações por e-mail agora? [S/n]: "
-    read -r RESPOSTA_EMAIL || RESPOSTA_EMAIL="s"
+    read_interactive_input "Deseja configurar o envio de notificações por e-mail agora? [S/n]: " RESPOSTA_EMAIL "s"
 
     if [ "$RESPOSTA_EMAIL" != "n" ] && [ "$RESPOSTA_EMAIL" != "N" ]; then
-        # Se tiver script 04 no mesmo diretório ou temporário
-        SCRIPT_EMAIL_DIR="$(dirname "$0")"
-        if [ -f "${SCRIPT_EMAIL_DIR}/04-configurar-email.sh" ]; then
-            bash "${SCRIPT_EMAIL_DIR}/04-configurar-email.sh" || true
-        elif [ -f "${WORK_DIR}/04-configurar-email.sh" ]; then
-            bash "${WORK_DIR}/04-configurar-email.sh" || true
+        SCRIPT_EMAIL_DIR="$(dirname "${BASH_SOURCE[0]:-$0}")"
+        if [ -f "${WORK_DIR}/04-configurar-email.sh" ]; then
+            if [ -t 0 ]; then
+                bash "${WORK_DIR}/04-configurar-email.sh" || true
+            elif [ -r /dev/tty ]; then
+                bash "${WORK_DIR}/04-configurar-email.sh" < /dev/tty || true
+            else
+                bash "${WORK_DIR}/04-configurar-email.sh" || true
+            fi
+        elif [ -f "${SCRIPT_EMAIL_DIR}/04-configurar-email.sh" ]; then
+            if [ -t 0 ]; then
+                bash "${SCRIPT_EMAIL_DIR}/04-configurar-email.sh" || true
+            elif [ -r /dev/tty ]; then
+                bash "${SCRIPT_EMAIL_DIR}/04-configurar-email.sh" < /dev/tty || true
+            else
+                bash "${SCRIPT_EMAIL_DIR}/04-configurar-email.sh" || true
+            fi
         else
             echo "Baixando assistente de e-mail..."
             curl -sSf -L -H "Accept: application/vnd.github.v3.raw" \
                 -H "User-Agent: DPSjur-BackupKit" \
                 "https://api.github.com/repos/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/contents/docs/backup-fase6/04-configurar-email.sh?ref=main" \
-                -o "/tmp/04-configurar-email.sh" 2>/dev/null || true
+                -o "/tmp/04-configurar-email.sh" </dev/null 2>/dev/null || true
             if [ -s "/tmp/04-configurar-email.sh" ]; then
-                bash "/tmp/04-configurar-email.sh" || true
+                if [ -t 0 ]; then
+                    bash "/tmp/04-configurar-email.sh" || true
+                elif [ -r /dev/tty ]; then
+                    bash "/tmp/04-configurar-email.sh" < /dev/tty || true
+                else
+                    bash "/tmp/04-configurar-email.sh" || true
+                fi
                 rm -f "/tmp/04-configurar-email.sh" 2>/dev/null || true
             else
                 echo "⚠️  Não foi possível baixar o assistente de e-mail automaticamente."
@@ -514,36 +636,9 @@ echo ""
 
 # 8. Baixar scripts complementares para /root/sbjur-backups/
 echo "📥 8. Baixando scripts complementares para ${WORK_DIR}..."
-
-download_script() {
-    local script_name="$1"
-    local dest="${WORK_DIR}/${script_name}"
-    local gh_api="https://api.github.com/repos/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/contents/docs/backup-fase6/${script_name}?ref=main"
-    local gh_raw="https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/backup-fase6/${script_name}"
-
-    # Se já existir localmente no mesmo diretório do instalador
-    local local_src="$(dirname "$0")/${script_name}"
-    if [ -s "${local_src}" ] && [ "${local_src}" != "${dest}" ]; then
-        cp "${local_src}" "${dest}" 2>/dev/null && chmod 755 "${dest}" && return 0
-    fi
-
-    # Tenta via API do GitHub
-    curl -sSf -L \
-        -H "Accept: application/vnd.github.v3.raw" \
-        -H "User-Agent: DPSjur-BackupKit" \
-        "${gh_api}" -o "${dest}" 2>/dev/null || true
-
-    # Fallback raw
-    if [ ! -s "${dest}" ]; then
-        curl -sSf -L -H "Cache-Control: no-cache" "${gh_raw}" -o "${dest}" 2>/dev/null || true
-    fi
-
-    chmod 755 "${dest}" 2>/dev/null || true
-}
-
-download_script "02-testar-backup.sh"
-download_script "03-testar-restauracao.sh"
-download_script "04-configurar-email.sh"
+download_aux_script "02-testar-backup.sh"
+download_aux_script "03-testar-restauracao.sh"
+download_aux_script "04-configurar-email.sh"
 
 echo "✅ Scripts em ${WORK_DIR}:"
 ls -la "${WORK_DIR}" | grep -E '\.sh$' || true

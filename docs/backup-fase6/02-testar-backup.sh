@@ -2,13 +2,62 @@
 # ==============================================================================
 # DPSjur / SBJur - Fase 6: Teste Imediato de Backup no VPS (Hostinger KVM 1)
 # Script: docs/backup-fase6/02-testar-backup.sh
-# Versão: v1.0.0
+# Versão: v1.1.0
 # ==============================================================================
 
-SCRIPT_VERSION="v1.0.0"
+set -u
+
+SCRIPT_VERSION="v1.1.0"
 WORK_DIR="/root/sbjur-backups"
+CONFIG_DIR="${WORK_DIR}/config"
+LOGS_DIR="${WORK_DIR}/logs"
 BACKUP_SCRIPT="${WORK_DIR}/backup.sh"
 LOG_FILE="${WORK_DIR}/logs/backup.log"
+COPIA_SCRIPT_DEST="${WORK_DIR}/02-testar-backup.sh"
+
+# ==============================================================================
+# 0. Auto-instalação e proteção contra execução em pipe (curl ... | bash)
+# Garante estrutura de diretórios, baixa a si mesmo em /root/sbjur-backups/ e
+# reinicia com TTY interativo se disparado via pipe.
+# ==============================================================================
+mkdir -p "${WORK_DIR}" 2>/dev/null || true
+mkdir -p "${CONFIG_DIR}" 2>/dev/null || true
+mkdir -p "${LOGS_DIR}" 2>/dev/null || true
+chmod 700 "${WORK_DIR}" 2>/dev/null || true
+
+SCRIPT_ORIGEM="${BASH_SOURCE[0]:-$0}"
+SCRIPT_JA_LOCAL=0
+
+if [ -f "${SCRIPT_ORIGEM}" ] && [ "${SCRIPT_ORIGEM}" = "${COPIA_SCRIPT_DEST}" ]; then
+    SCRIPT_JA_LOCAL=1
+elif [ -f "${SCRIPT_ORIGEM}" ]; then
+    cp -f "${SCRIPT_ORIGEM}" "${COPIA_SCRIPT_DEST}" 2>/dev/null && SCRIPT_JA_LOCAL=1
+fi
+
+if [ ${SCRIPT_JA_LOCAL} -eq 0 ]; then
+    GH_RAW="https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/backup-fase6/02-testar-backup.sh"
+    GH_API="https://api.github.com/repos/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/contents/docs/backup-fase6/02-testar-backup.sh?ref=main"
+
+    curl -sSf -L -H "Accept: application/vnd.github.v3.raw" -H "User-Agent: DPSjur-BackupKit" \
+        "${GH_API}" -o "${COPIA_SCRIPT_DEST}" </dev/null 2>/dev/null || \
+    curl -sSf -L -H "Cache-Control: no-cache" "${GH_RAW}" -o "${COPIA_SCRIPT_DEST}" </dev/null 2>/dev/null || true
+
+    if [ -s "${COPIA_SCRIPT_DEST}" ]; then
+        SCRIPT_JA_LOCAL=1
+    fi
+fi
+
+if [ -f "${COPIA_SCRIPT_DEST}" ]; then
+    chmod 755 "${COPIA_SCRIPT_DEST}" 2>/dev/null || true
+fi
+
+# Se executado via pipe (curl | bash), reinicia conectado ao TTY se disponível
+if [ ! -t 0 ]; then
+    if [ -r /dev/tty ] && [ -f "${COPIA_SCRIPT_DEST}" ]; then
+        echo "🔄 Detectada execução via pipe/curl. Reiniciando a partir de ${COPIA_SCRIPT_DEST} com TTY interativo..."
+        exec bash "${COPIA_SCRIPT_DEST}" "$@" < /dev/tty
+    fi
+fi
 
 echo "====================================================================="
 echo " DPSjur / SBJur - Fase 6: Execução Manual / Teste de Backup"
@@ -23,17 +72,39 @@ if [ ! -f "${BACKUP_SCRIPT}" ]; then
     echo "⚠️  O script mestre ${BACKUP_SCRIPT} não foi encontrado."
     echo "Executando o instalador da Fase 6 primeiro..."
 
-    INSTALADOR="$(dirname "$0")/01-instalar-backup.sh"
-    if [ -f "${INSTALADOR}" ]; then
-        bash "${INSTALADOR}" || true
+    INSTALADOR_LOCAL="${WORK_DIR}/01-instalar-backup.sh"
+    SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]:-$0}")"
+
+    if [ -f "${INSTALADOR_LOCAL}" ]; then
+        if [ -t 0 ]; then
+            bash "${INSTALADOR_LOCAL}" || true
+        elif [ -r /dev/tty ]; then
+            bash "${INSTALADOR_LOCAL}" < /dev/tty || true
+        else
+            bash "${INSTALADOR_LOCAL}" || true
+        fi
+    elif [ -f "${SCRIPT_DIR}/01-instalar-backup.sh" ]; then
+        if [ -t 0 ]; then
+            bash "${SCRIPT_DIR}/01-instalar-backup.sh" || true
+        elif [ -r /dev/tty ]; then
+            bash "${SCRIPT_DIR}/01-instalar-backup.sh" < /dev/tty || true
+        else
+            bash "${SCRIPT_DIR}/01-instalar-backup.sh" || true
+        fi
     else
-        mkdir -p "${WORK_DIR}" && cd "${WORK_DIR}" || true
         curl -sSf -L -H "Accept: application/vnd.github.v3.raw" \
             -H "User-Agent: DPSjur-BackupKit" \
             "https://api.github.com/repos/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/contents/docs/backup-fase6/01-instalar-backup.sh?ref=main" \
-            -o 01-instalar-backup.sh 2>/dev/null || true
-        if [ -s 01-instalar-backup.sh ]; then
-            bash 01-instalar-backup.sh || true
+            -o "${INSTALADOR_LOCAL}" </dev/null 2>/dev/null || true
+        if [ -s "${INSTALADOR_LOCAL}" ]; then
+            chmod 755 "${INSTALADOR_LOCAL}" 2>/dev/null || true
+            if [ -t 0 ]; then
+                bash "${INSTALADOR_LOCAL}" || true
+            elif [ -r /dev/tty ]; then
+                bash "${INSTALADOR_LOCAL}" < /dev/tty || true
+            else
+                bash "${INSTALADOR_LOCAL}" || true
+            fi
         fi
     fi
 fi
