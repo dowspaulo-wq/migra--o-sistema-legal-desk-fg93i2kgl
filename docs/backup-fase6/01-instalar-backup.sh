@@ -342,7 +342,7 @@ echo ""
 # 6. Gerar o script principal de execução diária: /root/sbjur-backups/backup.sh
 echo "⚙️  6. Gerando script mestre de backup: ${BACKUP_SCRIPT}..."
 
-cat <<'EOF' > "${BACKUP_SCRIPT}"
+cat <<'MASTER_BACKUP_EOF' > "${BACKUP_SCRIPT}"
 #!/usr/bin/env bash
 # ==============================================================================
 # DPSjur / SBJur - Rotina Mestre de Backup Automático no VPS
@@ -524,7 +524,7 @@ if [ -n "${SMTP_PASS:-}" ] && [ "${SMTP_ENABLED:-true}" = "true" ]; then
 
     if [ "${STATUS_BACKUP}" = "SUCESSO" ]; then
         ASSUNTO="[SBJur] Backup Diario Concluido com Sucesso - ${DATE_STAMP}"
-        cat <<EOF > "${MSG_FILE}"
+        cat <<'EMAIL_EOF' > "${MSG_FILE}"
 From: SBJur Backup <${REMET_EMAIL}>
 To: ${DEST_EMAIL}
 Subject: ${ASSUNTO}
@@ -550,10 +550,10 @@ Politica de Retencao Aplicada:
  - Mensal: dia 1 mantido por 1 ano
 
 Seus dados estao seguros!
-EOF
+EMAIL_EOF
     else
         ASSUNTO="[ALERTA SBJur] FALHA no Backup Diario - ${DATE_STAMP}"
-        cat <<EOF > "${MSG_FILE}"
+        cat <<'EMAIL_EOF' > "${MSG_FILE}"
 From: SBJur Backup <${REMET_EMAIL}>
 To: ${DEST_EMAIL}
 Subject: ${ASSUNTO}
@@ -573,7 +573,7 @@ Log: /root/sbjur-backups/logs/backup.log
 
 Por favor, verifique o terminal do VPS ou execute manualmente:
   bash /root/sbjur-backups/02-testar-backup.sh
-EOF
+EMAIL_EOF
     fi
 
     # Envio via msmtp com fallback para curl
@@ -609,7 +609,7 @@ fi
 
 log "Rotina de backup finalizada com status: ${STATUS_BACKUP}."
 log "====================================================================="
-EOF
+MASTER_BACKUP_EOF
 
 chmod 755 "${BACKUP_SCRIPT}" || true
 echo "✅ Script ${BACKUP_SCRIPT} gravado com permissão de execução."
