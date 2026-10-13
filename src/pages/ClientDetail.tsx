@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -58,6 +58,7 @@ import {
 } from '@/lib/case-status'
 import { getDetailedDuration, stripHtml, normalizeStr } from '@/lib/utils'
 import { useClientFeesFormStore } from '@/stores/useClientFeesFormStore'
+import { buildCasesWithFeesSet, CaseFeeBadge } from '@/components/CaseFeeBadge'
 
 export default function ClientDetail() {
   const { id } = useParams<{ id: string }>()
@@ -92,6 +93,10 @@ export default function ClientDetail() {
   const client = state.clients.find((c) => c.id === id)
   const allCases = state.cases.filter((c) => c.clientId === id)
   const mainCases = allCases.filter((c) => !c.parentId)
+
+  const casesWithFees = useMemo(() => {
+    return buildCasesWithFeesSet(state.transactions || [], state.transactionCases || [])
+  }, [state.transactions, state.transactionCases])
   const clientAppointments = state.appointments
     .filter((a) => a.clientId === id)
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
@@ -686,6 +691,7 @@ export default function ClientDetail() {
                             })()}
                             {c.number}
                           </Link>{' '}
+                          <CaseFeeBadge hasFees={casesWithFees.has(c.id)} />
                           {c.isSpecial && (
                             <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
                           )}
@@ -858,6 +864,7 @@ export default function ClientDetail() {
                                     })()}
                                     {sub.number}
                                   </Link>{' '}
+                                  <CaseFeeBadge hasFees={casesWithFees.has(sub.id)} />
                                   {sub.isSpecial && (
                                     <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
                                   )}

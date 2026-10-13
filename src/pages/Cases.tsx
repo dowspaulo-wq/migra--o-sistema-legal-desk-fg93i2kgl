@@ -49,9 +49,10 @@ import {
   getCaseStatusColor,
   getCaseStatusStyle,
   getCaseTypeColor,
+  getCaseAlertLabel,
   getCaseAlertLabel as getAlertLabel,
 } from '@/lib/case-status'
-
+import { buildCasesWithFeesSet, CaseFeeBadge } from '@/components/CaseFeeBadge'
 const initialFilters = {
   numero: '',
   clienteId: 'Todos',
@@ -155,6 +156,10 @@ export default function Cases() {
 
   const sortedUsers = [...state.users].sort((a, b) => a.name.localeCompare(b.name))
   const sortedClients = [...state.clients].sort((a, b) => a.name.localeCompare(b.name))
+
+  const casesWithFees = useMemo(() => {
+    return buildCasesWithFeesSet(state.transactions || [], state.transactionCases || [])
+  }, [state.transactions, state.transactionCases])
 
   const caseTypesSettings = state.settings.caseTypes || []
   const sortedTypes = [...caseTypesSettings].sort((a: any, b: any) => {
@@ -607,6 +612,7 @@ export default function Cases() {
                           })()}
                           {c.number}
                         </Link>{' '}
+                        <CaseFeeBadge hasFees={casesWithFees.has(c.id)} />
                         {c.isSpecial && (
                           <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
                         )}
@@ -777,6 +783,7 @@ export default function Cases() {
                           {c.number}
                         </Link>
                         <div className="flex items-center gap-1 shrink-0">
+                          <CaseFeeBadge hasFees={casesWithFees.has(c.id)} />
                           {c.isProblematic && (
                             <span className="text-base leading-none" title="Problemático">
                               💩

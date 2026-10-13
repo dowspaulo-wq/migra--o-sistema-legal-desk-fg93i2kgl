@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -57,6 +57,7 @@ import { ClientDialog } from '@/components/ClientDialog'
 import { normalizeStr, formatPhone, getWhatsAppPhone } from '@/lib/utils'
 import { downloadCSV } from '@/lib/export'
 import { Download } from 'lucide-react'
+import { buildCasesWithFeesSet, CaseFeeBadge } from '@/components/CaseFeeBadge'
 
 const initialFilters = {
   nome: '',
@@ -82,6 +83,10 @@ export default function Clients() {
   )
 
   const sortedUsers = [...state.users].sort((a, b) => a.name.localeCompare(b.name))
+
+  const casesWithFees = useMemo(() => {
+    return buildCasesWithFeesSet(state.transactions || [], state.transactionCases || [])
+  }, [state.transactions, state.transactionCases])
 
   const filtered = state.clients.filter((c) => {
     if (quickSearch) {
@@ -511,7 +516,8 @@ export default function Clients() {
                 <TableBody>
                   {sortedAndFiltered.map((c) => {
                     const resp = state.users.find((u) => u.id === c.responsibleId)
-                    const caseCount = state.cases.filter((x) => x.clientId === c.id).length
+                    const clientCases = state.cases.filter((x) => x.clientId === c.id)
+                    const caseCount = clientCases.length
                     return (
                       <TableRow key={c.id}>
                         <TableCell className="font-medium">
@@ -580,7 +586,12 @@ export default function Clients() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-center font-bold text-muted-foreground">
-                          {caseCount}
+                          <div className="inline-flex items-center justify-center gap-1.5">
+                            <span>{caseCount}</span>
+                            {clientCases.map((cs) => (
+                              <CaseFeeBadge key={cs.id} hasFees={casesWithFees.has(cs.id)} />
+                            ))}
+                          </div>
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
@@ -642,7 +653,8 @@ export default function Clients() {
               className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
             >
               {sortedAndFiltered.map((c) => {
-                const caseCount = state.cases.filter((x) => x.clientId === c.id).length
+                const clientCases = state.cases.filter((x) => x.clientId === c.id)
+                const caseCount = clientCases.length
                 const resp = state.users.find((u) => u.id === c.responsibleId)
                 return (
                   <Card key={c.id} className="relative overflow-hidden group">
@@ -716,8 +728,12 @@ export default function Clients() {
                             <span className="text-muted-foreground">Não informado</span>
                           )}
                         </p>
-                        <p>
-                          Processos: <span className="font-bold">{caseCount}</span>
+                        <p className="flex items-center gap-1.5">
+                          <span>Processos:</span>
+                          <span className="font-bold">{caseCount}</span>
+                          {clientCases.map((cs) => (
+                            <CaseFeeBadge key={cs.id} hasFees={casesWithFees.has(cs.id)} />
+                          ))}
                         </p>
                       </div>
                       <div className="mt-4 flex gap-2">
