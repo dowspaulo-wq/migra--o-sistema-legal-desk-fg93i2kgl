@@ -49,7 +49,7 @@ export interface LegalState extends BaseLegalState {
 import { toast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/hooks/use-auth'
-import { normalizeStr } from '@/lib/utils'
+import { normalizeStr, calculateInstallmentDate } from '@/lib/utils'
 import { isNonFinancialFeeType, isSuccessFeeType } from '@/lib/fee-types'
 
 interface LegalContextType {
@@ -199,19 +199,44 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
               is_active: true,
             }
 
-        // 2. Fetch all system tables with individual timeouts
+        // 2. Fetch all system tables with individual timeouts e paginação completa
+        const fetchAllTableRows = async (t: string): Promise<{ data: any[]; error: any }> => {
+          const allRows: any[] = []
+          const pageSize = 1000
+          let from = 0
+
+          while (true) {
+            const { data, error } = await supabase
+              .from(t as any)
+              .select('*')
+              .range(from, from + pageSize - 1)
+
+            if (error) {
+              return { data: allRows.length > 0 ? allRows : [], error }
+            }
+            if (data && data.length > 0) {
+              allRows.push(...data)
+              if (data.length < pageSize) {
+                break
+              }
+              from += pageSize
+            } else {
+              break
+            }
+          }
+
+          return { data: allRows, error: null }
+        }
+
         const queryWithTimeout = async (t: string) => {
           try {
             const timeoutPromise = new Promise<{ data: any[]; error: any }>((resolve) =>
               setTimeout(
                 () => resolve({ data: [], error: new Error(`Timeout loading ${t}`) }),
-                12000,
+                15000,
               ),
             )
-            return await Promise.race([
-              Promise.resolve(supabase.from(t as any).select('*')),
-              timeoutPromise,
-            ])
+            return await Promise.race([fetchAllTableRows(t), timeoutPromise])
           } catch (e) {
             console.warn(`Error or timeout fetching table ${t}:`, e)
             return { data: [], error: e }
@@ -627,14 +652,10 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         const recurringId = inst > 1 ? crypto.randomUUID() : null
         const transactions = []
         const dueDateStr = feeConfig.feeFirstDueDate || new Date().toISOString().split('T')[0]
-        const [y, m, d] = dueDateStr.split('-')
-        const baseDate = new Date(parseInt(y), parseInt(m) - 1, parseInt(d))
         const installmentValue = val / inst
 
         for (let i = 0; i < inst; i++) {
-          const currentDate = new Date(baseDate)
-          currentDate.setMonth(currentDate.getMonth() + i)
-          const dateStr = currentDate.toISOString().split('T')[0]
+          const dateStr = calculateInstallmentDate(dueDateStr, i)
 
           transactions.push({
             description: `Honorários (${feeConfig.feeType}) - Parcela ${i + 1}/${inst} - Processo ${data.number}`,
@@ -809,16 +830,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       for (let i = 0; i < inst; i++) {
         let dateStr: string | null = null
         if (fee.date && fee.date.trim() !== '') {
-          const parts = fee.date.split('-')
-          if (parts.length === 3) {
-            const y = parseInt(parts[0], 10)
-            const m = parseInt(parts[1], 10) - 1
-            const d = parseInt(parts[2], 10)
-            const baseDate = new Date(y, m, d)
-            const currentDate = new Date(baseDate)
-            currentDate.setMonth(currentDate.getMonth() + i)
-            dateStr = currentDate.toISOString().split('T')[0]
-          }
+          dateStr = calculateInstallmentDate(fee.date, i)
         }
 
         transactionsToInsert.push({
@@ -939,15 +951,46 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         addUser,
         renameType,
         reloadTransactions: async () => {
-          const { data } = await supabase.from('transactions').select('*')
-          if (data) {
-            setState((prev) => ({
-              ...prev,
-              transactions: (data as any[]).sort(
-                (a: any, b: any) =>
-                  new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime(),
-              ),
-            }))
+          try {
+            const allRows: any[] = []
+            const pageSize = 1000
+            let from = 0
+            let keepFetching = true
+
+            while (keepFetching) {
+              const { data, error } = await supabase
+                .from('transactions')
+                .select('*')
+                .range(from, from + pageSize - 1)
+
+              if (error) {
+                console.warn('Erro ao recarregar transactions:', error)
+                break
+              }
+
+              if (data && data.length > 0) {
+                allRows.push(...data)
+                if (data.length < pageSize) {
+                  keepFetching = false
+                } else {
+                  from += pageSize
+                }
+              } else {
+                keepFetching = false
+              }
+            }
+
+            if (allRows.length > 0) {
+              setState((prev) => ({
+                ...prev,
+                transactions: (allRows as any[]).sort(
+                  (a: any, b: any) =>
+                    new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime(),
+                ),
+              }))
+            }
+          } catch (err) {
+            console.warn('Erro ao recarregar transactions:', err)
           }
         },
       }}

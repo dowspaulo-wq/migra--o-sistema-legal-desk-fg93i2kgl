@@ -46,7 +46,7 @@ import useLegalStore from '@/stores/useLegalStore'
 import { Navigate } from 'react-router-dom'
 import { downloadCSV } from '@/lib/export'
 import { TransactionDialog } from '@/components/TransactionDialog'
-import { formatSafeLocalDate } from '@/lib/utils'
+import { formatSafeLocalDate, calculateInstallmentDate } from '@/lib/utils'
 import { SupplierDialog } from '@/components/SupplierDialog'
 import { syncChargeWithAsaas, cancelChargeWithAsaas, syncHistoryWithAsaas } from '@/services/asaas'
 import { LinkTransactionToCaseDialog } from '@/components/LinkTransactionToCaseDialog'
@@ -398,14 +398,10 @@ export default function Finance() {
           if (isRecurring && installments && installments > 1) {
             const recurringId = crypto.randomUUID()
             const baseDateStr = d.date
-            const [y, m, day] = baseDateStr.split('-')
-            const baseDate = new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(day, 10))
 
             const toInsert = []
             for (let i = 0; i < installments; i++) {
-              const currentDate = new Date(baseDate)
-              currentDate.setMonth(currentDate.getMonth() + i)
-              const dateStr = currentDate.toISOString().split('T')[0]
+              const dateStr = calculateInstallmentDate(baseDateStr, i)
               toInsert.push({
                 ...d,
                 date: dateStr,

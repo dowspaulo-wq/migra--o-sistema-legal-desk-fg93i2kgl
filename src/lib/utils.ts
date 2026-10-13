@@ -241,3 +241,41 @@ export function getDetailedDuration(
   const detailed = parts.join(', ').replace(/, ([^,]*)$/, ' e $1')
   return `${totalDays} dias (${detailed || '0 dias'})`
 }
+
+/**
+ * Calcula a data de vencimento de uma parcela somando N meses a uma data base YYYY-MM-DD.
+ * Preserva o dia original (ex: dia 10 continua dia 10). Se o mês de destino tiver menos dias
+ * (ex: 31 de janeiro + 1 mês em fevereiro), ajusta para o último dia do mês (28/29 de fev).
+ * Retorna sempre string no formato YYYY-MM-DD sem sofrer com timezone UTC.
+ */
+export function calculateInstallmentDate(baseDateStr: string, monthIndex: number): string {
+  if (!baseDateStr || !baseDateStr.trim()) {
+    const today = new Date()
+    const y = today.getFullYear()
+    const m = String(today.getMonth() + 1).padStart(2, '0')
+    const d = String(today.getDate()).padStart(2, '0')
+    baseDateStr = `${y}-${m}-${d}`
+  }
+  const parts = baseDateStr.split('T')[0].split('-')
+  if (parts.length !== 3) return baseDateStr
+
+  const origY = parseInt(parts[0], 10)
+  const origM = parseInt(parts[1], 10) - 1
+  const origD = parseInt(parts[2], 10)
+
+  if (isNaN(origY) || isNaN(origM) || isNaN(origD)) return baseDateStr
+
+  const targetTotalMonth = origM + monthIndex
+  const targetYear = origY + Math.floor(targetTotalMonth / 12)
+  const targetMonth = ((targetTotalMonth % 12) + 12) % 12
+
+  // Último dia do mês alvo (dia 0 do mês seguinte)
+  const daysInTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate()
+  const targetDay = Math.min(origD, daysInTargetMonth)
+
+  const yStr = String(targetYear).padStart(4, '0')
+  const mStr = String(targetMonth + 1).padStart(2, '0')
+  const dStr = String(targetDay).padStart(2, '0')
+
+  return `${yStr}-${mStr}-${dStr}`
+}
