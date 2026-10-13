@@ -74,6 +74,8 @@ export default function Finance() {
   const [filterBank, setFilterBank] = useState('Todos')
   const [filterCategory, setFilterCategory] = useState('Todas')
   const [filterSupplier, setFilterSupplier] = useState('Todos')
+  const [filterClient, setFilterClient] = useState('Todos')
+  const [filterCase, setFilterCase] = useState('Todos')
   const [filterStartDate, setFilterStartDate] = useState(formatYYYYMMDD(firstDay))
   const [filterEndDate, setFilterEndDate] = useState(formatYYYYMMDD(lastDay))
 
@@ -141,7 +143,7 @@ export default function Finance() {
     let list = baseTransactions
 
     if (activeTab === 'honorarios') {
-      list = list.filter((t) => t.category.toLowerCase().includes('honorário'))
+      list = list.filter((t) => (t.category || '').toLowerCase().includes('honorário'))
     }
 
     return list.filter((t) => {
@@ -150,12 +152,51 @@ export default function Finance() {
       const matchCategory = filterCategory === 'Todas' || t.category === filterCategory
       const matchSupplier = filterSupplier === 'Todos' || t.supplierId === filterSupplier
 
+      let matchClient = true
+      let matchCase = true
+      if (activeTab === 'honorarios') {
+        if (filterClient !== 'Todos') {
+          // Verifica clientId direto ou clientId do processo vinculado (via processId ou transactionCases)
+          let matchesThisClient = t.clientId === filterClient
+          if (!matchesThisClient) {
+            const linkedCaseIds = (state.transactionCases || [])
+              .filter((tc: any) => tc.transaction_id === t.id)
+              .map((tc: any) => tc.case_id)
+            const allCaseIds = [
+              ...new Set([...linkedCaseIds, ...(t.processId ? [t.processId] : [])]),
+            ]
+            matchesThisClient = allCaseIds.some((cid) => {
+              const c = state.cases.find((cs: any) => cs.id === cid)
+              return c?.clientId === filterClient
+            })
+          }
+          matchClient = matchesThisClient
+        }
+
+        if (filterCase !== 'Todos') {
+          const linkedCaseIds = (state.transactionCases || [])
+            .filter((tc: any) => tc.transaction_id === t.id)
+            .map((tc: any) => tc.case_id)
+          const allCaseIds = [...new Set([...linkedCaseIds, ...(t.processId ? [t.processId] : [])])]
+          matchCase = allCaseIds.includes(filterCase)
+        }
+      }
+
       let matchStart = true
       let matchEnd = true
       if (filterStartDate) matchStart = t.date >= filterStartDate
       if (filterEndDate) matchEnd = t.date <= filterEndDate
 
-      return matchStatus && matchBank && matchCategory && matchSupplier && matchStart && matchEnd
+      return (
+        matchStatus &&
+        matchBank &&
+        matchCategory &&
+        matchSupplier &&
+        matchClient &&
+        matchCase &&
+        matchStart &&
+        matchEnd
+      )
     })
   }, [
     baseTransactions,
@@ -164,8 +205,12 @@ export default function Finance() {
     filterBank,
     filterCategory,
     filterSupplier,
+    filterClient,
+    filterCase,
     filterStartDate,
     filterEndDate,
+    state.cases,
+    state.transactionCases,
   ])
 
   const chartData = useMemo(() => {
@@ -190,6 +235,18 @@ export default function Finance() {
       (a.name || '').localeCompare(b.name || '', 'pt-BR'),
     )
   }, [state.suppliers])
+
+  const sortedClients = useMemo(() => {
+    return [...(state.clients || [])].sort((a: any, b: any) =>
+      (a.name || '').localeCompare(b.name || '', 'pt-BR'),
+    )
+  }, [state.clients])
+
+  const sortedCases = useMemo(() => {
+    return [...(state.cases || [])].sort((a: any, b: any) =>
+      (a.number || '').localeCompare(b.number || '', 'pt-BR'),
+    )
+  }, [state.cases])
 
   const categories = useMemo(() => {
     const cats = new Set(baseTransactions.map((t) => t.category).filter(Boolean))
@@ -618,7 +675,11 @@ export default function Finance() {
                     ))}
                   </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                <div
+                  className={`grid grid-cols-1 md:grid-cols-3 ${
+                    activeTab === 'honorarios' ? 'lg:grid-cols-8' : 'lg:grid-cols-6'
+                  } gap-4`}
+                >
                   <div className="space-y-1.5">
                     <Label>Status</Label>
                     <Select value={filterStatus} onValueChange={setFilterStatus}>
@@ -684,6 +745,42 @@ export default function Finance() {
                       </SelectContent>
                     </Select>
                   </div>
+                  {activeTab === 'honorarios' && (
+                    <>
+                      <div className="space-y-1.5">
+                        <Label>Cliente</Label>
+                        <Select value={filterClient} onValueChange={setFilterClient}>
+                          <SelectTrigger className="bg-white">
+                            <SelectValue placeholder="Cliente" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            <SelectItem value="Todos">Todos</SelectItem>
+                            {sortedClients.map((c: any) => (
+                              <SelectItem key={c.id} value={c.id}>
+                                {c.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Número do Processo</Label>
+                        <Select value={filterCase} onValueChange={setFilterCase}>
+                          <SelectTrigger className="bg-white">
+                            <SelectValue placeholder="Processo" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            <SelectItem value="Todos">Todos</SelectItem>
+                            {sortedCases.map((cs: any) => (
+                              <SelectItem key={cs.id} value={cs.id}>
+                                {cs.number}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </>
+                  )}
                   <div className="space-y-1.5">
                     <Label>Data Inicial</Label>
                     <Input
