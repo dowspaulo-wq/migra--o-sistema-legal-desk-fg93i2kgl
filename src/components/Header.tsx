@@ -1,4 +1,4 @@
-import { Bell, Search, AlertCircle, LogOut, Upload, WifiOff } from 'lucide-react'
+import { Bell, Search, AlertCircle, LogOut, Upload, WifiOff, RefreshCw } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
@@ -29,11 +29,27 @@ const verses = [
 ]
 
 export default function Header() {
-  const { state, updateUser } = useLegalStore()
+  const { state, updateUser, reloadAllData, isReloading } = useLegalStore()
   const { signOut } = useAuth()
   const [isUploading, setIsUploading] = useState(false)
   const [isOffline, setIsOffline] = useState(false)
   const pendingProtocol = state.tasks.filter((t) => t.status === 'Aguarda protocolo').length
+
+  const handleManualReload = async () => {
+    try {
+      await reloadAllData()
+      toast({
+        title: 'Dados atualizados',
+        description: 'O sistema recarregou os dados com sucesso.',
+      })
+    } catch {
+      toast({
+        title: 'Aviso',
+        description: 'Não foi possível atualizar todos os dados agora.',
+        variant: 'destructive',
+      })
+    }
+  }
 
   useEffect(() => {
     const checkConnection = async () => {
@@ -118,6 +134,20 @@ export default function Header() {
               <AlertCircle className="h-4 w-4 mr-1" /> {pendingProtocol} Protocolos Pendentes
             </Link>
           )}
+
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleManualReload}
+            disabled={isReloading}
+            className="h-9 px-2 text-slate-600 hover:text-primary hover:bg-slate-100 flex items-center gap-1.5 transition-colors"
+            title="Recarregar dados do sistema"
+          >
+            <RefreshCw className={`h-4 w-4 ${isReloading ? 'animate-spin text-primary' : ''}`} />
+            <span className="hidden sm:inline text-xs font-medium">
+              {isReloading ? 'Atualizando...' : 'Atualizar'}
+            </span>
+          </Button>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

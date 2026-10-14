@@ -8,9 +8,9 @@ import { Scale } from 'lucide-react'
 
 export default function Layout() {
   const { user, loading } = useAuth()
-  const { state } = useLegalStore()
+  const { state, isInitialLoading } = useLegalStore()
 
-  if (loading || (user && !state.currentUser.id)) {
+  if (loading || (user && (!state.currentUser.id || isInitialLoading))) {
     return (
       <div className="flex flex-col h-screen items-center justify-center bg-slate-50 gap-4">
         <Scale className="h-12 w-12 text-primary animate-pulse" />

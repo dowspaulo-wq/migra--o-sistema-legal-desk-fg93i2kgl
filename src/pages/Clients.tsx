@@ -71,7 +71,7 @@ const initialFilters = {
 }
 
 export default function Clients() {
-  const { state, addClient, updateItem, deleteItem } = useLegalStore()
+  const { state, addClient, updateItem, deleteItem, isInitialLoading } = useLegalStore()
   const [filters, setFilters] = useState(initialFilters)
   const [appliedFilters, setAppliedFilters] = useState(initialFilters)
   const [quickSearch, setQuickSearch] = useState('')
@@ -380,7 +380,9 @@ export default function Clients() {
           <Tabs defaultValue="list">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
               <p className="text-sm font-medium text-muted-foreground">
-                {sortedAndFiltered.length} cliente(s) encontrado(s)
+                {isInitialLoading
+                  ? 'Carregando clientes...'
+                  : `${sortedAndFiltered.length} cliente(s) encontrado(s)`}
               </p>
               <TabsList>
                 <TabsTrigger value="list">
@@ -391,237 +393,379 @@ export default function Clients() {
                 </TabsTrigger>
               </TabsList>
             </div>
-            <TabsContent value="list">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead
-                      onClick={() => handleSort('name')}
-                      className="cursor-pointer select-none hover:bg-slate-50 transition-colors"
-                    >
-                      <div className="flex items-center gap-2">
-                        Nome
-                        {sortConfig?.key === 'name' ? (
-                          sortConfig.direction === 'asc' ? (
-                            <ArrowUp className="h-3 w-3" />
-                          ) : (
-                            <ArrowDown className="h-3 w-3" />
-                          )
-                        ) : (
-                          <ArrowUpDown className="h-3 w-3 opacity-20" />
-                        )}
-                      </div>
-                    </TableHead>
-                    <TableHead
-                      onClick={() => handleSort('document')}
-                      className="cursor-pointer select-none hover:bg-slate-50 transition-colors"
-                    >
-                      <div className="flex items-center gap-2">
-                        CPF/CNPJ
-                        {sortConfig?.key === 'document' ? (
-                          sortConfig.direction === 'asc' ? (
-                            <ArrowUp className="h-3 w-3" />
-                          ) : (
-                            <ArrowDown className="h-3 w-3" />
-                          )
-                        ) : (
-                          <ArrowUpDown className="h-3 w-3 opacity-20" />
-                        )}
-                      </div>
-                    </TableHead>
-                    <TableHead
-                      onClick={() => handleSort('phone')}
-                      className="cursor-pointer select-none hover:bg-slate-50 transition-colors"
-                    >
-                      <div className="flex items-center gap-2">
-                        Contato
-                        {sortConfig?.key === 'phone' ? (
-                          sortConfig.direction === 'asc' ? (
-                            <ArrowUp className="h-3 w-3" />
-                          ) : (
-                            <ArrowDown className="h-3 w-3" />
-                          )
-                        ) : (
-                          <ArrowUpDown className="h-3 w-3 opacity-20" />
-                        )}
-                      </div>
-                    </TableHead>
-                    <TableHead
-                      onClick={() => handleSort('responsibleId')}
-                      className="cursor-pointer select-none hover:bg-slate-50 transition-colors"
-                    >
-                      <div className="flex items-center gap-2">
-                        Responsável
-                        {sortConfig?.key === 'responsibleId' ? (
-                          sortConfig.direction === 'asc' ? (
-                            <ArrowUp className="h-3 w-3" />
-                          ) : (
-                            <ArrowDown className="h-3 w-3" />
-                          )
-                        ) : (
-                          <ArrowUpDown className="h-3 w-3 opacity-20" />
-                        )}
-                      </div>
-                    </TableHead>
-                    <TableHead
-                      onClick={() => handleSort('captacao')}
-                      className="cursor-pointer select-none hover:bg-slate-50 transition-colors"
-                    >
-                      <div className="flex items-center gap-2">
-                        Captação
-                        {sortConfig?.key === 'captacao' ? (
-                          sortConfig.direction === 'asc' ? (
-                            <ArrowUp className="h-3 w-3" />
-                          ) : (
-                            <ArrowDown className="h-3 w-3" />
-                          )
-                        ) : (
-                          <ArrowUpDown className="h-3 w-3 opacity-20" />
-                        )}
-                      </div>
-                    </TableHead>
-                    <TableHead
-                      onClick={() => handleSort('status')}
-                      className="cursor-pointer select-none hover:bg-slate-50 transition-colors"
-                    >
-                      <div className="flex items-center gap-2">
-                        Status
-                        {sortConfig?.key === 'status' ? (
-                          sortConfig.direction === 'asc' ? (
-                            <ArrowUp className="h-3 w-3" />
-                          ) : (
-                            <ArrowDown className="h-3 w-3" />
-                          )
-                        ) : (
-                          <ArrowUpDown className="h-3 w-3 opacity-20" />
-                        )}
-                      </div>
-                    </TableHead>
-                    <TableHead
-                      onClick={() => handleSort('casesCount')}
-                      className="cursor-pointer select-none hover:bg-slate-50 transition-colors text-center"
-                    >
-                      <div className="flex items-center justify-center gap-2">
-                        Processos
-                        {sortConfig?.key === 'casesCount' ? (
-                          sortConfig.direction === 'asc' ? (
-                            <ArrowUp className="h-3 w-3" />
-                          ) : (
-                            <ArrowDown className="h-3 w-3" />
-                          )
-                        ) : (
-                          <ArrowUpDown className="h-3 w-3 opacity-20" />
-                        )}
-                      </div>
-                    </TableHead>
-                    <TableHead className="text-right">Ações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+            {isInitialLoading ? (
+              <div className="py-12 flex flex-col items-center justify-center gap-3 text-muted-foreground">
+                <div className="h-8 w-8 rounded-full border-4 border-primary border-t-transparent animate-spin" />
+                <p className="text-sm font-medium">Carregando lista de clientes...</p>
+              </div>
+            ) : (
+              <>
+                <TabsContent value="list">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead
+                          onClick={() => handleSort('name')}
+                          className="cursor-pointer select-none hover:bg-slate-50 transition-colors"
+                        >
+                          <div className="flex items-center gap-2">
+                            Nome
+                            {sortConfig?.key === 'name' ? (
+                              sortConfig.direction === 'asc' ? (
+                                <ArrowUp className="h-3 w-3" />
+                              ) : (
+                                <ArrowDown className="h-3 w-3" />
+                              )
+                            ) : (
+                              <ArrowUpDown className="h-3 w-3 opacity-20" />
+                            )}
+                          </div>
+                        </TableHead>
+                        <TableHead
+                          onClick={() => handleSort('document')}
+                          className="cursor-pointer select-none hover:bg-slate-50 transition-colors"
+                        >
+                          <div className="flex items-center gap-2">
+                            CPF/CNPJ
+                            {sortConfig?.key === 'document' ? (
+                              sortConfig.direction === 'asc' ? (
+                                <ArrowUp className="h-3 w-3" />
+                              ) : (
+                                <ArrowDown className="h-3 w-3" />
+                              )
+                            ) : (
+                              <ArrowUpDown className="h-3 w-3 opacity-20" />
+                            )}
+                          </div>
+                        </TableHead>
+                        <TableHead
+                          onClick={() => handleSort('phone')}
+                          className="cursor-pointer select-none hover:bg-slate-50 transition-colors"
+                        >
+                          <div className="flex items-center gap-2">
+                            Contato
+                            {sortConfig?.key === 'phone' ? (
+                              sortConfig.direction === 'asc' ? (
+                                <ArrowUp className="h-3 w-3" />
+                              ) : (
+                                <ArrowDown className="h-3 w-3" />
+                              )
+                            ) : (
+                              <ArrowUpDown className="h-3 w-3 opacity-20" />
+                            )}
+                          </div>
+                        </TableHead>
+                        <TableHead
+                          onClick={() => handleSort('responsibleId')}
+                          className="cursor-pointer select-none hover:bg-slate-50 transition-colors"
+                        >
+                          <div className="flex items-center gap-2">
+                            Responsável
+                            {sortConfig?.key === 'responsibleId' ? (
+                              sortConfig.direction === 'asc' ? (
+                                <ArrowUp className="h-3 w-3" />
+                              ) : (
+                                <ArrowDown className="h-3 w-3" />
+                              )
+                            ) : (
+                              <ArrowUpDown className="h-3 w-3 opacity-20" />
+                            )}
+                          </div>
+                        </TableHead>
+                        <TableHead
+                          onClick={() => handleSort('captacao')}
+                          className="cursor-pointer select-none hover:bg-slate-50 transition-colors"
+                        >
+                          <div className="flex items-center gap-2">
+                            Captação
+                            {sortConfig?.key === 'captacao' ? (
+                              sortConfig.direction === 'asc' ? (
+                                <ArrowUp className="h-3 w-3" />
+                              ) : (
+                                <ArrowDown className="h-3 w-3" />
+                              )
+                            ) : (
+                              <ArrowUpDown className="h-3 w-3 opacity-20" />
+                            )}
+                          </div>
+                        </TableHead>
+                        <TableHead
+                          onClick={() => handleSort('status')}
+                          className="cursor-pointer select-none hover:bg-slate-50 transition-colors"
+                        >
+                          <div className="flex items-center gap-2">
+                            Status
+                            {sortConfig?.key === 'status' ? (
+                              sortConfig.direction === 'asc' ? (
+                                <ArrowUp className="h-3 w-3" />
+                              ) : (
+                                <ArrowDown className="h-3 w-3" />
+                              )
+                            ) : (
+                              <ArrowUpDown className="h-3 w-3 opacity-20" />
+                            )}
+                          </div>
+                        </TableHead>
+                        <TableHead
+                          onClick={() => handleSort('casesCount')}
+                          className="cursor-pointer select-none hover:bg-slate-50 transition-colors text-center"
+                        >
+                          <div className="flex items-center justify-center gap-2">
+                            Processos
+                            {sortConfig?.key === 'casesCount' ? (
+                              sortConfig.direction === 'asc' ? (
+                                <ArrowUp className="h-3 w-3" />
+                              ) : (
+                                <ArrowDown className="h-3 w-3" />
+                              )
+                            ) : (
+                              <ArrowUpDown className="h-3 w-3 opacity-20" />
+                            )}
+                          </div>
+                        </TableHead>
+                        <TableHead className="text-right">Ações</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {sortedAndFiltered.map((c) => {
+                        const resp = state.users.find((u) => u.id === c.responsibleId)
+                        const clientCases = state.cases.filter((x) => x.clientId === c.id)
+                        const caseCount = clientCases.length
+                        return (
+                          <TableRow key={c.id}>
+                            <TableCell className="font-medium">
+                              <div className="flex items-center gap-2">
+                                <Star
+                                  className={`h-4 w-4 cursor-pointer ${c.isSpecial ? 'fill-yellow-400 text-yellow-400' : 'text-slate-300'}`}
+                                  onClick={() =>
+                                    updateItem('clients', c.id, { isSpecial: !c.isSpecial })
+                                  }
+                                />{' '}
+                                {c.name}{' '}
+                                <Badge variant="outline" className="text-[10px]">
+                                  {c.type}
+                                </Badge>
+                              </div>
+                            </TableCell>
+                            <TableCell>{c.document}</TableCell>
+                            <TableCell className="text-sm">
+                              {c.phone_na ? (
+                                <span className="text-muted-foreground italic text-xs">
+                                  Não se aplica
+                                </span>
+                              ) : c.no_phone ? (
+                                <span className="text-muted-foreground italic text-xs">
+                                  Sem telefone
+                                </span>
+                              ) : c.phone ? (
+                                <div className="flex items-center gap-2">
+                                  <span>{formatPhone(c.phone)}</span>
+                                  {getWhatsAppPhone(c.phone) && (
+                                    <a
+                                      href={`https://wa.me/${getWhatsAppPhone(c.phone)}`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-green-500 hover:scale-110 transition-transform"
+                                      title="Abrir WhatsApp"
+                                    >
+                                      <MessageCircle className="h-4 w-4" />
+                                    </a>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground">Não informado</span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {resp ? (
+                                <span
+                                  className="text-xs px-2 py-0.5 rounded-full font-medium inline-block"
+                                  style={{
+                                    backgroundColor: `${resp.color}20`,
+                                    color: resp.color,
+                                    border: `1px solid ${resp.color}40`,
+                                  }}
+                                >
+                                  {resp.name}
+                                </span>
+                              ) : (
+                                '—'
+                              )}
+                            </TableCell>
+                            <TableCell>{c.captacao || '—'}</TableCell>
+                            <TableCell>
+                              <Badge variant={c.status === 'Ativo' ? 'default' : 'secondary'}>
+                                {c.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-center font-bold text-muted-foreground">
+                              <div className="inline-flex items-center justify-center gap-1.5">
+                                <span>{caseCount}</span>
+                                {clientCases.map((cs) => (
+                                  <CaseFeeBadge key={cs.id} hasFees={casesWithFees.has(cs.id)} />
+                                ))}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-2">
+                                <Button variant="ghost" size="icon" asChild title="Abrir">
+                                  <Link to={`/clientes/${c.id}`}>
+                                    <ExternalLink className="h-4 w-4" />
+                                  </Link>
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleOpen(c)}
+                                  title="Editar"
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                {state.currentUser.role === 'Admin' && (
+                                  <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="text-red-500 hover:bg-red-50"
+                                        title="Excluir"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                      <AlertDialogHeader>
+                                        <AlertDialogTitle>Excluir Cliente?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                          Esta ação é irreversível. Isso removerá o cliente e todo o
+                                          seu histórico (processos, tarefas e agendamentos).
+                                        </AlertDialogDescription>
+                                      </AlertDialogHeader>
+                                      <AlertDialogFooter>
+                                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                        <AlertDialogAction
+                                          className="bg-red-600 hover:bg-red-700"
+                                          onClick={() => deleteItem('clients', c.id)}
+                                        >
+                                          Excluir
+                                        </AlertDialogAction>
+                                      </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                  </AlertDialog>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
+                    </TableBody>
+                  </Table>
+                </TabsContent>
+                <TabsContent
+                  value="grid"
+                  className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+                >
                   {sortedAndFiltered.map((c) => {
-                    const resp = state.users.find((u) => u.id === c.responsibleId)
                     const clientCases = state.cases.filter((x) => x.clientId === c.id)
                     const caseCount = clientCases.length
+                    const resp = state.users.find((u) => u.id === c.responsibleId)
                     return (
-                      <TableRow key={c.id}>
-                        <TableCell className="font-medium">
-                          <div className="flex items-center gap-2">
-                            <Star
-                              className={`h-4 w-4 cursor-pointer ${c.isSpecial ? 'fill-yellow-400 text-yellow-400' : 'text-slate-300'}`}
-                              onClick={() =>
-                                updateItem('clients', c.id, { isSpecial: !c.isSpecial })
-                              }
-                            />{' '}
-                            {c.name}{' '}
-                            <Badge variant="outline" className="text-[10px]">
-                              {c.type}
+                      <Card key={c.id} className="relative overflow-hidden group">
+                        <div
+                          className={`absolute top-0 left-0 w-1 h-full ${c.status === 'Ativo' ? 'bg-green-500' : 'bg-slate-300'}`}
+                        />
+                        <CardContent className="p-4 pl-5">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <h3 className="font-bold flex items-center gap-1">
+                                {c.name}{' '}
+                                {c.isSpecial && (
+                                  <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                                )}
+                              </h3>
+                              <p className="text-xs text-muted-foreground">
+                                {c.type} • {c.document}
+                              </p>
+                            </div>
+                            <Badge variant={c.status === 'Ativo' ? 'default' : 'secondary'}>
+                              {c.status}
                             </Badge>
                           </div>
-                        </TableCell>
-                        <TableCell>{c.document}</TableCell>
-                        <TableCell className="text-sm">
-                          {c.phone_na ? (
-                            <span className="text-muted-foreground italic text-xs">
-                              Não se aplica
-                            </span>
-                          ) : c.no_phone ? (
-                            <span className="text-muted-foreground italic text-xs">
-                              Sem telefone
-                            </span>
-                          ) : c.phone ? (
-                            <div className="flex items-center gap-2">
-                              <span>{formatPhone(c.phone)}</span>
-                              {getWhatsAppPhone(c.phone) && (
-                                <a
-                                  href={`https://wa.me/${getWhatsAppPhone(c.phone)}`}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="text-green-500 hover:scale-110 transition-transform"
-                                  title="Abrir WhatsApp"
+                          <div className="mt-4 space-y-1 text-sm">
+                            <p className="flex items-center gap-1">
+                              Resp:{' '}
+                              {resp ? (
+                                <span
+                                  className="text-[10px] px-2 py-0.5 rounded-full font-medium inline-block"
+                                  style={{
+                                    backgroundColor: `${resp.color}20`,
+                                    color: resp.color,
+                                    border: `1px solid ${resp.color}40`,
+                                  }}
                                 >
-                                  <MessageCircle className="h-4 w-4" />
-                                </a>
+                                  {resp.name}
+                                </span>
+                              ) : (
+                                <span className="font-medium">—</span>
                               )}
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground">Não informado</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {resp ? (
-                            <span
-                              className="text-xs px-2 py-0.5 rounded-full font-medium inline-block"
-                              style={{
-                                backgroundColor: `${resp.color}20`,
-                                color: resp.color,
-                                border: `1px solid ${resp.color}40`,
-                              }}
-                            >
-                              {resp.name}
-                            </span>
-                          ) : (
-                            '—'
-                          )}
-                        </TableCell>
-                        <TableCell>{c.captacao || '—'}</TableCell>
-                        <TableCell>
-                          <Badge variant={c.status === 'Ativo' ? 'default' : 'secondary'}>
-                            {c.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-center font-bold text-muted-foreground">
-                          <div className="inline-flex items-center justify-center gap-1.5">
-                            <span>{caseCount}</span>
-                            {clientCases.map((cs) => (
-                              <CaseFeeBadge key={cs.id} hasFees={casesWithFees.has(cs.id)} />
-                            ))}
+                            </p>
+                            <p>
+                              Captação: <span className="font-medium">{c.captacao || '—'}</span>
+                            </p>
+                            <p className="flex items-center gap-2">
+                              Tel:{' '}
+                              {c.phone_na ? (
+                                <span className="text-muted-foreground italic text-xs">
+                                  Não se aplica
+                                </span>
+                              ) : c.no_phone ? (
+                                <span className="text-muted-foreground italic text-xs">
+                                  Sem telefone
+                                </span>
+                              ) : c.phone ? (
+                                <>
+                                  <span>{formatPhone(c.phone)}</span>
+                                  {getWhatsAppPhone(c.phone) && (
+                                    <a
+                                      href={`https://wa.me/${getWhatsAppPhone(c.phone)}`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-green-500"
+                                      title="Abrir WhatsApp"
+                                    >
+                                      <MessageCircle className="h-4 w-4" />
+                                    </a>
+                                  )}
+                                </>
+                              ) : (
+                                <span className="text-muted-foreground">Não informado</span>
+                              )}
+                            </p>
+                            <p className="flex items-center gap-1.5">
+                              <span>Processos:</span>
+                              <span className="font-bold">{caseCount}</span>
+                              {clientCases.map((cs) => (
+                                <CaseFeeBadge key={cs.id} hasFees={casesWithFees.has(cs.id)} />
+                              ))}
+                            </p>
                           </div>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
-                            <Button variant="ghost" size="icon" asChild title="Abrir">
-                              <Link to={`/clientes/${c.id}`}>
-                                <ExternalLink className="h-4 w-4" />
-                              </Link>
+                          <div className="mt-4 flex gap-2">
+                            <Button size="sm" variant="outline" className="flex-1" asChild>
+                              <Link to={`/clientes/${c.id}`}>Ver Detalhes</Link>
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleOpen(c)}
-                              title="Editar"
-                            >
+                            <Button size="sm" variant="outline" onClick={() => handleOpen(c)}>
                               <Edit className="h-4 w-4" />
                             </Button>
                             {state.currentUser.role === 'Admin' && (
                               <AlertDialog>
                                 <AlertDialogTrigger asChild>
                                   <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="text-red-500 hover:bg-red-50"
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-red-500 hover:bg-red-50 hover:text-red-600"
                                     title="Excluir"
                                   >
-                                    <Trash2 className="h-4 w-4" />
+                                    <Trash2 className="h-4 w-4 mr-1" /> Excluir
                                   </Button>
                                 </AlertDialogTrigger>
                                 <AlertDialogContent>
@@ -645,146 +789,13 @@ export default function Clients() {
                               </AlertDialog>
                             )}
                           </div>
-                        </TableCell>
-                      </TableRow>
+                        </CardContent>
+                      </Card>
                     )
                   })}
-                </TableBody>
-              </Table>
-            </TabsContent>
-            <TabsContent
-              value="grid"
-              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
-            >
-              {sortedAndFiltered.map((c) => {
-                const clientCases = state.cases.filter((x) => x.clientId === c.id)
-                const caseCount = clientCases.length
-                const resp = state.users.find((u) => u.id === c.responsibleId)
-                return (
-                  <Card key={c.id} className="relative overflow-hidden group">
-                    <div
-                      className={`absolute top-0 left-0 w-1 h-full ${c.status === 'Ativo' ? 'bg-green-500' : 'bg-slate-300'}`}
-                    />
-                    <CardContent className="p-4 pl-5">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h3 className="font-bold flex items-center gap-1">
-                            {c.name}{' '}
-                            {c.isSpecial && (
-                              <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-                            )}
-                          </h3>
-                          <p className="text-xs text-muted-foreground">
-                            {c.type} • {c.document}
-                          </p>
-                        </div>
-                        <Badge variant={c.status === 'Ativo' ? 'default' : 'secondary'}>
-                          {c.status}
-                        </Badge>
-                      </div>
-                      <div className="mt-4 space-y-1 text-sm">
-                        <p className="flex items-center gap-1">
-                          Resp:{' '}
-                          {resp ? (
-                            <span
-                              className="text-[10px] px-2 py-0.5 rounded-full font-medium inline-block"
-                              style={{
-                                backgroundColor: `${resp.color}20`,
-                                color: resp.color,
-                                border: `1px solid ${resp.color}40`,
-                              }}
-                            >
-                              {resp.name}
-                            </span>
-                          ) : (
-                            <span className="font-medium">—</span>
-                          )}
-                        </p>
-                        <p>
-                          Captação: <span className="font-medium">{c.captacao || '—'}</span>
-                        </p>
-                        <p className="flex items-center gap-2">
-                          Tel:{' '}
-                          {c.phone_na ? (
-                            <span className="text-muted-foreground italic text-xs">
-                              Não se aplica
-                            </span>
-                          ) : c.no_phone ? (
-                            <span className="text-muted-foreground italic text-xs">
-                              Sem telefone
-                            </span>
-                          ) : c.phone ? (
-                            <>
-                              <span>{formatPhone(c.phone)}</span>
-                              {getWhatsAppPhone(c.phone) && (
-                                <a
-                                  href={`https://wa.me/${getWhatsAppPhone(c.phone)}`}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="text-green-500"
-                                  title="Abrir WhatsApp"
-                                >
-                                  <MessageCircle className="h-4 w-4" />
-                                </a>
-                              )}
-                            </>
-                          ) : (
-                            <span className="text-muted-foreground">Não informado</span>
-                          )}
-                        </p>
-                        <p className="flex items-center gap-1.5">
-                          <span>Processos:</span>
-                          <span className="font-bold">{caseCount}</span>
-                          {clientCases.map((cs) => (
-                            <CaseFeeBadge key={cs.id} hasFees={casesWithFees.has(cs.id)} />
-                          ))}
-                        </p>
-                      </div>
-                      <div className="mt-4 flex gap-2">
-                        <Button size="sm" variant="outline" className="flex-1" asChild>
-                          <Link to={`/clientes/${c.id}`}>Ver Detalhes</Link>
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => handleOpen(c)}>
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        {state.currentUser.role === 'Admin' && (
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="text-red-500 hover:bg-red-50 hover:text-red-600"
-                                title="Excluir"
-                              >
-                                <Trash2 className="h-4 w-4 mr-1" /> Excluir
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Excluir Cliente?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  Esta ação é irreversível. Isso removerá o cliente e todo o seu
-                                  histórico (processos, tarefas e agendamentos).
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                <AlertDialogAction
-                                  className="bg-red-600 hover:bg-red-700"
-                                  onClick={() => deleteItem('clients', c.id)}
-                                >
-                                  Excluir
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )
-              })}
-            </TabsContent>
+                </TabsContent>
+              </>
+            )}
           </Tabs>
         </CardContent>
       </Card>

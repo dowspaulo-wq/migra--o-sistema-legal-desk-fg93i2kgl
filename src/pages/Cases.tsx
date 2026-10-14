@@ -73,7 +73,7 @@ const initialFilters = {
 
 export default function Cases() {
   const store = useLegalStore()
-  const { addCase, updateItem, deleteItem } = store
+  const { addCase, updateItem, deleteItem, isInitialLoading } = store
 
   const [filters, setFilters] = useState(() => {
     try {
@@ -569,7 +569,9 @@ export default function Cases() {
           <Tabs defaultValue="list">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
               <p className="text-sm font-medium text-muted-foreground">
-                {filtered.length} processo(s) encontrado(s)
+                {isInitialLoading
+                  ? 'Carregando processos...'
+                  : `${filtered.length} processo(s) encontrado(s)`}
               </p>
               <TabsList>
                 <TabsTrigger value="list">
@@ -580,361 +582,371 @@ export default function Cases() {
                 </TabsTrigger>
               </TabsList>
             </div>
-            <TabsContent value="list" className="grid gap-3">
-              {filtered.map((c) => {
-                const client = state.clients.find((cl) => cl.id === c.clientId)
-                const resp = state.users.find((u) => u.id === c.responsibleId)
+            {isInitialLoading ? (
+              <div className="py-12 flex flex-col items-center justify-center gap-3 text-muted-foreground">
+                <div className="h-8 w-8 rounded-full border-4 border-primary border-t-transparent animate-spin" />
+                <p className="text-sm font-medium">Carregando lista de processos...</p>
+              </div>
+            ) : (
+              <>
+                <TabsContent value="list" className="grid gap-3">
+                  {filtered.map((c) => {
+                    const client = state.clients.find((cl) => cl.id === c.clientId)
+                    const resp = state.users.find((u) => u.id === c.responsibleId)
 
-                return (
-                  <div
-                    key={c.id}
-                    className="border p-4 rounded-lg flex flex-col md:flex-row justify-between gap-4 hover:opacity-90 transition-colors bg-card"
-                    style={getStatusStyle(c.status)}
-                  >
-                    <div className="w-full">
+                    return (
                       <div
-                        className="flex items-center gap-2 mb-1 flex-wrap"
-                        data-native-system-icon="true"
+                        key={c.id}
+                        className="border p-4 rounded-lg flex flex-col md:flex-row justify-between gap-4 hover:opacity-90 transition-colors bg-card"
+                        style={getStatusStyle(c.status)}
                       >
-                        <Link
-                          to={`/processos/${c.id}`}
-                          className="text-lg font-bold text-primary hover:underline flex items-center gap-2"
-                        >
-                          {(() => {
-                            const sys = state.caseSystems?.find((s) => s.name === c.system)
-                            if (sys?.image_url) {
-                              return (
-                                <img
-                                  src={sys.image_url}
-                                  alt={sys.name}
-                                  className="w-5 h-5 object-contain shrink-0"
-                                  title={sys.name}
-                                />
-                              )
-                            }
-                            return null
-                          })()}
-                          {c.number}
-                        </Link>{' '}
-                        <CaseFeeBadge hasFees={casesWithFees.has(c.id)} />
-                        {c.isSpecial && (
-                          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                        )}
-                        {c.isProblematic && (
-                          <span className="text-base leading-none" title="Problemático">
-                            💩
-                          </span>
-                        )}
-                        {c.isRestricted && (
-                          <span
-                            className="text-base leading-none"
-                            title="Visibilidade Interna Restrita"
+                        <div className="w-full">
+                          <div
+                            className="flex items-center gap-2 mb-1 flex-wrap"
+                            data-native-system-icon="true"
                           >
-                            🔒
-                          </span>
-                        )}
-                        <Badge variant="outline">{c.status}</Badge>
-                        <Badge variant="secondary" className="text-[10px]">
-                          {c.classification || 'SB'}
-                        </Badge>
-                        <Badge
-                          style={{ backgroundColor: getTypeColor(c.type) }}
-                          className="text-white border-0 hover:opacity-90"
-                        >
-                          {c.type}
-                        </Badge>
-                        {c.parentId && (
-                          <Badge variant="secondary" className="text-[10px]">
-                            Subprocesso
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="text-sm font-medium mt-1">
-                        {client ? (
-                          <Link
-                            to={`/clientes/${client.id}`}
-                            className="hover:underline text-primary"
-                          >
-                            {client.name}
-                          </Link>
-                        ) : (
-                          '—'
-                        )}{' '}
-                        <span className="text-muted-foreground text-xs">({c.position})</span> x{' '}
-                        {c.adverseParty}
-                      </p>
-                      <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
-                        <p>
-                          Vara: {c.court} •{' '}
-                          {c.status && normalizeStr(c.status).includes('concluido')
-                            ? `Tramitou durante ${getDetailedDuration(c.startDate, c.updatedAt, c.status)}`
-                            : `Tramitando há ${getDetailedDuration(c.startDate, c.updatedAt, c.status)}`}
-                        </p>
-                        {resp && (
-                          <span
-                            className="px-2 py-0.5 rounded-full font-medium ml-auto"
-                            style={{
-                              backgroundColor: `${resp.color}20`,
-                              color: resp.color,
-                              border: `1px solid ${resp.color}40`,
-                            }}
-                          >
-                            Resp: {resp.name.split(' ')[0]}
-                          </span>
-                        )}
-                      </div>
-                      {c.description && (
-                        <p
-                          className="text-sm text-muted-foreground mt-2 line-clamp-2"
-                          title={stripHtml(c.description)}
-                        >
-                          {stripHtml(c.description)}
-                        </p>
-                      )}
-                      {c.alerts && (
-                        <div className="flex gap-1 flex-wrap mt-2">
-                          {c.alerts.split(',').map((a) => (
-                            <Badge
-                              key={a}
-                              variant="secondary"
-                              className="text-[10px] bg-red-50 text-red-700 border-red-200"
+                            <Link
+                              to={`/processos/${c.id}`}
+                              className="text-lg font-bold text-primary hover:underline flex items-center gap-2"
                             >
-                              {getAlertLabel(a)}
+                              {(() => {
+                                const sys = state.caseSystems?.find((s) => s.name === c.system)
+                                if (sys?.image_url) {
+                                  return (
+                                    <img
+                                      src={sys.image_url}
+                                      alt={sys.name}
+                                      className="w-5 h-5 object-contain shrink-0"
+                                      title={sys.name}
+                                    />
+                                  )
+                                }
+                                return null
+                              })()}
+                              {c.number}
+                            </Link>{' '}
+                            <CaseFeeBadge hasFees={casesWithFees.has(c.id)} />
+                            {c.isSpecial && (
+                              <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                            )}
+                            {c.isProblematic && (
+                              <span className="text-base leading-none" title="Problemático">
+                                💩
+                              </span>
+                            )}
+                            {c.isRestricted && (
+                              <span
+                                className="text-base leading-none"
+                                title="Visibilidade Interna Restrita"
+                              >
+                                🔒
+                              </span>
+                            )}
+                            <Badge variant="outline">{c.status}</Badge>
+                            <Badge variant="secondary" className="text-[10px]">
+                              {c.classification || 'SB'}
                             </Badge>
-                          ))}
+                            <Badge
+                              style={{ backgroundColor: getTypeColor(c.type) }}
+                              className="text-white border-0 hover:opacity-90"
+                            >
+                              {c.type}
+                            </Badge>
+                            {c.parentId && (
+                              <Badge variant="secondary" className="text-[10px]">
+                                Subprocesso
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-sm font-medium mt-1">
+                            {client ? (
+                              <Link
+                                to={`/clientes/${client.id}`}
+                                className="hover:underline text-primary"
+                              >
+                                {client.name}
+                              </Link>
+                            ) : (
+                              '—'
+                            )}{' '}
+                            <span className="text-muted-foreground text-xs">({c.position})</span> x{' '}
+                            {c.adverseParty}
+                          </p>
+                          <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                            <p>
+                              Vara: {c.court} •{' '}
+                              {c.status && normalizeStr(c.status).includes('concluido')
+                                ? `Tramitou durante ${getDetailedDuration(c.startDate, c.updatedAt, c.status)}`
+                                : `Tramitando há ${getDetailedDuration(c.startDate, c.updatedAt, c.status)}`}
+                            </p>
+                            {resp && (
+                              <span
+                                className="px-2 py-0.5 rounded-full font-medium ml-auto"
+                                style={{
+                                  backgroundColor: `${resp.color}20`,
+                                  color: resp.color,
+                                  border: `1px solid ${resp.color}40`,
+                                }}
+                              >
+                                Resp: {resp.name.split(' ')[0]}
+                              </span>
+                            )}
+                          </div>
+                          {c.description && (
+                            <p
+                              className="text-sm text-muted-foreground mt-2 line-clamp-2"
+                              title={stripHtml(c.description)}
+                            >
+                              {stripHtml(c.description)}
+                            </p>
+                          )}
+                          {c.alerts && (
+                            <div className="flex gap-1 flex-wrap mt-2">
+                              {c.alerts.split(',').map((a) => (
+                                <Badge
+                                  key={a}
+                                  variant="secondary"
+                                  className="text-[10px] bg-red-50 text-red-700 border-red-200"
+                                >
+                                  {getAlertLabel(a)}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm" onClick={() => handleOpen(c)}>
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      {state.currentUser.role === 'Admin' && (
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
+                        <div className="flex items-center gap-2">
+                          <Button variant="outline" size="sm" onClick={() => handleOpen(c)}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          {state.currentUser.role === 'Admin' && (
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-red-500 hover:bg-red-50 bg-white"
+                                  title="Excluir"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Excluir Processo?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Esta ação não pode ser desfeita. Isso excluirá o processo
+                                    permanentemente, além de tarefas e compromissos atrelados.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    className="bg-red-600 hover:bg-red-700"
+                                    onClick={() => deleteItem('cases', c.id)}
+                                  >
+                                    Excluir
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </TabsContent>
+                <TabsContent
+                  value="grid"
+                  className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+                >
+                  {filtered.map((c) => {
+                    const client = state.clients.find((cl) => cl.id === c.clientId)
+                    const resp = state.users.find((u) => u.id === c.responsibleId)
+                    const typeColor = getTypeColor(c.type)
+
+                    return (
+                      <Card
+                        key={c.id}
+                        className="relative overflow-hidden group border"
+                        style={getStatusStyle(c.status)}
+                      >
+                        <CardContent className="p-4 pt-5 space-y-3">
+                          <div
+                            className="flex justify-between items-start gap-2"
+                            data-native-system-icon="true"
+                          >
+                            <Link
+                              to={`/processos/${c.id}`}
+                              className="font-bold text-primary hover:underline text-sm break-all flex items-start gap-2"
+                            >
+                              {(() => {
+                                const sys = state.caseSystems?.find((s) => s.name === c.system)
+                                if (sys?.image_url) {
+                                  return (
+                                    <img
+                                      src={sys.image_url}
+                                      alt={sys.name}
+                                      className="w-4 h-4 object-contain shrink-0 mt-0.5"
+                                      title={sys.name}
+                                    />
+                                  )
+                                }
+                                return null
+                              })()}
+                              {c.number}
+                            </Link>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <CaseFeeBadge hasFees={casesWithFees.has(c.id)} />
+                              {c.isProblematic && (
+                                <span className="text-base leading-none" title="Problemático">
+                                  💩
+                                </span>
+                              )}
+                              {c.isSpecial && (
+                                <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                              )}
+                              {c.isRestricted && (
+                                <span
+                                  className="text-base leading-none"
+                                  title="Visibilidade Interna Restrita"
+                                >
+                                  🔒
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex gap-2 flex-wrap">
+                            <Badge variant="outline">{c.status}</Badge>
+                            <Badge variant="secondary" className="text-[10px]">
+                              {c.classification || 'SB'}
+                            </Badge>
+                            <Badge
+                              style={{ backgroundColor: typeColor }}
+                              className="text-white border-0 hover:opacity-90"
+                            >
+                              {c.type}
+                            </Badge>
+                            {c.parentId && (
+                              <Badge variant="secondary" className="text-[10px]">
+                                Subprocesso
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="text-sm space-y-1">
+                            <p>
+                              <span className="text-muted-foreground">Cliente:</span>{' '}
+                              {client ? (
+                                <Link
+                                  to={`/clientes/${client.id}`}
+                                  className="hover:underline text-primary"
+                                >
+                                  {client.name}
+                                </Link>
+                              ) : (
+                                '—'
+                              )}
+                            </p>
+                            <p>
+                              <span className="text-muted-foreground">Adversa:</span>{' '}
+                              {c.adverseParty}
+                            </p>
+                            <p className="flex items-center gap-1">
+                              <span className="text-muted-foreground">Resp:</span>{' '}
+                              {resp ? (
+                                <span
+                                  className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                                  style={{
+                                    backgroundColor: `${resp.color}20`,
+                                    color: resp.color,
+                                    border: `1px solid ${resp.color}40`,
+                                  }}
+                                >
+                                  {resp.name}
+                                </span>
+                              ) : (
+                                '—'
+                              )}
+                            </p>
+                            <p>
+                              <span className="text-muted-foreground">
+                                {c.status && normalizeStr(c.status).includes('concluido')
+                                  ? 'Tramitou durante:'
+                                  : 'Tramitando há:'}
+                              </span>{' '}
+                              {getDetailedDuration(c.startDate, c.updatedAt, c.status)}
+                            </p>
+                            {c.description && (
+                              <p
+                                className="text-xs text-muted-foreground line-clamp-2 mt-1"
+                                title={stripHtml(c.description)}
+                              >
+                                {stripHtml(c.description)}
+                              </p>
+                            )}
+                          </div>
+                          {c.alerts && (
+                            <div className="flex gap-1 flex-wrap pt-1">
+                              {c.alerts.split(',').map((a) => (
+                                <Badge
+                                  key={a}
+                                  variant="secondary"
+                                  className="text-[10px] bg-red-50 text-red-700 border-red-200"
+                                >
+                                  {getAlertLabel(a)}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+
+                          <div className="flex gap-2 pt-2 border-t mt-3">
                             <Button
                               variant="outline"
                               size="sm"
-                              className="text-red-500 hover:bg-red-50 bg-white"
-                              title="Excluir"
+                              className="w-full bg-white"
+                              onClick={() => handleOpen(c)}
                             >
-                              <Trash2 className="h-4 w-4" />
+                              <Edit className="h-4 w-4 mr-2" /> Editar
                             </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Excluir Processo?</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Esta ação não pode ser desfeita. Isso excluirá o processo
-                                permanentemente, além de tarefas e compromissos atrelados.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                              <AlertDialogAction
-                                className="bg-red-600 hover:bg-red-700"
-                                onClick={() => deleteItem('cases', c.id)}
-                              >
-                                Excluir
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            </TabsContent>
-            <TabsContent
-              value="grid"
-              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
-            >
-              {filtered.map((c) => {
-                const client = state.clients.find((cl) => cl.id === c.clientId)
-                const resp = state.users.find((u) => u.id === c.responsibleId)
-                const typeColor = getTypeColor(c.type)
-
-                return (
-                  <Card
-                    key={c.id}
-                    className="relative overflow-hidden group border"
-                    style={getStatusStyle(c.status)}
-                  >
-                    <CardContent className="p-4 pt-5 space-y-3">
-                      <div
-                        className="flex justify-between items-start gap-2"
-                        data-native-system-icon="true"
-                      >
-                        <Link
-                          to={`/processos/${c.id}`}
-                          className="font-bold text-primary hover:underline text-sm break-all flex items-start gap-2"
-                        >
-                          {(() => {
-                            const sys = state.caseSystems?.find((s) => s.name === c.system)
-                            if (sys?.image_url) {
-                              return (
-                                <img
-                                  src={sys.image_url}
-                                  alt={sys.name}
-                                  className="w-4 h-4 object-contain shrink-0 mt-0.5"
-                                  title={sys.name}
-                                />
-                              )
-                            }
-                            return null
-                          })()}
-                          {c.number}
-                        </Link>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <CaseFeeBadge hasFees={casesWithFees.has(c.id)} />
-                          {c.isProblematic && (
-                            <span className="text-base leading-none" title="Problemático">
-                              💩
-                            </span>
-                          )}
-                          {c.isSpecial && (
-                            <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                          )}
-                          {c.isRestricted && (
-                            <span
-                              className="text-base leading-none"
-                              title="Visibilidade Interna Restrita"
-                            >
-                              🔒
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex gap-2 flex-wrap">
-                        <Badge variant="outline">{c.status}</Badge>
-                        <Badge variant="secondary" className="text-[10px]">
-                          {c.classification || 'SB'}
-                        </Badge>
-                        <Badge
-                          style={{ backgroundColor: typeColor }}
-                          className="text-white border-0 hover:opacity-90"
-                        >
-                          {c.type}
-                        </Badge>
-                        {c.parentId && (
-                          <Badge variant="secondary" className="text-[10px]">
-                            Subprocesso
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="text-sm space-y-1">
-                        <p>
-                          <span className="text-muted-foreground">Cliente:</span>{' '}
-                          {client ? (
-                            <Link
-                              to={`/clientes/${client.id}`}
-                              className="hover:underline text-primary"
-                            >
-                              {client.name}
-                            </Link>
-                          ) : (
-                            '—'
-                          )}
-                        </p>
-                        <p>
-                          <span className="text-muted-foreground">Adversa:</span> {c.adverseParty}
-                        </p>
-                        <p className="flex items-center gap-1">
-                          <span className="text-muted-foreground">Resp:</span>{' '}
-                          {resp ? (
-                            <span
-                              className="text-[10px] px-2 py-0.5 rounded-full font-medium"
-                              style={{
-                                backgroundColor: `${resp.color}20`,
-                                color: resp.color,
-                                border: `1px solid ${resp.color}40`,
-                              }}
-                            >
-                              {resp.name}
-                            </span>
-                          ) : (
-                            '—'
-                          )}
-                        </p>
-                        <p>
-                          <span className="text-muted-foreground">
-                            {c.status && normalizeStr(c.status).includes('concluido')
-                              ? 'Tramitou durante:'
-                              : 'Tramitando há:'}
-                          </span>{' '}
-                          {getDetailedDuration(c.startDate, c.updatedAt, c.status)}
-                        </p>
-                        {c.description && (
-                          <p
-                            className="text-xs text-muted-foreground line-clamp-2 mt-1"
-                            title={stripHtml(c.description)}
-                          >
-                            {stripHtml(c.description)}
-                          </p>
-                        )}
-                      </div>
-                      {c.alerts && (
-                        <div className="flex gap-1 flex-wrap pt-1">
-                          {c.alerts.split(',').map((a) => (
-                            <Badge
-                              key={a}
-                              variant="secondary"
-                              className="text-[10px] bg-red-50 text-red-700 border-red-200"
-                            >
-                              {getAlertLabel(a)}
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
-
-                      <div className="flex gap-2 pt-2 border-t mt-3">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="w-full bg-white"
-                          onClick={() => handleOpen(c)}
-                        >
-                          <Edit className="h-4 w-4 mr-2" /> Editar
-                        </Button>
-                        {state.currentUser.role === 'Admin' && (
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="text-red-500 hover:bg-red-50 shrink-0 bg-white"
-                                title="Excluir"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Excluir Processo?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  Esta ação não pode ser desfeita. Isso excluirá o processo
-                                  permanentemente, além de tarefas e compromissos atrelados.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                <AlertDialogAction
-                                  className="bg-red-600 hover:bg-red-700"
-                                  onClick={() => deleteItem('cases', c.id)}
-                                >
-                                  Excluir
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )
-              })}
-            </TabsContent>
+                            {state.currentUser.role === 'Admin' && (
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="text-red-500 hover:bg-red-50 shrink-0 bg-white"
+                                    title="Excluir"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Excluir Processo?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Esta ação não pode ser desfeita. Isso excluirá o processo
+                                      permanentemente, além de tarefas e compromissos atrelados.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      className="bg-red-600 hover:bg-red-700"
+                                      onClick={() => deleteItem('cases', c.id)}
+                                    >
+                                      Excluir
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )
+                  })}
+                </TabsContent>
+              </>
+            )}
           </Tabs>
         </CardContent>
       </Card>

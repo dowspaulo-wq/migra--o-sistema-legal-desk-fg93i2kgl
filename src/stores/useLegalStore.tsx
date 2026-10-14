@@ -54,6 +54,9 @@ import { isNonFinancialFeeType, isSuccessFeeType } from '@/lib/fee-types'
 
 interface LegalContextType {
   state: LegalState
+  isInitialLoading: boolean
+  isReloading: boolean
+  reloadAllData: () => Promise<void>
   updateItem: (table: string, id: string, changes: any) => void
   deleteItem: (table: string, id: string) => void
   addLog: (action: string, entity: string, details: string) => void
@@ -96,16 +99,368 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
 
   const loadingInitialDataRef = React.useRef(false)
   const initialDataLoadedForUserRef = React.useRef<string | null>(null)
+  const [isInitialLoading, setIsInitialLoading] = useState(true)
+  const [isReloading, setIsReloading] = useState(false)
+
+  // Função auxiliar de busca paginada e segura para qualquer tabela
+  const fetchAllTableRows = async (t: string): Promise<{ data: any[]; error: any }> => {
+    const allRows: any[] = []
+    const pageSize = 1000
+    let from = 0
+    const maxPages = 50 // Proteção absoluta contra loops infinitos de paginação
+
+    for (let page = 0; page < maxPages; page++) {
+      try {
+        const fetchPromise = supabase
+          .from(t as any)
+          .select('*')
+          .range(from, from + pageSize - 1)
+
+        const timeoutPromise = new Promise<{ data: any[] | null; error: any }>((resolve) =>
+          setTimeout(
+            () => resolve({ data: null, error: new Error(`Timeout na página ${page} de ${t}`) }),
+            10000,
+          ),
+        )
+
+        const { data, error } = await Promise.race([fetchPromise, timeoutPromise])
+
+        if (error) {
+          console.warn(`Erro ao buscar página ${page} da tabela ${t}:`, error)
+          return { data: allRows, error }
+        }
+
+        if (data && Array.isArray(data) && data.length > 0) {
+          allRows.push(...data)
+          if (data.length < pageSize) {
+            break
+          }
+          from += pageSize
+        } else {
+          break
+        }
+      } catch (pageErr) {
+        console.warn(`Exceção ao buscar página ${page} da tabela ${t}:`, pageErr)
+        return { data: allRows, error: pageErr }
+      }
+    }
+
+    return { data: allRows, error: null }
+  }
+
+  const queryWithTimeout = async (t: string) => {
+    try {
+      const timeoutPromise = new Promise<{ data: any[]; error: any }>((resolve) =>
+        setTimeout(() => resolve({ data: [], error: new Error(`Timeout loading ${t}`) }), 20000),
+      )
+      return await Promise.race([fetchAllTableRows(t), timeoutPromise])
+    } catch (e) {
+      console.warn(`Error or timeout fetching table ${t}:`, e)
+      return { data: [], error: e }
+    }
+  }
+
+  const safeSortDateDesc = (arr: any[], field: string) => {
+    return (arr || []).sort(
+      (a: any, b: any) => new Date(b?.[field] || 0).getTime() - new Date(a?.[field] || 0).getTime(),
+    )
+  }
+
+  const buildCurrentUser = (authUser: any, userProfile: any) => {
+    const userEmailLower = (authUser.email || '').toLowerCase()
+    const isDouglas =
+      userEmailLower === 'advdouglaspsantos@gmail.com' ||
+      userEmailLower === 'dowspaulo@gmail.com' ||
+      authUser.id === '6501af65-cd6c-43c3-958a-3091ce93ba78'
+
+    return userProfile
+      ? {
+          ...initialData.currentUser,
+          ...userProfile,
+          id: authUser.id,
+          email: userProfile.email || authUser.email || '',
+          role:
+            isDouglas || userProfile.role === 'Admin' || userEmailLower.includes('admin')
+              ? 'Admin'
+              : userProfile.role || 'User',
+          canViewFinance: isDouglas || userProfile.canViewFinance || userProfile.role === 'Admin',
+          is_active: userProfile.is_active ?? true,
+        }
+      : {
+          ...initialData.currentUser,
+          id: authUser.id,
+          email: authUser.email || '',
+          name: isDouglas
+            ? 'Douglas'
+            : authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'User',
+          role: isDouglas || userEmailLower.includes('admin') ? 'Admin' : 'User',
+          canViewFinance: isDouglas || userEmailLower.includes('admin'),
+          is_active: true,
+        }
+  }
+
+  // Carregamento resiliente e progressivo de dados para o usuário autenticado
+  const performLoad = useCallback(async (targetUser: any, isExplicitReload = false) => {
+    if (!targetUser) return
+
+    if (isExplicitReload) {
+      setIsReloading(true)
+    }
+
+    try {
+      // 1. Resolver o perfil do usuário
+      let userProfile: any = null
+      let profileFetchAttempts = 0
+      const maxProfileAttempts = 3
+
+      while (!userProfile && profileFetchAttempts < maxProfileAttempts) {
+        profileFetchAttempts++
+        try {
+          const timeoutPromise = new Promise<{ data: any; error: any }>((resolve) =>
+            setTimeout(
+              () => resolve({ data: null, error: new Error('Timeout profile check') }),
+              8000,
+            ),
+          )
+          const res = await Promise.race([
+            Promise.resolve(
+              supabase.from('profiles').select('*').eq('id', targetUser.id).maybeSingle(),
+            ),
+            timeoutPromise,
+          ])
+
+          if (res.data) {
+            userProfile = res.data
+            break
+          }
+        } catch (err) {
+          console.warn(`Attempt ${profileFetchAttempts} to fetch user profile failed:`, err)
+        }
+
+        if (!userProfile && profileFetchAttempts < maxProfileAttempts) {
+          await new Promise((r) => setTimeout(r, 1000))
+        }
+      }
+
+      // Se o usuário foi desativado explicitamente
+      if (userProfile && (userProfile.is_active === false || userProfile.role === 'Inativo')) {
+        try {
+          await supabase.auth.signOut()
+        } catch (signOutErr) {
+          console.error('Error on sign out inactive user:', signOutErr)
+        }
+        window.location.href = '/login?inactive=1'
+        return
+      }
+
+      const currentUser = buildCurrentUser(targetUser, userProfile)
+
+      // Atualiza o currentUser
+      setState((prev) => ({
+        ...prev,
+        currentUser,
+      }))
+
+      // GRUPO 1: Tabelas essenciais do sistema DPSjur
+      // (profiles, clients, cases, transactions, tasks, appointments)
+      const [profilesRes, clientsRes, casesRes, tasksRes, apptsRes, txnsRes] = await Promise.all([
+        queryWithTimeout('profiles'),
+        queryWithTimeout('clients'),
+        queryWithTimeout('cases'),
+        queryWithTimeout('tasks'),
+        queryWithTimeout('appointments'),
+        queryWithTimeout('transactions'),
+      ])
+
+      let profiles = profilesRes?.data || []
+      if (currentUser.id && !profiles.some((p: any) => p.id === currentUser.id)) {
+        profiles = [currentUser, ...profiles]
+      }
+
+      const loadedClients = safeSortDateDesc(clientsRes?.data || [], 'created_at')
+      const loadedCases = (casesRes?.data || []).sort(
+        (a: any, b: any) =>
+          new Date(b?.updatedAt || b?.created_at || 0).getTime() -
+          new Date(a?.updatedAt || a?.created_at || 0).getTime(),
+      )
+      const loadedTasks = safeSortDateDesc(tasksRes?.data || [], 'created_at')
+      const loadedAppointments = (apptsRes?.data || []).sort(
+        (a: any, b: any) => new Date(a?.date || 0).getTime() - new Date(b?.date || 0).getTime(),
+      )
+      const loadedTransactions = safeSortDateDesc(txnsRes?.data || [], 'date')
+
+      // GRAVAÇÃO IMEDIATA DO GRUPO ESSENCIAL NO ESTADO (NUNCA descarta por isMounted)
+      setState((prev) => ({
+        ...prev,
+        currentUser,
+        users: profiles.length > 0 ? profiles : prev.users,
+        clients:
+          loadedClients.length > 0
+            ? loadedClients
+            : prev.clients.length > 0
+              ? prev.clients
+              : loadedClients,
+        cases:
+          loadedCases.length > 0 ? loadedCases : prev.cases.length > 0 ? prev.cases : loadedCases,
+        tasks:
+          loadedTasks.length > 0 ? loadedTasks : prev.tasks.length > 0 ? prev.tasks : loadedTasks,
+        appointments:
+          loadedAppointments.length > 0
+            ? loadedAppointments
+            : prev.appointments.length > 0
+              ? prev.appointments
+              : loadedAppointments,
+        transactions:
+          loadedTransactions.length > 0
+            ? loadedTransactions
+            : prev.transactions.length > 0
+              ? prev.transactions
+              : loadedTransactions,
+      }))
+
+      // Libera a tela de carregamento inicial assim que as essenciais terminam!
+      setIsInitialLoading(false)
+      if (loadedClients.length > 0 || loadedCases.length > 0) {
+        initialDataLoadedForUserRef.current = targetUser.id
+      }
+
+      // GRUPO 2: Tabelas auxiliares / secundárias
+      // (settings, transaction_cases, suppliers, case_systems, petitions, logs, whatsapp_messages)
+      const [
+        settingsRes,
+        txCasesRes,
+        suppliersRes,
+        caseSystemsRes,
+        petitionsRes,
+        logsRes,
+        whatsappRes,
+      ] = await Promise.all([
+        queryWithTimeout('settings'),
+        queryWithTimeout('transaction_cases'),
+        queryWithTimeout('suppliers'),
+        queryWithTimeout('case_systems'),
+        queryWithTimeout('petitions'),
+        queryWithTimeout('logs'),
+        queryWithTimeout('whatsapp_messages'),
+      ])
+
+      const dbSettings = settingsRes?.data?.[0]
+      const mergedSettings = {
+        ...initialData.settings,
+        ...(dbSettings || {}),
+        id: dbSettings?.id || 'default',
+      }
+
+      if (mergedSettings.asaasApiKey || mergedSettings.asaasApiUrl) {
+        import('@/services/asaas').then(({ setCachedAsaasConfig }) => {
+          setCachedAsaasConfig({
+            apiKey: mergedSettings.asaasApiKey,
+            apiUrl: mergedSettings.asaasApiUrl,
+          })
+        })
+      }
+
+      if (mergedSettings.appointmentTypes?.some((t: any) => typeof t === 'string')) {
+        const colors = [
+          '#ef4444',
+          '#f97316',
+          '#f59e0b',
+          '#84cc16',
+          '#22c55e',
+          '#10b981',
+          '#06b6d4',
+          '#0ea5e9',
+          '#3b82f6',
+          '#6366f1',
+          '#8b5cf6',
+          '#a855f7',
+          '#d946ef',
+          '#ec4899',
+          '#f43f5e',
+        ]
+        mergedSettings.appointmentTypes = mergedSettings.appointmentTypes.map(
+          (t: any, i: number) => {
+            if (typeof t === 'object') return t
+            return { label: t, color: colors[i % colors.length] }
+          },
+        )
+        if (mergedSettings.id !== 'default') {
+          supabase
+            .from('settings')
+            .update({ appointmentTypes: mergedSettings.appointmentTypes })
+            .eq('id', mergedSettings.id)
+            .then()
+        }
+      }
+
+      const loadedTransactionCases = txCasesRes?.data || []
+      const loadedSuppliers = safeSortDateDesc(suppliersRes?.data || [], 'created_at')
+      const loadedCaseSystems = safeSortDateDesc(caseSystemsRes?.data || [], 'created_at')
+      const loadedPetitions = petitionsRes?.data || []
+      const loadedLogs = safeSortDateDesc(logsRes?.data || [], 'created_at')
+      const loadedWhatsapp = safeSortDateDesc(whatsappRes?.data || [], 'created_at')
+
+      // APLICAÇÃO PROGRESSIVA DO GRUPO AUXILIAR NO ESTADO
+      setState((prev) => ({
+        ...prev,
+        settings: mergedSettings,
+        transactionCases:
+          loadedTransactionCases.length > 0
+            ? loadedTransactionCases
+            : prev.transactionCases.length > 0
+              ? prev.transactionCases
+              : loadedTransactionCases,
+        suppliers:
+          loadedSuppliers.length > 0
+            ? loadedSuppliers
+            : prev.suppliers.length > 0
+              ? prev.suppliers
+              : loadedSuppliers,
+        caseSystems:
+          loadedCaseSystems.length > 0
+            ? loadedCaseSystems
+            : prev.caseSystems.length > 0
+              ? prev.caseSystems
+              : loadedCaseSystems,
+        petitions:
+          loadedPetitions.length > 0
+            ? loadedPetitions
+            : prev.petitions.length > 0
+              ? prev.petitions
+              : loadedPetitions,
+        logs: loadedLogs.length > 0 ? loadedLogs : prev.logs.length > 0 ? prev.logs : loadedLogs,
+        whatsappMessages:
+          loadedWhatsapp.length > 0
+            ? loadedWhatsapp
+            : prev.whatsappMessages.length > 0
+              ? prev.whatsappMessages
+              : loadedWhatsapp,
+      }))
+    } catch (err) {
+      console.error('Failed to load initial data', err)
+      // Garante fallback do currentUser sem zerar dados anteriores
+      setState((prev) => ({
+        ...prev,
+        currentUser: prev.currentUser.id ? prev.currentUser : buildCurrentUser(targetUser, null),
+      }))
+    } finally {
+      setIsInitialLoading(false)
+      setIsReloading(false)
+      loadingInitialDataRef.current = false
+    }
+  }, [])
 
   useEffect(() => {
     if (!user) {
       initialDataLoadedForUserRef.current = null
+      setIsInitialLoading(false)
       return
     }
 
     // Se já carregamos os dados para este usuário com sucesso, não refaça o carregamento
     // completo inicial a cada reavaliação de efeito ou atualização de sessão
     if (initialDataLoadedForUserRef.current === user.id) {
+      setIsInitialLoading(false)
       return
     }
 
@@ -113,365 +468,16 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       return
     }
     loadingInitialDataRef.current = true
+    setIsInitialLoading(true)
 
-    let isMounted = true
+    performLoad(user, false)
+  }, [user, performLoad])
 
-    const load = async () => {
-      try {
-        const tables = [
-          'profiles',
-          'clients',
-          'cases',
-          'tasks',
-          'appointments',
-          'transactions',
-          'logs',
-          'petitions',
-          'settings',
-          'whatsapp_messages',
-          'suppliers',
-          'case_systems',
-          'transaction_cases',
-        ]
-
-        // 1. First, specifically and strictly resolve the authenticated user's profile.
-        // SECURITY & ACCURACY: Never guess or borrow another user's profile.
-        // If the database is slow, retry fetching the authenticated user's profile specifically.
-        let userProfile: any = null
-        let profileFetchAttempts = 0
-        const maxProfileAttempts = 3
-
-        while (!userProfile && profileFetchAttempts < maxProfileAttempts && isMounted) {
-          profileFetchAttempts++
-          try {
-            const timeoutPromise = new Promise<{ data: any; error: any }>((resolve) =>
-              setTimeout(
-                () => resolve({ data: null, error: new Error('Timeout profile check') }),
-                8000,
-              ),
-            )
-            const res = await Promise.race([
-              Promise.resolve(
-                supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
-              ),
-              timeoutPromise,
-            ])
-
-            if (res.data) {
-              userProfile = res.data
-              break
-            }
-          } catch (err) {
-            console.warn(`Attempt ${profileFetchAttempts} to fetch user profile failed:`, err)
-          }
-
-          if (!userProfile && profileFetchAttempts < maxProfileAttempts && isMounted) {
-            await new Promise((r) => setTimeout(r, 1000))
-          }
-        }
-
-        if (!isMounted) return
-
-        // If the database explicitly returned a profile that is inactive:
-        if (userProfile && (userProfile.is_active === false || userProfile.role === 'Inativo')) {
-          try {
-            await supabase.auth.signOut()
-          } catch (signOutErr) {
-            console.error('Error on sign out inactive user:', signOutErr)
-          }
-          window.location.href = '/login?inactive=1'
-          return
-        }
-
-        // Build currentUser with strict identity checks
-        const userEmailLower = (user.email || '').toLowerCase()
-        const isDouglas =
-          userEmailLower === 'advdouglaspsantos@gmail.com' ||
-          userEmailLower === 'dowspaulo@gmail.com' ||
-          user.id === '6501af65-cd6c-43c3-958a-3091ce93ba78'
-
-        const currentUser = userProfile
-          ? {
-              ...initialData.currentUser,
-              ...userProfile,
-              id: user.id, // Strictly bind to authenticated auth.uid
-              email: userProfile.email || user.email || '',
-              // If Douglas, ensure Admin role & finance permissions
-              role:
-                isDouglas || userProfile.role === 'Admin' || userEmailLower.includes('admin')
-                  ? 'Admin'
-                  : userProfile.role || 'User',
-              canViewFinance:
-                isDouglas || userProfile.canViewFinance || userProfile.role === 'Admin',
-              is_active: userProfile.is_active ?? true,
-            }
-          : {
-              ...initialData.currentUser,
-              id: user.id,
-              email: user.email || '',
-              name: isDouglas
-                ? 'Douglas'
-                : user.user_metadata?.name || user.email?.split('@')[0] || 'User',
-              role: isDouglas || userEmailLower.includes('admin') ? 'Admin' : 'User',
-              canViewFinance: isDouglas || userEmailLower.includes('admin'),
-              is_active: true,
-            }
-
-        // 2. Fetch all system tables with individual timeouts e paginação completa e segura
-        const fetchAllTableRows = async (t: string): Promise<{ data: any[]; error: any }> => {
-          const allRows: any[] = []
-          const pageSize = 1000
-          let from = 0
-          const maxPages = 50 // Proteção absoluta contra loops infinitos de paginação
-
-          for (let page = 0; page < maxPages; page++) {
-            try {
-              const fetchPromise = supabase
-                .from(t as any)
-                .select('*')
-                .range(from, from + pageSize - 1)
-
-              const timeoutPromise = new Promise<{ data: any[] | null; error: any }>((resolve) =>
-                setTimeout(
-                  () =>
-                    resolve({ data: null, error: new Error(`Timeout na página ${page} de ${t}`) }),
-                  10000,
-                ),
-              )
-
-              const { data, error } = await Promise.race([fetchPromise, timeoutPromise])
-
-              if (error) {
-                console.warn(`Erro ao buscar página ${page} da tabela ${t}:`, error)
-                return { data: allRows, error }
-              }
-
-              if (data && Array.isArray(data) && data.length > 0) {
-                allRows.push(...data)
-                if (data.length < pageSize) {
-                  break
-                }
-                from += pageSize
-              } else {
-                break
-              }
-            } catch (pageErr) {
-              console.warn(`Exceção ao buscar página ${page} da tabela ${t}:`, pageErr)
-              return { data: allRows, error: pageErr }
-            }
-          }
-
-          return { data: allRows, error: null }
-        }
-
-        const queryWithTimeout = async (t: string) => {
-          try {
-            const timeoutPromise = new Promise<{ data: any[]; error: any }>((resolve) =>
-              setTimeout(
-                () => resolve({ data: [], error: new Error(`Timeout loading ${t}`) }),
-                20000,
-              ),
-            )
-            return await Promise.race([fetchAllTableRows(t), timeoutPromise])
-          } catch (e) {
-            console.warn(`Error or timeout fetching table ${t}:`, e)
-            return { data: [], error: e }
-          }
-        }
-
-        // Libera imediatamente o currentUser para desimpedir o Layout e permitir que a UI responda
-        setState((prev) => ({
-          ...prev,
-          currentUser,
-        }))
-
-        const results = await Promise.all(tables.map((t) => queryWithTimeout(t)))
-
-        if (!isMounted) return
-
-        let profiles = results[0]?.data || []
-        // Ensure currentUser is included in the profiles list
-        if (currentUser.id && !profiles.some((p: any) => p.id === currentUser.id)) {
-          profiles = [currentUser, ...profiles]
-        }
-
-        const dbSettings = results[8]?.data?.[0]
-        const mergedSettings = {
-          ...initialData.settings,
-          ...(dbSettings || {}),
-          id: dbSettings?.id || 'default',
-        }
-
-        if (mergedSettings.asaasApiKey || mergedSettings.asaasApiUrl) {
-          import('@/services/asaas').then(({ setCachedAsaasConfig }) => {
-            setCachedAsaasConfig({
-              apiKey: mergedSettings.asaasApiKey,
-              apiUrl: mergedSettings.asaasApiUrl,
-            })
-          })
-        }
-
-        // Auto-assign colors to appointmentTypes if they are strings
-        if (mergedSettings.appointmentTypes?.some((t: any) => typeof t === 'string')) {
-          const colors = [
-            '#ef4444',
-            '#f97316',
-            '#f59e0b',
-            '#84cc16',
-            '#22c55e',
-            '#10b981',
-            '#06b6d4',
-            '#0ea5e9',
-            '#3b82f6',
-            '#6366f1',
-            '#8b5cf6',
-            '#a855f7',
-            '#d946ef',
-            '#ec4899',
-            '#f43f5e',
-          ]
-          mergedSettings.appointmentTypes = mergedSettings.appointmentTypes.map(
-            (t: any, i: number) => {
-              if (typeof t === 'object') return t
-              return { label: t, color: colors[i % colors.length] }
-            },
-          )
-          if (mergedSettings.id !== 'default') {
-            supabase
-              .from('settings')
-              .update({ appointmentTypes: mergedSettings.appointmentTypes })
-              .eq('id', mergedSettings.id)
-              .then()
-          }
-        }
-
-        const safeSortDateDesc = (arr: any[], field: string) => {
-          return (arr || []).sort(
-            (a: any, b: any) =>
-              new Date(b?.[field] || 0).getTime() - new Date(a?.[field] || 0).getTime(),
-          )
-        }
-
-        const loadedClients = safeSortDateDesc(results[1]?.data || [], 'created_at')
-        const loadedCases = (results[2]?.data || []).sort(
-          (a: any, b: any) =>
-            new Date(b?.updatedAt || b?.created_at || 0).getTime() -
-            new Date(a?.updatedAt || a?.created_at || 0).getTime(),
-        )
-        const loadedTasks = safeSortDateDesc(results[3]?.data || [], 'created_at')
-        const loadedAppointments = (results[4]?.data || []).sort(
-          (a: any, b: any) => new Date(a?.date || 0).getTime() - new Date(b?.date || 0).getTime(),
-        )
-        const loadedTransactions = safeSortDateDesc(results[5]?.data || [], 'date')
-        const loadedLogs = safeSortDateDesc(results[6]?.data || [], 'created_at')
-        const loadedPetitions = results[7]?.data || []
-        const loadedWhatsapp = safeSortDateDesc(results[9]?.data || [], 'created_at')
-        const loadedSuppliers = safeSortDateDesc(results[10]?.data || [], 'created_at')
-        const loadedCaseSystems = safeSortDateDesc(results[11]?.data || [], 'created_at')
-        const loadedTransactionCases = results[12]?.data || []
-
-        setState((prev) => ({
-          ...prev,
-          currentUser,
-          users: profiles.length > 0 ? profiles : prev.users,
-          // PRESERVAÇÃO DEFENSIVA: Se uma tabela falhou no carregamento ou retornou vazia
-          // mas o estado anterior já continha dados legítimos, NUNCA sobreescreva com vazio!
-          clients:
-            loadedClients.length > 0
-              ? loadedClients
-              : prev.clients.length > 0
-                ? prev.clients
-                : loadedClients,
-          cases:
-            loadedCases.length > 0 ? loadedCases : prev.cases.length > 0 ? prev.cases : loadedCases,
-          tasks:
-            loadedTasks.length > 0 ? loadedTasks : prev.tasks.length > 0 ? prev.tasks : loadedTasks,
-          appointments:
-            loadedAppointments.length > 0
-              ? loadedAppointments
-              : prev.appointments.length > 0
-                ? prev.appointments
-                : loadedAppointments,
-          transactions:
-            loadedTransactions.length > 0
-              ? loadedTransactions
-              : prev.transactions.length > 0
-                ? prev.transactions
-                : loadedTransactions,
-          logs: loadedLogs.length > 0 ? loadedLogs : prev.logs.length > 0 ? prev.logs : loadedLogs,
-          petitions:
-            loadedPetitions.length > 0
-              ? loadedPetitions
-              : prev.petitions.length > 0
-                ? prev.petitions
-                : loadedPetitions,
-          settings: mergedSettings,
-          whatsappMessages:
-            loadedWhatsapp.length > 0
-              ? loadedWhatsapp
-              : prev.whatsappMessages.length > 0
-                ? prev.whatsappMessages
-                : loadedWhatsapp,
-          suppliers:
-            loadedSuppliers.length > 0
-              ? loadedSuppliers
-              : prev.suppliers.length > 0
-                ? prev.suppliers
-                : loadedSuppliers,
-          caseSystems:
-            loadedCaseSystems.length > 0
-              ? loadedCaseSystems
-              : prev.caseSystems.length > 0
-                ? prev.caseSystems
-                : loadedCaseSystems,
-          transactionCases:
-            loadedTransactionCases.length > 0
-              ? loadedTransactionCases
-              : prev.transactionCases.length > 0
-                ? prev.transactionCases
-                : loadedTransactionCases,
-        }))
-
-        // Marca que os dados deste usuário foram carregados com sucesso
-        if (loadedClients.length > 0 || loadedCases.length > 0) {
-          initialDataLoadedForUserRef.current = user.id
-        }
-      } catch (err) {
-        console.error('Failed to load initial data', err)
-        // Set a fallback state to unblock the UI, strictly bounded to user.id
-        // PRESERVA quaisquer dados já carregados para não piscar nem sumir listas
-        if (isMounted) {
-          const userEmailLower = (user.email || '').toLowerCase()
-          const isDouglas =
-            userEmailLower === 'advdouglaspsantos@gmail.com' ||
-            userEmailLower === 'dowspaulo@gmail.com' ||
-            user.id === '6501af65-cd6c-43c3-958a-3091ce93ba78'
-
-          setState((prev) => ({
-            ...prev,
-            currentUser: prev.currentUser.id
-              ? prev.currentUser
-              : {
-                  ...initialData.currentUser,
-                  id: user.id,
-                  email: user.email || '',
-                  name: isDouglas ? 'Douglas' : user.email?.split('@')[0] || 'User',
-                  role: isDouglas || userEmailLower.includes('admin') ? 'Admin' : 'User',
-                  canViewFinance: isDouglas || userEmailLower.includes('admin'),
-                  is_active: true,
-                },
-          }))
-        }
-      } finally {
-        loadingInitialDataRef.current = false
-      }
-    }
-    load()
-
-    return () => {
-      isMounted = false
-    }
-  }, [user])
+  const reloadAllData = useCallback(async () => {
+    if (!user) return
+    loadingInitialDataRef.current = true
+    await performLoad(user, true)
+  }, [user, performLoad])
 
   const addLog = useCallback(
     async (action: string, entity: string, details: string) => {
@@ -1038,6 +1044,9 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     <LegalContext.Provider
       value={{
         state,
+        isInitialLoading,
+        isReloading,
+        reloadAllData,
         updateItem,
         deleteItem,
         addLog,

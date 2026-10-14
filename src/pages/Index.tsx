@@ -42,7 +42,7 @@ const renderLabel = ({ name, value, percent }: any) => {
 }
 
 export default function Index() {
-  const { state } = useLegalStore()
+  const { state, isInitialLoading } = useLegalStore()
   const navigate = useNavigate()
   const [isTasksOpen, setIsTasksOpen] = useState(true)
   const [isAgendaOpen, setIsAgendaOpen] = useState(true)
@@ -290,6 +290,25 @@ export default function Index() {
     })
     .filter((u) => u.total > 0 || u.pastCount > 0)
     .sort((a, b) => b.todayCount - a.todayCount || b.total - a.total)
+
+  if (isInitialLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-800 dark:text-slate-100">
+              Painel SBJur
+            </h1>
+            <p className="text-muted-foreground mt-1">Carregando indicadores do escritório...</p>
+          </div>
+        </div>
+        <div className="flex flex-col items-center justify-center py-24 gap-4 text-slate-500">
+          <div className="h-10 w-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+          <p className="text-base font-medium">Carregando estatísticas e dados do sistema...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
