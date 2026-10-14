@@ -58,7 +58,8 @@ import {
 } from '@/lib/case-status'
 import { getDetailedDuration, stripHtml, normalizeStr } from '@/lib/utils'
 import { useClientFeesFormStore } from '@/stores/useClientFeesFormStore'
-import { buildCasesWithFeesSet, CaseFeeBadge } from '@/components/CaseFeeBadge'
+import { buildCasesWithFeesSet, CaseFeeBadge, isFeeCategory } from '@/components/CaseFeeBadge'
+import { isSuccessFeeType } from '@/lib/fee-types'
 
 export default function ClientDetail() {
   const { id } = useParams<{ id: string }>()
@@ -95,28 +96,78 @@ export default function ClientDetail() {
   const mainCases = allCases.filter((c) => !c.parentId)
 
   const casesWithFees = useMemo(() => {
-    return buildCasesWithFeesSet(state.transactions || [], state.transactionCases || [])
-  }, [state.transactions, state.transactionCases])
+    return buildCasesWithFeesSet(
+      state.transactions || [],
+      state.transactionCases || [],
+      state.cases || [],
+    )
+  }, [state.transactions, state.transactionCases, state.cases])
   const clientAppointments = state.appointments
     .filter((a) => a.clientId === id)
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
-  const clientFees = state.transactions
-    .filter(
-      (t) =>
-        t.clientId === id &&
-        (t.category === 'Honorários Contratuais' ||
-          t.category.startsWith('Honorários') ||
-          t.category === 'Honorários de Êxito' ||
-          t.category === 'Honorários Sucumbenciais' ||
-          t.category === 'Honorários Periciais' ||
-          t.category === 'Honorários de Permuta'),
-    )
-    .sort((a, b) => {
-      const timeA = a.date ? new Date(a.date).getTime() : 0
-      const timeB = b.date ? new Date(b.date).getTime() : 0
-      return (Number.isNaN(timeB) ? 0 : timeB) - (Number.isNaN(timeA) ? 0 : timeA)
-    })
+  const clientFees = useMemo(() => {
+    return (state.transactions || [])
+      .filter(
+        (t) =>
+          t.clientId === id &&
+          (t.category === 'Honorários Contratuais' ||
+            t.category.startsWith('Honorários') ||
+            t.category === 'Honorários de Êxito' ||
+            t.category === 'Honorários Sucumbenciais' ||
+            t.category === 'Honorários Periciais' ||
+            t.category === 'Honorários de Permuta' ||
+            isFeeCategory(t.category)),
+      )
+      .sort((a, b) => {
+        const timeA = a.date ? new Date(a.date).getTime() : 0
+        const timeB = b.date ? new Date(b.date).getTime() : 0
+        return (Number.isNaN(timeB) ? 0 : timeB) - (Number.isNaN(timeA) ? 0 : timeA)
+      })
+  }, [state.transactions, id])
+
+  // Honorários registrados diretamente nos processos do cliente (ex.: honorários de êxito)
+  // que NÃO possuem transação financeira duplicada vinculada ao mesmo processo.
+  const caseDirectFees = useMemo(() => {
+    // Coleta todos os processIds que já possuem transação financeira de honorários
+    const processIdsWithTxFee = new Set<string>()
+    for (const t of clientFees) {
+      if (t.processId) {
+        processIdsWithTxFee.add(t.processId)
+      }
+    }
+    for (const tc of state.transactionCases || []) {
+      if (tc.case_id && clientFees.some((t) => t.id === tc.transaction_id)) {
+        processIdsWithTxFee.add(tc.case_id)
+      }
+    }
+
+    return allCases
+      .filter((c: any) => {
+        const feeType = typeof c.feeType === 'string' ? c.feeType.trim() : ''
+        const feeValue = typeof c.feeValue === 'number' ? c.feeValue : parseFloat(c.feeValue) || 0
+        const hasDirectFee = feeType !== '' || feeValue > 0
+        if (!hasDirectFee) return false
+        // Exclui se já houver transação financeira deste honorário vinculada a este processo
+        return !processIdsWithTxFee.has(c.id)
+      })
+      .map((c: any) => {
+        const feeType = (c.feeType || 'Honorários de Êxito').trim()
+        const feeValue = typeof c.feeValue === 'number' ? c.feeValue : parseFloat(c.feeValue) || 0
+        return {
+          caseId: c.id,
+          caseNumber: c.number,
+          caseTitle: c.number,
+          feeType,
+          feeValue,
+          feeInstallments: c.feeInstallments,
+          status: isSuccessFeeType(feeType) ? 'Êxito' : 'Registrado no Processo',
+          updatedAt: c.updatedAt || c.startDate,
+        }
+      })
+  }, [allCases, clientFees, state.transactionCases])
+
+  const totalFeeCount = clientFees.length + caseDirectFees.length
 
   const allClientTransactions = state.transactions
     .filter((t) => t.clientId === id)
@@ -1080,7 +1131,7 @@ export default function ClientDetail() {
         <Card className="shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-lg flex items-center gap-2">
-              <FileText className="h-5 w-5" /> HONORÁRIOS ({clientFees.length})
+              <FileText className="h-5 w-5" /> HONORÁRIOS ({totalFeeCount})
             </CardTitle>
             <div className="flex items-center gap-2">
               <Button
@@ -1098,12 +1149,89 @@ export default function ClientDetail() {
             </div>
           </CardHeader>
           <CardContent>
-            {clientFees.length === 0 ? (
+            {totalFeeCount === 0 ? (
               <p className="text-muted-foreground text-sm">
                 Nenhum honorário cadastrado para este cliente.
               </p>
             ) : (
               <div className="space-y-3 mt-2">
+                {/* 1. Honorários registrados diretamente nos processos (ex.: honorários de êxito) */}
+                {caseDirectFees.map((df) => {
+                  const isSuccess = isSuccessFeeType(df.feeType)
+                  return (
+                    <div
+                      key={`case-fee-${df.caseId}`}
+                      className="flex flex-col sm:flex-row sm:items-center justify-between border p-4 rounded-lg bg-card hover:bg-slate-50 transition-colors gap-4"
+                    >
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-sm">Honorários ({df.feeType})</span>
+                          <Badge
+                            variant="secondary"
+                            className={
+                              isSuccess
+                                ? 'bg-blue-50 text-blue-700 border-blue-200 text-xs font-semibold'
+                                : 'bg-slate-100 text-slate-700 text-xs'
+                            }
+                          >
+                            {isSuccess ? 'Êxito' : df.feeType}
+                          </Badge>
+                          <Badge
+                            variant="outline"
+                            className="text-[11px] bg-slate-50 text-slate-600 border-slate-200"
+                            title="Registrado diretamente nos dados do processo"
+                          >
+                            Processo
+                          </Badge>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <Link
+                            to={`/processos/${df.caseId}`}
+                            className="font-medium text-primary hover:underline"
+                          >
+                            Processo: {df.caseNumber}
+                          </Link>
+                          {df.feeInstallments && Number(df.feeInstallments) > 1 && (
+                            <span>• {df.feeInstallments} parcelas</span>
+                          )}
+                          <span className="italic text-muted-foreground">
+                            • Não gera lançamento financeiro
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="font-bold text-green-600 text-sm">
+                          {df.feeValue > 0
+                            ? `R$ ${df.feeValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+                            : 'A apurar'}
+                        </span>
+                        <Badge
+                          variant={isSuccess ? 'default' : 'secondary'}
+                          className={isSuccess ? 'bg-blue-600 hover:bg-blue-700 text-white' : ''}
+                        >
+                          {df.status}
+                        </Badge>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-slate-500 hover:text-slate-700"
+                          onClick={() => {
+                            const targetCase = allCases.find((c) => c.id === df.caseId)
+                            if (targetCase) {
+                              setEditingCase(targetCase)
+                              setIsEditCaseOpen(true)
+                            }
+                          }}
+                          title="Editar Processo / Honorário"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  )
+                })}
+
+                {/* 2. Honorários lançados via transações financeiras */}
                 {clientFees.map((t) => {
                   const linkedNumbers = getLinkedCaseNumbers(t.id)
                   return (

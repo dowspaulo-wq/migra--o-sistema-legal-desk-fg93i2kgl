@@ -158,8 +158,12 @@ export default function Cases() {
   const sortedClients = [...state.clients].sort((a, b) => a.name.localeCompare(b.name))
 
   const casesWithFees = useMemo(() => {
-    return buildCasesWithFeesSet(state.transactions || [], state.transactionCases || [])
-  }, [state.transactions, state.transactionCases])
+    return buildCasesWithFeesSet(
+      state.transactions || [],
+      state.transactionCases || [],
+      state.cases || [],
+    )
+  }, [state.transactions, state.transactionCases, state.cases])
 
   const caseTypesSettings = state.settings.caseTypes || []
   const sortedTypes = [...caseTypesSettings].sort((a: any, b: any) => {

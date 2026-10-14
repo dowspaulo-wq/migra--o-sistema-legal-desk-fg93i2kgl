@@ -85,8 +85,12 @@ export default function Clients() {
   const sortedUsers = [...state.users].sort((a, b) => a.name.localeCompare(b.name))
 
   const casesWithFees = useMemo(() => {
-    return buildCasesWithFeesSet(state.transactions || [], state.transactionCases || [])
-  }, [state.transactions, state.transactionCases])
+    return buildCasesWithFeesSet(
+      state.transactions || [],
+      state.transactionCases || [],
+      state.cases || [],
+    )
+  }, [state.transactions, state.transactionCases, state.cases])
 
   const filtered = state.clients.filter((c) => {
     if (quickSearch) {

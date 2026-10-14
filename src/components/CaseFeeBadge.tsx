@@ -1,6 +1,6 @@
 import React from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import type { Transaction } from '@/lib/mockData'
+import type { Transaction, Case } from '@/lib/mockData'
 import type { TransactionCase } from '@/stores/useLegalStore'
 
 /**
@@ -23,13 +23,16 @@ export function isFeeCategory(category?: string | null): boolean {
 }
 
 /**
- * Constrói um Set de process_ids que possuem ao menos uma transação de honorários vinculada.
- * Trata tanto o vínculo direto (`processId` na transação) quanto a relação N:N (`transaction_cases`).
- * Executa em O(T + TC) em lote para permitir consultas O(1) durante a renderização de listas.
+ * Constrói um Set de process_ids que possuem honorários registrados:
+ * 1. Transações financeiras de honorários vinculadas diretamente (`processId`) ou via relação N:N (`transaction_cases`).
+ * 2. Honorários registrados diretamente no próprio processo (`cases.feeType` preenchido e/ou `cases.feeValue > 0`),
+ *    como os honorários de êxito que por design não geram lançamento no financeiro.
+ * Executa em O(T + TC + C) em lote para permitir consultas O(1) durante a renderização de listas.
  */
 export function buildCasesWithFeesSet(
   transactions: Transaction[] = [],
   transactionCases: TransactionCase[] = [],
+  cases: (Case | any)[] = [],
 ): Set<string> {
   const feeTxIdSet = new Set<string>()
   const caseIdSet = new Set<string>()
@@ -48,6 +51,16 @@ export function buildCasesWithFeesSet(
     const tc = transactionCases[i]
     if (tc.case_id && feeTxIdSet.has(tc.transaction_id)) {
       caseIdSet.add(tc.case_id)
+    }
+  }
+
+  for (let i = 0; i < cases.length; i++) {
+    const c = cases[i]
+    if (!c || !c.id) continue
+    const feeType = typeof c.feeType === 'string' ? c.feeType.trim() : ''
+    const feeValue = typeof c.feeValue === 'number' ? c.feeValue : parseFloat(c.feeValue) || 0
+    if (feeType !== '' || feeValue > 0) {
+      caseIdSet.add(c.id)
     }
   }
 
