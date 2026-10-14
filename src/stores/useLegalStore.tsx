@@ -199,29 +199,47 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
               is_active: true,
             }
 
-        // 2. Fetch all system tables with individual timeouts e paginação completa
+        // 2. Fetch all system tables with individual timeouts e paginação completa e segura
         const fetchAllTableRows = async (t: string): Promise<{ data: any[]; error: any }> => {
           const allRows: any[] = []
           const pageSize = 1000
           let from = 0
+          const maxPages = 50 // Proteção absoluta contra loops infinitos de paginação
 
-          while (true) {
-            const { data, error } = await supabase
-              .from(t as any)
-              .select('*')
-              .range(from, from + pageSize - 1)
+          for (let page = 0; page < maxPages; page++) {
+            try {
+              const fetchPromise = supabase
+                .from(t as any)
+                .select('*')
+                .range(from, from + pageSize - 1)
 
-            if (error) {
-              return { data: allRows.length > 0 ? allRows : [], error }
-            }
-            if (data && data.length > 0) {
-              allRows.push(...data)
-              if (data.length < pageSize) {
+              const timeoutPromise = new Promise<{ data: any[] | null; error: any }>((resolve) =>
+                setTimeout(
+                  () =>
+                    resolve({ data: null, error: new Error(`Timeout na página ${page} de ${t}`) }),
+                  10000,
+                ),
+              )
+
+              const { data, error } = await Promise.race([fetchPromise, timeoutPromise])
+
+              if (error) {
+                console.warn(`Erro ao buscar página ${page} da tabela ${t}:`, error)
+                return { data: allRows, error }
+              }
+
+              if (data && Array.isArray(data) && data.length > 0) {
+                allRows.push(...data)
+                if (data.length < pageSize) {
+                  break
+                }
+                from += pageSize
+              } else {
                 break
               }
-              from += pageSize
-            } else {
-              break
+            } catch (pageErr) {
+              console.warn(`Exceção ao buscar página ${page} da tabela ${t}:`, pageErr)
+              return { data: allRows, error: pageErr }
             }
           }
 
@@ -233,7 +251,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
             const timeoutPromise = new Promise<{ data: any[]; error: any }>((resolve) =>
               setTimeout(
                 () => resolve({ data: [], error: new Error(`Timeout loading ${t}`) }),
-                15000,
+                20000,
               ),
             )
             return await Promise.race([fetchAllTableRows(t), timeoutPromise])
@@ -243,17 +261,23 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           }
         }
 
+        // Libera imediatamente o currentUser para desimpedir o Layout e permitir que a UI responda
+        setState((prev) => ({
+          ...prev,
+          currentUser,
+        }))
+
         const results = await Promise.all(tables.map((t) => queryWithTimeout(t)))
 
         if (!isMounted) return
 
-        let profiles = results[0].data || []
+        let profiles = results[0]?.data || []
         // Ensure currentUser is included in the profiles list
         if (currentUser.id && !profiles.some((p: any) => p.id === currentUser.id)) {
           profiles = [currentUser, ...profiles]
         }
 
-        const dbSettings = results[8].data?.[0]
+        const dbSettings = results[8]?.data?.[0]
         const mergedSettings = {
           ...initialData.settings,
           ...(dbSettings || {}),
@@ -303,42 +327,48 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        setState({
-          currentUser,
-          users: profiles,
-          clients: (results[1].data || []).sort(
-            (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-          ),
-          cases: (results[2].data || []).sort(
+        const safeSortDateDesc = (arr: any[], field: string) => {
+          return (arr || []).sort(
             (a: any, b: any) =>
-              new Date(b.updatedAt || b.created_at).getTime() -
-              new Date(a.updatedAt || a.created_at).getTime(),
-          ),
-          tasks: (results[3].data || []).sort(
-            (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-          ),
-          appointments: (results[4].data || []).sort(
-            (a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-          ),
-          transactions: (results[5].data || []).sort(
-            (a: any, b: any) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime(),
-          ),
-          logs: (results[6].data || []).sort(
-            (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-          ),
-          petitions: results[7].data || [],
+              new Date(b?.[field] || 0).getTime() - new Date(a?.[field] || 0).getTime(),
+          )
+        }
+
+        const loadedClients = safeSortDateDesc(results[1]?.data || [], 'created_at')
+        const loadedCases = (results[2]?.data || []).sort(
+          (a: any, b: any) =>
+            new Date(b?.updatedAt || b?.created_at || 0).getTime() -
+            new Date(a?.updatedAt || a?.created_at || 0).getTime(),
+        )
+        const loadedTasks = safeSortDateDesc(results[3]?.data || [], 'created_at')
+        const loadedAppointments = (results[4]?.data || []).sort(
+          (a: any, b: any) => new Date(a?.date || 0).getTime() - new Date(b?.date || 0).getTime(),
+        )
+        const loadedTransactions = safeSortDateDesc(results[5]?.data || [], 'date')
+        const loadedLogs = safeSortDateDesc(results[6]?.data || [], 'created_at')
+        const loadedPetitions = results[7]?.data || []
+        const loadedWhatsapp = safeSortDateDesc(results[9]?.data || [], 'created_at')
+        const loadedSuppliers = safeSortDateDesc(results[10]?.data || [], 'created_at')
+        const loadedCaseSystems = safeSortDateDesc(results[11]?.data || [], 'created_at')
+        const loadedTransactionCases = results[12]?.data || []
+
+        setState((prev) => ({
+          ...prev,
+          currentUser,
+          users: profiles.length > 0 ? profiles : prev.users,
+          clients: loadedClients,
+          cases: loadedCases,
+          tasks: loadedTasks,
+          appointments: loadedAppointments,
+          transactions: loadedTransactions,
+          logs: loadedLogs,
+          petitions: loadedPetitions,
           settings: mergedSettings,
-          whatsappMessages: (results[9].data || []).sort(
-            (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-          ),
-          suppliers: (results[10]?.data || []).sort(
-            (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-          ),
-          caseSystems: (results[11]?.data || []).sort(
-            (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-          ),
-          transactionCases: results[12]?.data || [],
-        })
+          whatsappMessages: loadedWhatsapp,
+          suppliers: loadedSuppliers,
+          caseSystems: loadedCaseSystems,
+          transactionCases: loadedTransactionCases,
+        }))
       } catch (err) {
         console.error('Failed to load initial data', err)
         // Set a fallback state to unblock the UI, strictly bounded to user.id
@@ -955,9 +985,9 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
             const allRows: any[] = []
             const pageSize = 1000
             let from = 0
-            let keepFetching = true
+            const maxPages = 50
 
-            while (keepFetching) {
+            for (let page = 0; page < maxPages; page++) {
               const { data, error } = await supabase
                 .from('transactions')
                 .select('*')
@@ -968,15 +998,14 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
                 break
               }
 
-              if (data && data.length > 0) {
+              if (data && Array.isArray(data) && data.length > 0) {
                 allRows.push(...data)
                 if (data.length < pageSize) {
-                  keepFetching = false
-                } else {
-                  from += pageSize
+                  break
                 }
+                from += pageSize
               } else {
-                keepFetching = false
+                break
               }
             }
 
