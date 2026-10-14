@@ -257,7 +257,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session)
-      setUser(session?.user ?? null)
+      // Evita atualizar a referência do objeto `user` se o id e e-mail forem idênticos,
+      // prevenindo disparos espúrios de useEffect(..., [user]) durante TOKEN_REFRESHED.
+      setUser((prevUser) => {
+        const nextUser = session?.user ?? null
+        if (!prevUser && !nextUser) return null
+        if (
+          prevUser &&
+          nextUser &&
+          prevUser.id === nextUser.id &&
+          prevUser.email === nextUser.email
+        ) {
+          return prevUser
+        }
+        return nextUser
+      })
       setLoading(false)
       if (event === 'SIGNED_OUT' && currentSessionIdRef.current) {
         const sid = currentSessionIdRef.current
@@ -271,7 +285,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       .then((res: any) => {
         const sess = res?.data?.session ?? null
         setSession(sess)
-        setUser(sess?.user ?? null)
+        setUser((prevUser) => {
+          const nextUser = sess?.user ?? null
+          if (!prevUser && !nextUser) return null
+          if (
+            prevUser &&
+            nextUser &&
+            prevUser.id === nextUser.id &&
+            prevUser.email === nextUser.email
+          ) {
+            return prevUser
+          }
+          return nextUser
+        })
         setLoading(false)
       })
       .catch(() => {

@@ -94,8 +94,26 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     transactionCases: [],
   })
 
+  const loadingInitialDataRef = React.useRef(false)
+  const initialDataLoadedForUserRef = React.useRef<string | null>(null)
+
   useEffect(() => {
-    if (!user) return
+    if (!user) {
+      initialDataLoadedForUserRef.current = null
+      return
+    }
+
+    // Se já carregamos os dados para este usuário com sucesso, não refaça o carregamento
+    // completo inicial a cada reavaliação de efeito ou atualização de sessão
+    if (initialDataLoadedForUserRef.current === user.id) {
+      return
+    }
+
+    if (loadingInitialDataRef.current) {
+      return
+    }
+    loadingInitialDataRef.current = true
+
     let isMounted = true
 
     const load = async () => {
@@ -356,22 +374,72 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           ...prev,
           currentUser,
           users: profiles.length > 0 ? profiles : prev.users,
-          clients: loadedClients,
-          cases: loadedCases,
-          tasks: loadedTasks,
-          appointments: loadedAppointments,
-          transactions: loadedTransactions,
-          logs: loadedLogs,
-          petitions: loadedPetitions,
+          // PRESERVAÇÃO DEFENSIVA: Se uma tabela falhou no carregamento ou retornou vazia
+          // mas o estado anterior já continha dados legítimos, NUNCA sobreescreva com vazio!
+          clients:
+            loadedClients.length > 0
+              ? loadedClients
+              : prev.clients.length > 0
+                ? prev.clients
+                : loadedClients,
+          cases:
+            loadedCases.length > 0 ? loadedCases : prev.cases.length > 0 ? prev.cases : loadedCases,
+          tasks:
+            loadedTasks.length > 0 ? loadedTasks : prev.tasks.length > 0 ? prev.tasks : loadedTasks,
+          appointments:
+            loadedAppointments.length > 0
+              ? loadedAppointments
+              : prev.appointments.length > 0
+                ? prev.appointments
+                : loadedAppointments,
+          transactions:
+            loadedTransactions.length > 0
+              ? loadedTransactions
+              : prev.transactions.length > 0
+                ? prev.transactions
+                : loadedTransactions,
+          logs: loadedLogs.length > 0 ? loadedLogs : prev.logs.length > 0 ? prev.logs : loadedLogs,
+          petitions:
+            loadedPetitions.length > 0
+              ? loadedPetitions
+              : prev.petitions.length > 0
+                ? prev.petitions
+                : loadedPetitions,
           settings: mergedSettings,
-          whatsappMessages: loadedWhatsapp,
-          suppliers: loadedSuppliers,
-          caseSystems: loadedCaseSystems,
-          transactionCases: loadedTransactionCases,
+          whatsappMessages:
+            loadedWhatsapp.length > 0
+              ? loadedWhatsapp
+              : prev.whatsappMessages.length > 0
+                ? prev.whatsappMessages
+                : loadedWhatsapp,
+          suppliers:
+            loadedSuppliers.length > 0
+              ? loadedSuppliers
+              : prev.suppliers.length > 0
+                ? prev.suppliers
+                : loadedSuppliers,
+          caseSystems:
+            loadedCaseSystems.length > 0
+              ? loadedCaseSystems
+              : prev.caseSystems.length > 0
+                ? prev.caseSystems
+                : loadedCaseSystems,
+          transactionCases:
+            loadedTransactionCases.length > 0
+              ? loadedTransactionCases
+              : prev.transactionCases.length > 0
+                ? prev.transactionCases
+                : loadedTransactionCases,
         }))
+
+        // Marca que os dados deste usuário foram carregados com sucesso
+        if (loadedClients.length > 0 || loadedCases.length > 0) {
+          initialDataLoadedForUserRef.current = user.id
+        }
       } catch (err) {
         console.error('Failed to load initial data', err)
         // Set a fallback state to unblock the UI, strictly bounded to user.id
+        // PRESERVA quaisquer dados já carregados para não piscar nem sumir listas
         if (isMounted) {
           const userEmailLower = (user.email || '').toLowerCase()
           const isDouglas =
@@ -381,17 +449,21 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
 
           setState((prev) => ({
             ...prev,
-            currentUser: {
-              ...initialData.currentUser,
-              id: user.id,
-              email: user.email || '',
-              name: isDouglas ? 'Douglas' : user.email?.split('@')[0] || 'User',
-              role: isDouglas || userEmailLower.includes('admin') ? 'Admin' : 'User',
-              canViewFinance: isDouglas || userEmailLower.includes('admin'),
-              is_active: true,
-            },
+            currentUser: prev.currentUser.id
+              ? prev.currentUser
+              : {
+                  ...initialData.currentUser,
+                  id: user.id,
+                  email: user.email || '',
+                  name: isDouglas ? 'Douglas' : user.email?.split('@')[0] || 'User',
+                  role: isDouglas || userEmailLower.includes('admin') ? 'Admin' : 'User',
+                  canViewFinance: isDouglas || userEmailLower.includes('admin'),
+                  is_active: true,
+                },
           }))
         }
+      } finally {
+        loadingInitialDataRef.current = false
       }
     }
     load()
