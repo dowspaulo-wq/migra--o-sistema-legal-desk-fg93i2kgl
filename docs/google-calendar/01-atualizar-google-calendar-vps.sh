@@ -98,8 +98,9 @@ ALTER TABLE public.settings
 ALTER TABLE public.appointments
   ADD COLUMN IF NOT EXISTS "googleEventId" text;
 
-NOTIFY pgrst, 'reload schema';
-EOSQL
+CREATE INDEX IF NOT EXISTS idx_appointments_google_event_id ON public.appointments ("googleEventId");
+
+NOTIFY pgrst, 'reload schema';EOSQL
   echo -e "${GREEN}✓ Migration aplicada e schema recarregado no Postgres do VPS!${NC}"
 
   # Se houver contêiner PostgREST, reinicia para aplicar na hora
@@ -115,10 +116,10 @@ fi
 # 3. Informações finais
 echo ""
 echo -e "${YELLOW}[3/3] Próximos passos:${NC}"
-echo "1. Acesse https://sistema.advdouglaspsantos.com.br"
-echo "2. Configurações > Integrações > Google Agenda"
-echo "3. Confirme que o Client ID e Secret estão salvos"
-echo "4. Clique em 'Conectar Conta Google'"
+echo "1. Acesse https://sistema.advdouglaspsantos.com.br/agenda"
+echo "2. Clique no botão 'Sincronizar' no topo da página Agenda"
+echo "3. O sistema enviará os compromissos cadastrados (incluindo audiências futuras) ao Google Calendar da conta conectada"
+echo "4. Abra seu Google Calendar no celular ou navegador para conferir os compromissos harmonizados!"
 echo ""
 echo -e "${GREEN}======================================================${NC}"
 echo -e "${GREEN}  Concluído com sucesso!                              ${NC}"

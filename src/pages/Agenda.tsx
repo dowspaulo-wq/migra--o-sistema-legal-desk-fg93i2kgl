@@ -186,7 +186,7 @@ export default function Agenda() {
             currentClientId
           ) {
             const scope = encodeURIComponent(
-              'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events',
+              'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly',
             )
             const directAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
               currentClientId,
@@ -208,7 +208,7 @@ export default function Agenda() {
 
         if (currentClientId) {
           const scope = encodeURIComponent(
-            'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events',
+            'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly',
           )
           const directAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
             currentClientId,
@@ -222,7 +222,10 @@ export default function Agenda() {
         throw new Error('URL de autenticação do Google não foi retornada.')
       } else {
         const { data, error } = await supabase.functions.invoke('google-calendar', {
-          body: { action: 'sync' },
+          body: {
+            action: 'sync',
+            appointments: state.appointments,
+          },
         })
 
         if (error) {
@@ -239,13 +242,18 @@ export default function Agenda() {
         }
         if (data?.error) throw new Error(data.error)
 
+        const exportedCount = data?.exportedToGoogle ?? 0
+        const importedCount = data?.importedFromGoogle ?? 0
+
+        const finalDesc =
+          data?.message ||
+          (exportedCount > 0 || importedCount > 0
+            ? `${exportedCount} evento(s) enviado(s) ao Google Calendar e ${importedCount} harmonizado(s) no sistema.`
+            : 'Sua agenda e o Google Calendar já estão em harmonia.')
+
         toast({
           title: 'Sincronização Concluída',
-          description:
-            data?.message ||
-            (data?.importedFromGoogle !== undefined
-              ? `${data.importedFromGoogle} evento(s) importado(s) e ${data.exportedToGoogle || 0} exportado(s).`
-              : 'Sua agenda foi sincronizada com o Google Calendar.'),
+          description: finalDesc,
         })
 
         setTimeout(() => {

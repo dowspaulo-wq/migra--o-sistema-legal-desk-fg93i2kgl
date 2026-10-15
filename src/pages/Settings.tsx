@@ -456,14 +456,13 @@ export default function Settings() {
           // Fallback resiliente direto no cliente: constrói a URL oficial do Google OAuth
           // diretamente com o client_id configurado, sem depender da resposta do edge-runtime
           const scope = encodeURIComponent(
-            'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events',
+            'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly',
           )
           const directAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
             currentClientId,
           )}&redirect_uri=${encodeURIComponent(
             redirectUri,
           )}&response_type=code&scope=${scope}&access_type=offline&prompt=consent`
-
           console.warn(
             'Edge function retornou non-2xx; usando fallback seguro direto de getAuthUrl com client_id da settings.',
           )
@@ -483,7 +482,7 @@ export default function Settings() {
       // Se a função respondeu sem URL mas temos o Client ID salvo, redireciona via fallback seguro
       if (currentClientId) {
         const scope = encodeURIComponent(
-          'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events',
+          'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly',
         )
         const directAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
           currentClientId,

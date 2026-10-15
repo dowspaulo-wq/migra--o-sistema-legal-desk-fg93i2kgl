@@ -10,11 +10,26 @@ E, ao tentar clicar em "Conectar Conta Google", ocorria:
 
 > _"Erro ao conectar Google Agenda — Edge Function returned a non-2xx status code"_
 
-### Causa raiz:
+### Causas e Diagnósticos Resolvidos:
 
-1. O banco PostgreSQL do VPS self-hosted (EasyPanel) não possuía as colunas `"googleClientId"` e `"googleClientSecret"` na tabela `public.settings` (elas haviam sido aplicadas somente no ambiente Skip/nuvem). Como as migrações do Git/Skip não chegam sozinhas ao banco do VPS, é necessário rodar o DDL diretamente no contêiner Postgres.
-2. O PostgREST do VPS mantinha em cache o schema antigo sem essas colunas, bloqueando requisições REST `PATCH /settings`.
-3. A Edge Function `google-calendar` no servidor precisava da ação `getAuthUrl` para retornar a URL de consentimento OAuth do Google para o frontend redirecionar o usuário sem lançar erro `non-2xx`.
+1. **Credenciais e Variáveis de Ambiente no VPS**:
+   - No EasyPanel, contêineres de Edge Functions não recebem variáveis de ambiente do `.env` do Compose automaticamente.
+   - **Correção aplicada**: A Edge Function lê prioritariamente da tabela `public.settings` do banco Postgres local como fonte de verdade primária e segura (`googleClientId` e `googleClientSecret`).
+
+2. **Janela de Sincronização e Busca dos Lançamentos**:
+   - A função limitava a busca do Google e não consultava os compromissos sem `googleEventId` diretamente no banco de dados com abrangência para datas futuras distantes (ex.: audiências marcadas para novembro de 2026).
+   - **Correção aplicada**:
+     - Janela de busca no Google ampliada para **3 anos à frente** (`timeMax` até fim de 2029) e paginação completa de resultados (`pageToken`).
+     - A ação `sync` busca todos os compromissos sem `googleEventId` diretamente da tabela `public.appointments` do banco de dados (além de aceitar a lista do frontend), garantindo que audiências como as de 17/11/2026 sejam sempre exportadas para o Google Calendar primário.
+     - Enriquecimento com o nome do cliente associado no resumo do evento e na descrição (`Aud.conciliação - LIZIANE SILVA DE BRIT...`).
+     - Criação do evento na agenda primária (`primary`) com timezone de Brasília (`America/Sao_Paulo`) e persistência imediata do ID do Google na coluna `googleEventId` para idempotência.
+
+3. **Garantia de Offline Access e Refresh Token**:
+   - No fluxo OAuth, o parâmetro `access_type=offline&prompt=consent` foi reforçado tanto na Edge Function quanto nos fallbacks diretos do frontend.
+   - O escopo foi padronizado para:
+     `https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly`
+   - O `exchange_code` preserva o `refresh_token` prévio caso o Google omita em reautorizações.
+   - A função renova o token automaticamente se necessário antes das chamadas à API do Google.
 
 ---
 
@@ -32,7 +47,7 @@ curl -sSf -L -H "Accept: application/vnd.github.v3.raw" \
 
 ### Passo 2: Atualizar a Edge Function no Edge-Runtime do VPS (Executar agora)
 
-Se o contêiner de Edge Functions estiver rodando a versão antiga da função `google-calendar`, execute o comando abaixo como `root` no terminal SSH do VPS:
+Execute o comando abaixo como `root` no terminal SSH do VPS para atualizar os arquivos da função no contêiner e garantir o índice no Postgres:
 
 ```bash
 curl -sSf -L -H "Accept: application/vnd.github.v3.raw" \

@@ -67,22 +67,22 @@ Deno.serve(async (req: Request) => {
     }
 
     // Prioridade de leitura de credenciais:
-    // 1. Header da requisição
-    // 2. Body da requisição
-    // 3. Variáveis de ambiente do servidor (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET)
-    // 4. Registro da tabela public.settings no PostgreSQL
+    // 1. Registro da tabela public.settings no PostgreSQL (fonte de verdade confiável no VPS)
+    // 2. Header da requisição
+    // 3. Body da requisição
+    // 4. Variáveis de ambiente do servidor (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET)
     const GOOGLE_CLIENT_ID =
+      settingsData?.googleClientId?.trim() ||
       headerClientId ||
       bodyClientId ||
       Deno.env.get('GOOGLE_CLIENT_ID')?.trim() ||
-      settingsData?.googleClientId?.trim() ||
       ''
 
     const GOOGLE_CLIENT_SECRET =
+      settingsData?.googleClientSecret?.trim() ||
       headerClientSecret ||
       bodyClientSecret ||
       Deno.env.get('GOOGLE_CLIENT_SECRET')?.trim() ||
-      settingsData?.googleClientSecret?.trim() ||
       ''
 
     // ----------------------------------------------------
@@ -107,7 +107,7 @@ Deno.serve(async (req: Request) => {
       const clientRedirectUri =
         redirectUri || 'https://sistema.advdouglaspsantos.com.br/google-callback'
       const scope = encodeURIComponent(
-        'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events',
+        'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly',
       )
       const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
         GOOGLE_CLIENT_ID,
@@ -193,9 +193,11 @@ Deno.serve(async (req: Request) => {
 
       // Preserva o refresh_token anterior caso o Google não tenha retornado um novo
       const prevTokens = (settingsData?.googleCalendarTokens as GoogleTokens) || {}
+      const finalRefreshToken = tokenData.refresh_token || prevTokens.refresh_token
+
       const tokensToSave: GoogleTokens = {
         ...tokenData,
-        refresh_token: tokenData.refresh_token || prevTokens.refresh_token,
+        refresh_token: finalRefreshToken,
       }
 
       if (supabaseClient && settingsData?.id) {
@@ -208,7 +210,10 @@ Deno.serve(async (req: Request) => {
       return new Response(
         JSON.stringify({
           success: true,
-          message: 'Google Agenda conectado com sucesso!',
+          message: finalRefreshToken
+            ? 'Google Agenda conectado com sucesso!'
+            : 'Google Agenda conectado (aviso: sem refresh_token permanente retornado pelo Google. Caso expire em 1h, reconecte autorizando o acesso offline).',
+          hasRefreshToken: !!finalRefreshToken,
           tokens: tokensToSave,
         }),
         {
@@ -221,9 +226,12 @@ Deno.serve(async (req: Request) => {
     // ----------------------------------------------------
     // DEMAIS ACTIONS: EXIGEM TOKENS SALVOS
     // ----------------------------------------------------
-    const tokens = settingsData?.googleCalendarTokens as GoogleTokens | undefined
+    // Aceita tokens passados diretamente no body caso o frontend tenha estado mais fresco
+    const rawTokens =
+      (settingsData?.googleCalendarTokens as GoogleTokens | undefined) ||
+      (body?.tokens as GoogleTokens | undefined)
 
-    if (!tokens || (!tokens.access_token && !tokens.refresh_token)) {
+    if (!rawTokens || (!rawTokens.access_token && !rawTokens.refresh_token)) {
       return new Response(
         JSON.stringify({
           success: false,
@@ -237,6 +245,8 @@ Deno.serve(async (req: Request) => {
         },
       )
     }
+
+    const tokens: GoogleTokens = { ...rawTokens }
 
     // Helper para renovar o access_token se tiver refresh_token
     let accessToken = tokens.access_token
@@ -270,6 +280,7 @@ Deno.serve(async (req: Request) => {
             access_token: data.access_token,
             expires_in: data.expires_in,
           }
+          tokens.access_token = data.access_token
           if (supabaseClient && settingsData?.id) {
             await supabaseClient
               .from('settings')
@@ -285,6 +296,11 @@ Deno.serve(async (req: Request) => {
         console.error('Exceção ao renovar token:', err)
         return null
       }
+    }
+
+    // Tenta renovar preventivamente se não tiver access_token válido ou se tiver refresh_token
+    if (!accessToken && tokens.refresh_token) {
+      accessToken = (await refreshGoogleToken()) || ''
     }
 
     // Função auxiliar com retry de 401
@@ -318,27 +334,47 @@ Deno.serve(async (req: Request) => {
     // ----------------------------------------------------
     if (action === 'sync') {
       const now = new Date()
-      // Busca eventos a partir do início do mês anterior até 1 ano à frente
-      const timeMin = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString()
-      const timeMax = new Date(now.getFullYear() + 1, now.getMonth(), 1).toISOString()
+      // Janela ampla: 2 anos atrás até 3 anos à frente para cobrir compromissos futuros do escritório
+      const timeMin = new Date(now.getFullYear() - 2, 0, 1).toISOString()
+      const timeMax = new Date(now.getFullYear() + 3, 11, 31, 23, 59, 59).toISOString()
 
-      const googleEventsRes = await fetchGoogleApi(
-        `https://www.googleapis.com/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime&timeMin=${encodeURIComponent(
-          timeMin,
-        )}&timeMax=${encodeURIComponent(timeMax)}&maxResults=2500`,
-      )
+      // Paginação completa de eventos do Google Calendar
+      const googleEvents: any[] = []
+      let pageToken: string | null = null
 
-      if (!googleEventsRes.ok) {
-        const errJson = await googleEventsRes.json().catch(() => ({}))
-        console.error('Erro na API do Google Calendar:', errJson)
+      do {
+        const pageParam = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''
+        const googleEventsRes = await fetchGoogleApi(
+          `https://www.googleapis.com/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime&timeMin=${encodeURIComponent(
+            timeMin,
+          )}&timeMax=${encodeURIComponent(timeMax)}&maxResults=2500${pageParam}`,
+        )
 
-        if (googleEventsRes.status === 401) {
+        if (!googleEventsRes.ok) {
+          const errJson = await googleEventsRes.json().catch(() => ({}))
+          console.error('Erro na API do Google Calendar:', errJson)
+
+          if (googleEventsRes.status === 401) {
+            return new Response(
+              JSON.stringify({
+                success: false,
+                error:
+                  'A autorização do Google Agenda expirou ou foi revogada. Por favor, reconecte sua conta em Configurações > Integrações.',
+                needsReauth: true,
+              }),
+              {
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                status: 200,
+              },
+            )
+          }
+
           return new Response(
             JSON.stringify({
               success: false,
               error:
-                'A autorização do Google Agenda expirou ou foi revogada. Por favor, reconecte sua conta em Configurações > Integrações.',
-              needsReauth: true,
+                errJson?.error?.message ||
+                `Erro do Google Calendar (${googleEventsRes.status}): verifique se a Google Calendar API está ativada no Google Cloud.`,
             }),
             {
               headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -347,134 +383,261 @@ Deno.serve(async (req: Request) => {
           )
         }
 
-        return new Response(
-          JSON.stringify({
-            success: false,
-            error:
-              errJson?.error?.message ||
-              `Erro do Google Calendar (${googleEventsRes.status}): verifique se o serviço Google Agenda está ativo no Google Cloud Console.`,
-          }),
-          {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            status: 200,
-          },
-        )
-      }
-
-      const googleData = await googleEventsRes.json()
-      const googleEvents = googleData.items || []
+        const googleData = await googleEventsRes.json()
+        if (Array.isArray(googleData.items)) {
+          googleEvents.push(...googleData.items)
+        }
+        pageToken = googleData.nextPageToken || null
+      } while (pageToken)
 
       // 1. Sincroniza eventos do Google -> DPSjur (cria ou atualiza)
       const syncedAppointments = []
       if (supabaseClient) {
         for (const gEvent of googleEvents) {
-          if (!gEvent.start) continue
+          // Ignora eventos cancelados/removidos no Google
+          if (gEvent.status === 'cancelled' || !gEvent.start) continue
 
+          const isAllDay = !!gEvent.start.date && !gEvent.start.dateTime
           const startDateTime = gEvent.start.dateTime || gEvent.start.date
           const dateStr = startDateTime ? startDateTime.split('T')[0] : ''
           const timeStr =
             gEvent.start.dateTime && gEvent.start.dateTime.includes('T')
               ? gEvent.start.dateTime.split('T')[1].substring(0, 5)
-              : '09:00'
+              : '08:00'
 
           // Procura se já temos um appointment com este googleEventId
           const { data: existing } = await supabaseClient
             .from('appointments')
-            .select('id')
+            .select('id, title, date, time, description, location')
             .eq('googleEventId', gEvent.id)
             .maybeSingle()
 
           if (existing) {
+            // Atualiza se houve mudança nos dados
             await supabaseClient
               .from('appointments')
               .update({
-                title: gEvent.summary || 'Sem título',
-                description: gEvent.description || '',
-                date: dateStr,
-                time: timeStr,
-                location: gEvent.location || '',
+                title: gEvent.summary || existing.title || 'Sem título',
+                description: gEvent.description ?? existing.description ?? '',
+                date: dateStr || existing.date,
+                time: isAllDay ? existing.time || '08:00' : timeStr,
+                location: gEvent.location ?? existing.location ?? '',
               })
               .eq('id', existing.id)
             syncedAppointments.push({ id: existing.id, action: 'updated' })
           } else {
-            // Cria novo compromisso vindo do Google
-            const { data: newApp, error: insertErr } = await supabaseClient
-              .from('appointments')
-              .insert({
-                title: gEvent.summary || 'Sem título',
-                description: gEvent.description || '',
-                date: dateStr,
-                time: timeStr,
-                location: gEvent.location || '',
-                googleEventId: gEvent.id,
-                type: 'Reunião',
-                status: 'Confirmado',
-              })
-              .select('id')
-              .maybeSingle()
+            // Se não encontrou por googleEventId, procura correspondência por título + data + hora
+            // para vincular compromisso já existente e evitar duplicação
+            const cleanSummary = (gEvent.summary || '').trim()
+            let existingMatch: any = null
 
-            if (!insertErr && newApp) {
-              syncedAppointments.push({ id: newApp.id, action: 'created' })
+            if (cleanSummary && dateStr) {
+              const { data: matchedApp } = await supabaseClient
+                .from('appointments')
+                .select('id, title')
+                .is('googleEventId', null)
+                .eq('date', dateStr)
+                .ilike('title', `%${cleanSummary.substring(0, 30)}%`)
+                .limit(1)
+                .maybeSingle()
+              existingMatch = matchedApp
+            }
+
+            if (existingMatch) {
+              // Vincula o googleEventId ao compromisso do sistema existente
+              await supabaseClient
+                .from('appointments')
+                .update({ googleEventId: gEvent.id })
+                .eq('id', existingMatch.id)
+              syncedAppointments.push({ id: existingMatch.id, action: 'linked' })
+            } else {
+              // Cria novo compromisso vindo do Google
+              const { data: newApp, error: insertErr } = await supabaseClient
+                .from('appointments')
+                .insert({
+                  title: gEvent.summary || 'Sem título',
+                  description: gEvent.description || '',
+                  date: dateStr,
+                  time: timeStr,
+                  location: gEvent.location || '',
+                  googleEventId: gEvent.id,
+                  type: 'Reunião',
+                  status: 'Confirmado',
+                })
+                .select('id')
+                .maybeSingle()
+
+              if (!insertErr && newApp) {
+                syncedAppointments.push({ id: newApp.id, action: 'created' })
+              }
             }
           }
         }
       }
 
-      // 2. Envia compromissos locais para o Google Calendar caso ainda não tenham googleEventId
-      const localAppsList: any[] = Array.isArray(appointments) ? appointments : []
-      let exportedCount = 0
+      // 2. Exporta compromissos do DPSjur para o Google Calendar
+      // Busca todos os appointments sem googleEventId diretamente do banco (fonte de verdade)
+      // e une com a lista opcional passada no payload da requisição
+      const pendingToExport: any[] = []
+      const seenAppIds = new Set<string>()
 
-      for (const app of localAppsList) {
-        if (!app.googleEventId && app.title && app.date) {
-          try {
-            const timePart = app.time ? `${app.time}:00` : '09:00:00'
-            const startDateTime = `${app.date}T${timePart}`
-            const endDate = new Date(new Date(startDateTime).getTime() + 60 * 60 * 1000)
-            const endDateTime = endDate.toISOString().split('.')[0]
-
-            const postRes = await fetchGoogleApi(
-              'https://www.googleapis.com/calendar/v3/calendars/primary/events',
-              {
-                method: 'POST',
-                body: JSON.stringify({
-                  summary: app.title,
-                  description: app.description || '',
-                  location: app.location || '',
-                  start: {
-                    dateTime: `${startDateTime}-03:00`,
-                    timeZone: 'America/Sao_Paulo',
-                  },
-                  end: {
-                    dateTime: `${endDateTime}-03:00`,
-                    timeZone: 'America/Sao_Paulo',
-                  },
-                }),
-              },
+      if (supabaseClient) {
+        try {
+          const { data: dbPending, error: dbErr } = await supabaseClient
+            .from('appointments')
+            .select(
+              'id, title, description, date, time, modality, type, clientId, processId, googleEventId',
             )
+            .is('googleEventId', null)
 
-            if (postRes.ok) {
-              const createdGEvent = await postRes.json()
-              if (createdGEvent?.id && app.id && supabaseClient) {
+          if (!dbErr && Array.isArray(dbPending)) {
+            for (const app of dbPending) {
+              if (app.id && !seenAppIds.has(app.id)) {
+                seenAppIds.add(app.id)
+                pendingToExport.push(app)
+              }
+            }
+          }
+        } catch (fetchErr) {
+          console.warn('Erro ao consultar appointments pendentes no banco:', fetchErr)
+        }
+      }
+
+      // Inclui também os compromissos enviados pelo frontend que possam não ter googleEventId
+      if (Array.isArray(appointments)) {
+        for (const app of appointments) {
+          if (!app.googleEventId && app.title && app.date) {
+            const appId = app.id || `${app.title}-${app.date}-${app.time}`
+            if (!seenAppIds.has(appId)) {
+              seenAppIds.add(appId)
+              pendingToExport.push(app)
+            }
+          }
+        }
+      }
+
+      // Busca dados complementares de clientes para enriquecer a descrição e título no Google
+      const clientNameMap = new Map<string, string>()
+      if (supabaseClient && pendingToExport.some((a) => a.clientId)) {
+        try {
+          const clientIds = Array.from(
+            new Set(pendingToExport.map((a) => a.clientId).filter(Boolean)),
+          )
+          if (clientIds.length > 0) {
+            const { data: clientsData } = await supabaseClient
+              .from('clients')
+              .select('id, name')
+              .in('id', clientIds)
+            if (Array.isArray(clientsData)) {
+              for (const c of clientsData) {
+                clientNameMap.set(c.id, c.name)
+              }
+            }
+          }
+        } catch {
+          // fallback silencioso
+        }
+      }
+
+      let exportedCount = 0
+      const exportErrors: string[] = []
+
+      for (const app of pendingToExport) {
+        if (!app.title || !app.date) continue
+
+        try {
+          const timeClean = (app.time || '09:00').trim()
+          const timePart = timeClean.length === 5 ? `${timeClean}:00` : timeClean
+          const cleanDate = app.date.split('T')[0]
+
+          // Monta o timestamp ISO com fuso horário de Brasília (UTC-3)
+          const startDateTime = `${cleanDate}T${timePart}`
+          const startDate = new Date(startDateTime)
+          const endDate = !isNaN(startDate.getTime())
+            ? new Date(startDate.getTime() + 60 * 60 * 1000)
+            : new Date()
+          const endTimePart = !isNaN(endDate.getTime())
+            ? endDate.toTimeString().split(' ')[0]
+            : '10:00:00'
+          const endDateTime = `${cleanDate}T${endTimePart}`
+
+          // Enriquece título com nome do cliente se não estiver presente
+          const clientName = clientNameMap.get(app.clientId) || ''
+          let summary = app.title
+          if (clientName && !summary.toLowerCase().includes(clientName.toLowerCase())) {
+            summary = `${summary} - ${clientName}`
+          }
+
+          // Monta descrição com detalhes do processo/sistema
+          const descParts: string[] = []
+          if (app.description) descParts.push(app.description)
+          if (app.type) descParts.push(`Tipo: ${app.type}`)
+          if (app.modality) descParts.push(`Modalidade: ${app.modality}`)
+          if (clientName) descParts.push(`Cliente: ${clientName}`)
+          descParts.push('Sincronizado via DPSjur')
+          const descriptionText = descParts.join('\n')
+
+          const postRes = await fetchGoogleApi(
+            'https://www.googleapis.com/calendar/v3/calendars/primary/events',
+            {
+              method: 'POST',
+              body: JSON.stringify({
+                summary,
+                description: descriptionText,
+                location:
+                  app.location || (app.modality === 'Virtual' ? 'Online / Videoconferência' : ''),
+                start: {
+                  dateTime: `${startDateTime}-03:00`,
+                  timeZone: 'America/Sao_Paulo',
+                },
+                end: {
+                  dateTime: `${endDateTime}-03:00`,
+                  timeZone: 'America/Sao_Paulo',
+                },
+              }),
+            },
+          )
+
+          if (postRes.ok) {
+            const createdGEvent = await postRes.json()
+            if (createdGEvent?.id) {
+              exportedCount++
+              if (app.id && supabaseClient) {
                 await supabaseClient
                   .from('appointments')
                   .update({ googleEventId: createdGEvent.id })
                   .eq('id', app.id)
-                exportedCount++
               }
             }
-          } catch (e) {
-            console.error('Falha ao exportar appointment para Google:', e)
+          } else {
+            const errData = await postRes.json().catch(() => ({}))
+            console.error(`Erro ao criar evento "${app.title}" no Google:`, errData)
+            if (exportErrors.length < 3) {
+              exportErrors.push(errData?.error?.message || `HTTP ${postRes.status}`)
+            }
+          }
+        } catch (e: any) {
+          console.error(`Falha ao exportar compromisso "${app.title}" para Google:`, e)
+          if (exportErrors.length < 3) {
+            exportErrors.push(e?.message || 'Falha de rede')
           }
         }
       }
 
+      const summaryMessage =
+        exportedCount > 0 || syncedAppointments.length > 0
+          ? `Sincronização concluída: ${exportedCount} evento(s) enviado(s) ao Google e ${syncedAppointments.length} harmonizado(s) no sistema.`
+          : 'Sincronização concluída: a agenda do DPSjur e o Google Calendar já estão em harmonia.'
+
       return new Response(
         JSON.stringify({
           success: true,
-          message: 'Sincronização concluída com sucesso!',
+          message: summaryMessage,
           importedFromGoogle: syncedAppointments.length,
           exportedToGoogle: exportedCount,
+          pendingTotal: pendingToExport.length,
           totalGoogleEvents: googleEvents.length,
+          errors: exportErrors.length > 0 ? exportErrors : undefined,
         }),
         {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -486,7 +649,7 @@ Deno.serve(async (req: Request) => {
     // ----------------------------------------------------
     // ACTION: CREATE EVENT
     // ----------------------------------------------------
-    if (action === 'create_event') {
+    if (action === 'create_event' || action === 'createEvent') {
       if (!appointment) {
         return new Response(
           JSON.stringify({ success: false, error: 'Dados do compromisso ausentes' }),
@@ -497,10 +660,18 @@ Deno.serve(async (req: Request) => {
         )
       }
 
-      const timePart = appointment.time ? `${appointment.time}:00` : '09:00:00'
-      const startDateTime = `${appointment.date}T${timePart}`
-      const endDate = new Date(new Date(startDateTime).getTime() + 60 * 60 * 1000)
-      const endDateTime = endDate.toISOString().split('.')[0]
+      const timeClean = (appointment.time || '09:00').trim()
+      const timePart = timeClean.length === 5 ? `${timeClean}:00` : timeClean
+      const cleanDate = (appointment.date || '').split('T')[0]
+      const startDateTime = `${cleanDate}T${timePart}`
+      const startDate = new Date(startDateTime)
+      const endDate = !isNaN(startDate.getTime())
+        ? new Date(startDate.getTime() + 60 * 60 * 1000)
+        : new Date()
+      const endTimePart = !isNaN(endDate.getTime())
+        ? endDate.toTimeString().split(' ')[0]
+        : '10:00:00'
+      const endDateTime = `${cleanDate}T${endTimePart}`
 
       const gRes = await fetchGoogleApi(
         'https://www.googleapis.com/calendar/v3/calendars/primary/events',
@@ -509,7 +680,9 @@ Deno.serve(async (req: Request) => {
           body: JSON.stringify({
             summary: appointment.title,
             description: appointment.description || '',
-            location: appointment.location || '',
+            location:
+              appointment.location ||
+              (appointment.modality === 'Virtual' ? 'Online / Videoconferência' : ''),
             start: {
               dateTime: `${startDateTime}-03:00`,
               timeZone: 'America/Sao_Paulo',
@@ -561,8 +734,10 @@ Deno.serve(async (req: Request) => {
     // ----------------------------------------------------
     // ACTION: UPDATE EVENT
     // ----------------------------------------------------
-    if (action === 'update_event') {
-      if (!appointment || !appointment.googleEventId) {
+    if (action === 'update_event' || action === 'updateEvent') {
+      const gEventId = appointment?.googleEventId || body.eventId
+
+      if (!appointment || !gEventId) {
         return new Response(
           JSON.stringify({
             success: false,
@@ -575,21 +750,31 @@ Deno.serve(async (req: Request) => {
         )
       }
 
-      const timePart = appointment.time ? `${appointment.time}:00` : '09:00:00'
-      const startDateTime = `${appointment.date}T${timePart}`
-      const endDate = new Date(new Date(startDateTime).getTime() + 60 * 60 * 1000)
-      const endDateTime = endDate.toISOString().split('.')[0]
+      const timeClean = (appointment.time || '09:00').trim()
+      const timePart = timeClean.length === 5 ? `${timeClean}:00` : timeClean
+      const cleanDate = (appointment.date || '').split('T')[0]
+      const startDateTime = `${cleanDate}T${timePart}`
+      const startDate = new Date(startDateTime)
+      const endDate = !isNaN(startDate.getTime())
+        ? new Date(startDate.getTime() + 60 * 60 * 1000)
+        : new Date()
+      const endTimePart = !isNaN(endDate.getTime())
+        ? endDate.toTimeString().split(' ')[0]
+        : '10:00:00'
+      const endDateTime = `${cleanDate}T${endTimePart}`
 
       const gRes = await fetchGoogleApi(
         `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(
-          appointment.googleEventId,
+          gEventId,
         )}`,
         {
           method: 'PATCH',
           body: JSON.stringify({
             summary: appointment.title,
             description: appointment.description || '',
-            location: appointment.location || '',
+            location:
+              appointment.location ||
+              (appointment.modality === 'Virtual' ? 'Online / Videoconferência' : ''),
             start: {
               dateTime: `${startDateTime}-03:00`,
               timeZone: 'America/Sao_Paulo',
