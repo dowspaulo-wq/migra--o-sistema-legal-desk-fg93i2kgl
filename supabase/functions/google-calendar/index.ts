@@ -1,12 +1,6 @@
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers':
-    'authorization, x-client-info, apikey, content-type, x-requested-with',
-  'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
-}
+import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
+import { createClient } from 'npm:@supabase/supabase-js@2'
+import { corsHeaders } from '../_shared/cors.ts'
 
 interface GoogleTokens {
   access_token: string
@@ -17,16 +11,15 @@ interface GoogleTokens {
   error?: string
 }
 
-serve(async (req) => {
+Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-    )
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') || ''
+    const supabaseKey =
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SUPABASE_ANON_KEY') || ''
 
     let body: any = {}
     try {
@@ -36,21 +29,61 @@ serve(async (req) => {
     }
     const { action, code, redirectUri, appointments, appointment } = body
 
-    // 1. Carrega tokens e possíveis credenciais salvas no banco (tabela settings)
-    const { data: settingsData, error: settingsError } = await supabaseClient
-      .from('settings')
-      .select('id, googleCalendarTokens, googleClientId, googleClientSecret')
-      .limit(1)
-      .maybeSingle()
+    // Fallbacks passados no header ou body pelo frontend para máxima resiliência
+    const headerClientId = req.headers.get('x-google-client-id')?.trim() || ''
+    const headerClientSecret = req.headers.get('x-google-client-secret')?.trim() || ''
+    const bodyClientId = typeof body.clientId === 'string' ? body.clientId.trim() : ''
+    const bodyClientSecret = typeof body.clientSecret === 'string' ? body.clientSecret.trim() : ''
 
-    if (settingsError) {
-      console.error('Erro ao ler settings:', settingsError)
+    let supabaseClient: any = null
+    if (supabaseUrl && supabaseKey) {
+      try {
+        supabaseClient = createClient(supabaseUrl, supabaseKey, {
+          auth: { persistSession: false },
+        })
+      } catch (clientErr) {
+        console.warn('Erro ao inicializar supabaseClient:', clientErr)
+      }
     }
 
-    // Prioriza env var do edge-runtime; se ausente, faz fallback para tabela settings
-    const GOOGLE_CLIENT_ID = Deno.env.get('GOOGLE_CLIENT_ID') || settingsData?.googleClientId || ''
+    // 1. Carrega tokens e credenciais salvas no banco (tabela settings)
+    let settingsData: any = null
+    if (supabaseClient) {
+      try {
+        const { data, error } = await supabaseClient
+          .from('settings')
+          .select('id, googleCalendarTokens, googleClientId, googleClientSecret')
+          .limit(1)
+          .maybeSingle()
+
+        if (error) {
+          console.warn('Aviso ao consultar settings no banco:', error?.message || error)
+        } else {
+          settingsData = data
+        }
+      } catch (err) {
+        console.warn('Exceção ao consultar settings:', err)
+      }
+    }
+
+    // Prioridade de leitura de credenciais:
+    // 1. Header da requisição
+    // 2. Body da requisição
+    // 3. Variáveis de ambiente do servidor (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET)
+    // 4. Registro da tabela public.settings no PostgreSQL
+    const GOOGLE_CLIENT_ID =
+      headerClientId ||
+      bodyClientId ||
+      Deno.env.get('GOOGLE_CLIENT_ID')?.trim() ||
+      settingsData?.googleClientId?.trim() ||
+      ''
+
     const GOOGLE_CLIENT_SECRET =
-      Deno.env.get('GOOGLE_CLIENT_SECRET') || settingsData?.googleClientSecret || ''
+      headerClientSecret ||
+      bodyClientSecret ||
+      Deno.env.get('GOOGLE_CLIENT_SECRET')?.trim() ||
+      settingsData?.googleClientSecret?.trim() ||
+      ''
 
     // ----------------------------------------------------
     // ACTION: GET AUTH URL (Gerar URL de consentimento OAuth)
@@ -109,7 +142,7 @@ serve(async (req) => {
           }),
           {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            status: 200, // Retornamos 200 com success: false para que o frontend exiba a mensagem limpa
+            status: 200,
           },
         )
       }
@@ -165,7 +198,7 @@ serve(async (req) => {
         refresh_token: tokenData.refresh_token || prevTokens.refresh_token,
       }
 
-      if (settingsData?.id) {
+      if (supabaseClient && settingsData?.id) {
         await supabaseClient
           .from('settings')
           .update({ googleCalendarTokens: tokensToSave })
@@ -200,7 +233,7 @@ serve(async (req) => {
         }),
         {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 200, // Retornamos 200 para que o frontend exiba a mensagem amigável sem estourar "non-2xx"
+          status: 200,
         },
       )
     }
@@ -237,7 +270,7 @@ serve(async (req) => {
             access_token: data.access_token,
             expires_in: data.expires_in,
           }
-          if (settingsData?.id) {
+          if (supabaseClient && settingsData?.id) {
             await supabaseClient
               .from('settings')
               .update({ googleCalendarTokens: updatedTokens })
@@ -333,54 +366,56 @@ serve(async (req) => {
 
       // 1. Sincroniza eventos do Google -> DPSjur (cria ou atualiza)
       const syncedAppointments = []
-      for (const gEvent of googleEvents) {
-        if (!gEvent.start) continue
+      if (supabaseClient) {
+        for (const gEvent of googleEvents) {
+          if (!gEvent.start) continue
 
-        const startDateTime = gEvent.start.dateTime || gEvent.start.date
-        const dateStr = startDateTime ? startDateTime.split('T')[0] : ''
-        const timeStr =
-          gEvent.start.dateTime && gEvent.start.dateTime.includes('T')
-            ? gEvent.start.dateTime.split('T')[1].substring(0, 5)
-            : '09:00'
+          const startDateTime = gEvent.start.dateTime || gEvent.start.date
+          const dateStr = startDateTime ? startDateTime.split('T')[0] : ''
+          const timeStr =
+            gEvent.start.dateTime && gEvent.start.dateTime.includes('T')
+              ? gEvent.start.dateTime.split('T')[1].substring(0, 5)
+              : '09:00'
 
-        // Procura se já temos um appointment com este googleEventId
-        const { data: existing } = await supabaseClient
-          .from('appointments')
-          .select('id')
-          .eq('googleEventId', gEvent.id)
-          .maybeSingle()
-
-        if (existing) {
-          await supabaseClient
+          // Procura se já temos um appointment com este googleEventId
+          const { data: existing } = await supabaseClient
             .from('appointments')
-            .update({
-              title: gEvent.summary || 'Sem título',
-              description: gEvent.description || '',
-              date: dateStr,
-              time: timeStr,
-              location: gEvent.location || '',
-            })
-            .eq('id', existing.id)
-          syncedAppointments.push({ id: existing.id, action: 'updated' })
-        } else {
-          // Cria novo compromisso vindo do Google
-          const { data: newApp, error: insertErr } = await supabaseClient
-            .from('appointments')
-            .insert({
-              title: gEvent.summary || 'Sem título',
-              description: gEvent.description || '',
-              date: dateStr,
-              time: timeStr,
-              location: gEvent.location || '',
-              googleEventId: gEvent.id,
-              type: 'Reunião',
-              status: 'Confirmado',
-            })
             .select('id')
+            .eq('googleEventId', gEvent.id)
             .maybeSingle()
 
-          if (!insertErr && newApp) {
-            syncedAppointments.push({ id: newApp.id, action: 'created' })
+          if (existing) {
+            await supabaseClient
+              .from('appointments')
+              .update({
+                title: gEvent.summary || 'Sem título',
+                description: gEvent.description || '',
+                date: dateStr,
+                time: timeStr,
+                location: gEvent.location || '',
+              })
+              .eq('id', existing.id)
+            syncedAppointments.push({ id: existing.id, action: 'updated' })
+          } else {
+            // Cria novo compromisso vindo do Google
+            const { data: newApp, error: insertErr } = await supabaseClient
+              .from('appointments')
+              .insert({
+                title: gEvent.summary || 'Sem título',
+                description: gEvent.description || '',
+                date: dateStr,
+                time: timeStr,
+                location: gEvent.location || '',
+                googleEventId: gEvent.id,
+                type: 'Reunião',
+                status: 'Confirmado',
+              })
+              .select('id')
+              .maybeSingle()
+
+            if (!insertErr && newApp) {
+              syncedAppointments.push({ id: newApp.id, action: 'created' })
+            }
           }
         }
       }
@@ -419,7 +454,7 @@ serve(async (req) => {
 
             if (postRes.ok) {
               const createdGEvent = await postRes.json()
-              if (createdGEvent?.id && app.id) {
+              if (createdGEvent?.id && app.id && supabaseClient) {
                 await supabaseClient
                   .from('appointments')
                   .update({ googleEventId: createdGEvent.id })
@@ -503,7 +538,7 @@ serve(async (req) => {
 
       const gEvent = await gRes.json()
 
-      if (appointment.id && gEvent.id) {
+      if (appointment.id && gEvent.id && supabaseClient) {
         await supabaseClient
           .from('appointments')
           .update({ googleEventId: gEvent.id })

@@ -4,10 +4,10 @@
 # Finalidade: Atualizar a Edge Function 'google-calendar' no Supabase self-hosted
 #             no VPS Hostinger e aplicar a migration com as colunas googleClientId
 #             e googleClientSecret na tabela settings.
-# Execução no VPS:
+# Execução no VPS (copie e cole como root no terminal SSH):
 #   curl -sSf -L -H "Accept: application/vnd.github.v3.raw" \
-#     "https://api.github.com/repos/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/contents/docs/google-agenda/01-adicionar-colunas-settings.sh?ref=main" \
-#     -o /root/01-adicionar-colunas-settings.sh && bash /root/01-adicionar-colunas-settings.sh
+#     "https://api.github.com/repos/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/contents/docs/google-calendar/01-atualizar-google-calendar-vps.sh?ref=main" \
+#     -o /root/01-atualizar-google-calendar-vps.sh && bash /root/01-atualizar-google-calendar-vps.sh
 # ==============================================================================
 
 set -euo pipefail
@@ -33,6 +33,7 @@ fi
 WORK_DIR="/tmp/sbjur-google-calendar-deploy"
 rm -rf "$WORK_DIR"
 mkdir -p "$WORK_DIR/google-calendar"
+mkdir -p "$WORK_DIR/_shared"
 
 download_file() {
   local rel_path="$1"
@@ -50,10 +51,13 @@ download_file() {
     "https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/${rel_path}" -o "$dest_path"
 }
 
+echo "Baixando arquivos atualizados da Edge Function..."
+download_file "supabase/functions/_shared/cors.ts" "$WORK_DIR/_shared/cors.ts"
 download_file "supabase/functions/google-calendar/index.ts" "$WORK_DIR/google-calendar/index.ts"
 download_file "supabase/functions/google-calendar/deno.json" "$WORK_DIR/google-calendar/deno.json"
 
 if [ -n "$FUNCTIONS_CONTAINER" ]; then
+  echo -e "Contêiner de functions detectado: ${GREEN}$FUNCTIONS_CONTAINER${NC}"
   TARGET_DIR="/home/deno/functions"
   if ! docker exec "$FUNCTIONS_CONTAINER" test -d "$TARGET_DIR" 2>/dev/null; then
     if docker exec "$FUNCTIONS_CONTAINER" test -d "/app/functions" 2>/dev/null; then
@@ -64,9 +68,10 @@ if [ -n "$FUNCTIONS_CONTAINER" ]; then
       docker exec "$FUNCTIONS_CONTAINER" mkdir -p "$TARGET_DIR" || true
     fi
   fi
+  docker cp "$WORK_DIR/_shared" "$FUNCTIONS_CONTAINER:$TARGET_DIR/" 2>/dev/null || true
   docker cp "$WORK_DIR/google-calendar" "$FUNCTIONS_CONTAINER:$TARGET_DIR/"
   docker restart "$FUNCTIONS_CONTAINER" >/dev/null 2>&1 || true
-  echo -e "${GREEN}✓ Edge Function google-calendar atualizada no contêiner $FUNCTIONS_CONTAINER!${NC}"
+  echo -e "${GREEN}✓ Edge Function google-calendar atualizada e contêiner $FUNCTIONS_CONTAINER reiniciado com sucesso!${NC}"
 else
   echo -e "${YELLOW}Aviso: contêiner de Edge Functions não detectado por nome padrão.${NC}"
 fi
@@ -112,9 +117,8 @@ echo ""
 echo -e "${YELLOW}[3/3] Próximos passos:${NC}"
 echo "1. Acesse https://sistema.advdouglaspsantos.com.br"
 echo "2. Configurações > Integrações > Google Agenda"
-echo "3. Cole o Client ID e Client Secret"
-echo "4. Clique em 'Salvar Credenciais do Google'"
-echo "5. Clique em 'Conectar Conta Google'"
+echo "3. Confirme que o Client ID e Secret estão salvos"
+echo "4. Clique em 'Conectar Conta Google'"
 echo ""
 echo -e "${GREEN}======================================================${NC}"
 echo -e "${GREEN}  Concluído com sucesso!                              ${NC}"

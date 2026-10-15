@@ -135,24 +135,68 @@ export default function Agenda() {
   const handleGoogleSync = async () => {
     setIsSyncing(true)
     try {
-      const hasTokens = !!(state.settings as any)?.googleCalendarTokens
+      const settings = (state.settings as any) || {}
+      const hasTokens = !!settings?.googleCalendarTokens
+      const currentClientId = settings?.googleClientId?.trim() || ''
+      const currentClientSecret = settings?.googleClientSecret?.trim() || ''
 
       if (!hasTokens) {
         const redirectUri = `${window.location.origin}/google-callback`
+        const headers: Record<string, string> = {}
+        if (currentClientId) headers['x-google-client-id'] = currentClientId
+        if (currentClientSecret) headers['x-google-client-secret'] = currentClientSecret
+
         const { data, error } = await supabase.functions.invoke('google-calendar', {
-          body: { action: 'getAuthUrl', redirectUri },
+          body: {
+            action: 'getAuthUrl',
+            redirectUri,
+            clientId: currentClientId || undefined,
+            clientSecret: currentClientSecret || undefined,
+          },
+          headers,
         })
 
         if (error) {
           let errorMsg = error.message || 'Erro ao conectar com Google Calendar'
           try {
-            if ((error as any).context && typeof (error as any).context.json === 'function') {
-              const body = await (error as any).context.json()
-              if (body?.error) errorMsg = body.error
+            const ctx = (error as any).context
+            if (ctx) {
+              if (typeof ctx.json === 'function') {
+                const body = await ctx.json().catch(() => null)
+                if (body?.error) errorMsg = body.error
+              } else if (typeof ctx.text === 'function') {
+                const text = await ctx.text().catch(() => '')
+                if (text) {
+                  try {
+                    const parsed = JSON.parse(text)
+                    if (parsed?.error) errorMsg = parsed.error
+                  } catch {
+                    // mantém errorMsg
+                  }
+                }
+              }
             }
           } catch {
             // mantém errorMsg
           }
+
+          if (
+            (errorMsg.includes('non-2xx') ||
+              errorMsg.includes('Edge Function returned a non-2xx status code')) &&
+            currentClientId
+          ) {
+            const scope = encodeURIComponent(
+              'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events',
+            )
+            const directAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
+              currentClientId,
+            )}&redirect_uri=${encodeURIComponent(
+              redirectUri,
+            )}&response_type=code&scope=${scope}&access_type=offline&prompt=consent`
+            window.location.href = directAuthUrl
+            return
+          }
+
           throw new Error(errorMsg)
         }
         if (data?.error) throw new Error(data.error)
@@ -161,6 +205,20 @@ export default function Agenda() {
           window.location.href = data.url
           return
         }
+
+        if (currentClientId) {
+          const scope = encodeURIComponent(
+            'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events',
+          )
+          const directAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
+            currentClientId,
+          )}&redirect_uri=${encodeURIComponent(
+            redirectUri,
+          )}&response_type=code&scope=${scope}&access_type=offline&prompt=consent`
+          window.location.href = directAuthUrl
+          return
+        }
+
         throw new Error('URL de autenticação do Google não foi retornada.')
       } else {
         const { data, error } = await supabase.functions.invoke('google-calendar', {

@@ -22,13 +22,31 @@ E, ao tentar clicar em "Conectar Conta Google", ocorria:
 
 Acesse o terminal SSH do VPS (Hostinger IP `2.25.181.69`) como `root`:
 
+### Passo 1: Atualizar o Banco de Dados (Já executado pelo Douglas com sucesso)
+
 ```bash
 curl -sSf -L -H "Accept: application/vnd.github.v3.raw" \
   "https://api.github.com/repos/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/contents/docs/google-agenda/01-adicionar-colunas-settings.sh?ref=main" \
   -o /root/01-adicionar-colunas-settings.sh && bash /root/01-adicionar-colunas-settings.sh
 ```
 
-> **Dica**: O script é totalmente **idempotente** e **não interativo**. Pode ser rodado múltiplas vezes com total segurança. Ele cria as colunas com os nomes exatos esperados pelo app (`"googleClientId"` e `"googleClientSecret"` em `camelCase`), adiciona a coluna `"googleEventId"` na tabela `appointments`, envia o `NOTIFY pgrst, 'reload schema'` e reinicia os contêineres do PostgREST e Edge Runtime se presentes.
+### Passo 2: Atualizar a Edge Function no Edge-Runtime do VPS (Executar agora)
+
+Se o contêiner de Edge Functions estiver rodando a versão antiga da função `google-calendar`, execute o comando abaixo como `root` no terminal SSH do VPS:
+
+```bash
+curl -sSf -L -H "Accept: application/vnd.github.v3.raw" \
+  "https://api.github.com/repos/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/contents/docs/google-calendar/01-atualizar-google-calendar-vps.sh?ref=main" \
+  -o /root/01-atualizar-google-calendar-vps.sh && bash /root/01-atualizar-google-calendar-vps.sh
+```
+
+Ou, se desejar apenas reiniciar o contêiner do Edge Runtime imediatamente via Docker:
+
+```bash
+docker ps --format '{{.Names}}' | grep -iE 'functions|edge-runtime' | xargs -r docker restart
+```
+
+> **Dica**: O script é totalmente **idempotente** e **não interativo**. Ele copia o código novo da função `google-calendar` para dentro do contêiner do runtime (`/home/deno/functions`), copia os módulos compartilhados de CORS e reinicia o contêiner de forma limpa.
 
 ---
 

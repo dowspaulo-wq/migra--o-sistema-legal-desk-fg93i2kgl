@@ -49,19 +49,58 @@ export default function GoogleCallback() {
 
       try {
         const redirectUri = `${window.location.origin}/google-callback`
+
+        // Carrega credenciais da tabela settings como garantia adicional
+        let clientIdFallback = ''
+        let clientSecretFallback = ''
+        try {
+          const { data: sett } = await supabase
+            .from('settings')
+            .select('googleClientId, googleClientSecret')
+            .limit(1)
+            .maybeSingle()
+          if (sett) {
+            clientIdFallback = (sett as any).googleClientId?.trim() || ''
+            clientSecretFallback = (sett as any).googleClientSecret?.trim() || ''
+          }
+        } catch {
+          // fallback silencioso
+        }
+
+        const headers: Record<string, string> = {}
+        if (clientIdFallback) headers['x-google-client-id'] = clientIdFallback
+        if (clientSecretFallback) headers['x-google-client-secret'] = clientSecretFallback
+
         const { data, error: invokeError } = await supabase.functions.invoke('google-calendar', {
-          body: { action: 'exchange_code', code, redirectUri },
+          body: {
+            action: 'exchange_code',
+            code,
+            redirectUri,
+            clientId: clientIdFallback || undefined,
+            clientSecret: clientSecretFallback || undefined,
+          },
+          headers,
         })
 
         if (invokeError) {
           let errorMsg = invokeError.message || 'Falha ao autenticar com o Google'
           try {
-            if (
-              (invokeError as any).context &&
-              typeof (invokeError as any).context.json === 'function'
-            ) {
-              const body = await (invokeError as any).context.json()
-              if (body?.error) errorMsg = body.error
+            const ctx = (invokeError as any).context
+            if (ctx) {
+              if (typeof ctx.json === 'function') {
+                const body = await ctx.json().catch(() => null)
+                if (body?.error) errorMsg = body.error
+              } else if (typeof ctx.text === 'function') {
+                const text = await ctx.text().catch(() => '')
+                if (text) {
+                  try {
+                    const parsed = JSON.parse(text)
+                    if (parsed?.error) errorMsg = parsed.error
+                  } catch {
+                    // fallback
+                  }
+                }
+              }
             }
           } catch {
             // fallback

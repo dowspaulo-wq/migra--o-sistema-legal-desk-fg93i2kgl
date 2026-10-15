@@ -399,20 +399,78 @@ export default function Settings() {
     setIsConnectingGoogle(true)
     try {
       const redirectUri = `${window.location.origin}/google-callback`
+      const currentClientId = googleClientIdInput.trim() || (s as any).googleClientId?.trim() || ''
+      const currentClientSecret =
+        googleClientSecretInput.trim() || (s as any).googleClientSecret?.trim() || ''
+
+      // Verificação preventiva no frontend
+      if (!currentClientId) {
+        throw new Error(
+          'Preencha e salve o Google Client ID no campo acima antes de conectar sua conta Google.',
+        )
+      }
+
+      const headers: Record<string, string> = {}
+      if (currentClientId) headers['x-google-client-id'] = currentClientId
+      if (currentClientSecret) headers['x-google-client-secret'] = currentClientSecret
+
       const { data, error } = await supabase.functions.invoke('google-calendar', {
-        body: { action: 'getAuthUrl', redirectUri },
+        body: {
+          action: 'getAuthUrl',
+          redirectUri,
+          clientId: currentClientId || undefined,
+          clientSecret: currentClientSecret || undefined,
+        },
+        headers,
       })
 
       if (error) {
         let errorMsg = error.message || 'Erro ao gerar URL de autorização'
         try {
-          if ((error as any).context && typeof (error as any).context.json === 'function') {
-            const body = await (error as any).context.json()
-            if (body?.error) errorMsg = body.error
+          const ctx = (error as any).context
+          if (ctx) {
+            if (typeof ctx.json === 'function') {
+              const body = await ctx.json().catch(() => null)
+              if (body?.error) errorMsg = body.error
+            } else if (typeof ctx.text === 'function') {
+              const text = await ctx.text().catch(() => '')
+              if (text) {
+                try {
+                  const parsed = JSON.parse(text)
+                  if (parsed?.error) errorMsg = parsed.error
+                } catch {
+                  // mantém errorMsg
+                }
+              }
+            }
           }
         } catch {
           // fallback
         }
+
+        // Se ainda for a mensagem crua de non-2xx
+        if (
+          errorMsg.includes('non-2xx') ||
+          errorMsg.includes('Edge Function returned a non-2xx status code')
+        ) {
+          // Fallback resiliente direto no cliente: constrói a URL oficial do Google OAuth
+          // diretamente com o client_id configurado, sem depender da resposta do edge-runtime
+          const scope = encodeURIComponent(
+            'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events',
+          )
+          const directAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
+            currentClientId,
+          )}&redirect_uri=${encodeURIComponent(
+            redirectUri,
+          )}&response_type=code&scope=${scope}&access_type=offline&prompt=consent`
+
+          console.warn(
+            'Edge function retornou non-2xx; usando fallback seguro direto de getAuthUrl com client_id da settings.',
+          )
+          window.location.href = directAuthUrl
+          return
+        }
+
         throw new Error(errorMsg)
       }
 
@@ -421,6 +479,21 @@ export default function Settings() {
         window.location.href = data.url
         return
       }
+
+      // Se a função respondeu sem URL mas temos o Client ID salvo, redireciona via fallback seguro
+      if (currentClientId) {
+        const scope = encodeURIComponent(
+          'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events',
+        )
+        const directAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
+          currentClientId,
+        )}&redirect_uri=${encodeURIComponent(
+          redirectUri,
+        )}&response_type=code&scope=${scope}&access_type=offline&prompt=consent`
+        window.location.href = directAuthUrl
+        return
+      }
+
       throw new Error('URL de autorização não retornada pelo Google.')
     } catch (err: any) {
       toast({
