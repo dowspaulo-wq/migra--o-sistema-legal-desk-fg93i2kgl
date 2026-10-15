@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Script: 01-atualizar-google-calendar-vps.sh
+# Script: docs/google-calendar/01-atualizar-google-calendar-vps.sh
 # Finalidade: Atualizar a Edge Function 'google-calendar' no Supabase self-hosted
 #             no VPS Hostinger e aplicar a migration com as colunas googleClientId
 #             e googleClientSecret na tabela settings.
 # Execução no VPS:
-#   bash /root/atualizar-google-calendar-vps.sh
+#   curl -sSf -L -H "Accept: application/vnd.github.v3.raw" \
+#     "https://api.github.com/repos/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/contents/docs/google-agenda/01-adicionar-colunas-settings.sh?ref=main" \
+#     -o /root/01-adicionar-colunas-settings.sh && bash /root/01-adicionar-colunas-settings.sh
 # ==============================================================================
 
-set -e
+set -euo pipefail
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -21,61 +23,98 @@ echo -e "${BLUE}  DPSjur - Atualização da Integração Google Calendar  ${NC}"
 echo -e "${BLUE}======================================================${NC}"
 echo ""
 
-# 1. Localiza o diretório do Supabase ou das Edge Functions no VPS
-# Padrões comuns no EasyPanel / Docker Compose:
-FUNCTIONS_DIR=""
-for candidate in \
-  "/etc/easypanel/projects/supabase/volumes/functions" \
-  "/etc/easypanel/projects/supabase/functions" \
-  "/root/supabase/volumes/functions" \
-  "/root/supabase/functions" \
-  "/root/sbjur-migracao/functions" \
-  "/var/lib/docker/volumes/*functions*"; do
-  if [ -d "$candidate" ]; then
-    FUNCTIONS_DIR="$candidate"
-    break
-  fi
-done
+# 1. Localizar o contêiner de Edge Functions do Supabase
+echo -e "${YELLOW}[1/3] Localizando contêiner de Edge Functions no VPS...${NC}"
+FUNCTIONS_CONTAINER="${FUNCTIONS_CONTAINER:-}"
+if [ -z "$FUNCTIONS_CONTAINER" ]; then
+  FUNCTIONS_CONTAINER=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -iE 'supa?base.*functions|supabase-edge-runtime|edge-runtime' | head -n 1 || true)
+fi
 
-echo -e "${YELLOW}[1/3] Verificando diretório de funções...${NC}"
-if [ -n "$FUNCTIONS_DIR" ]; then
-  echo -e "Diretório encontrado: ${GREEN}$FUNCTIONS_DIR${NC}"
-  mkdir -p "$FUNCTIONS_DIR/google-calendar"
+WORK_DIR="/tmp/sbjur-google-calendar-deploy"
+rm -rf "$WORK_DIR"
+mkdir -p "$WORK_DIR/google-calendar"
+
+download_file() {
+  local rel_path="$1"
+  local dest_path="$2"
+  local github_api_url="https://api.github.com/repos/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/contents/${rel_path}?ref=main"
+
+  if curl -sSf -L \
+    -H "Accept: application/vnd.github.v3.raw" \
+    -H "User-Agent: DPSjur-DeployKit" \
+    "$github_api_url" -o "$dest_path" 2>/dev/null; then
+    return 0
+  fi
+
+  curl -sSf -L -H "Cache-Control: no-cache" \
+    "https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/${rel_path}" -o "$dest_path"
+}
+
+download_file "supabase/functions/google-calendar/index.ts" "$WORK_DIR/google-calendar/index.ts"
+download_file "supabase/functions/google-calendar/deno.json" "$WORK_DIR/google-calendar/deno.json"
+
+if [ -n "$FUNCTIONS_CONTAINER" ]; then
+  TARGET_DIR="/home/deno/functions"
+  if ! docker exec "$FUNCTIONS_CONTAINER" test -d "$TARGET_DIR" 2>/dev/null; then
+    if docker exec "$FUNCTIONS_CONTAINER" test -d "/app/functions" 2>/dev/null; then
+      TARGET_DIR="/app/functions"
+    elif docker exec "$FUNCTIONS_CONTAINER" test -d "/functions" 2>/dev/null; then
+      TARGET_DIR="/functions"
+    else
+      docker exec "$FUNCTIONS_CONTAINER" mkdir -p "$TARGET_DIR" || true
+    fi
+  fi
+  docker cp "$WORK_DIR/google-calendar" "$FUNCTIONS_CONTAINER:$TARGET_DIR/"
+  docker restart "$FUNCTIONS_CONTAINER" >/dev/null 2>&1 || true
+  echo -e "${GREEN}✓ Edge Function google-calendar atualizada no contêiner $FUNCTIONS_CONTAINER!${NC}"
 else
-  echo -e "${YELLOW}Aviso: diretório de volumes padrão não encontrado automaticamente.${NC}"
-  echo "Procurando contêineres Docker do edge-runtime..."
+  echo -e "${YELLOW}Aviso: contêiner de Edge Functions não detectado por nome padrão.${NC}"
 fi
 
 # 2. Migration na tabela settings (garante que as colunas existem no Postgres local)
 echo ""
 echo -e "${YELLOW}[2/3] Aplicando migration na tabela settings (PostgreSQL)...${NC}"
-DB_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E 'supabase.*db|supabase.*postgres|db.*supabase' | head -n 1 || true)
+DB_CONTAINER="${DB_CONTAINER:-}"
+if [ -z "$DB_CONTAINER" ]; then
+  DB_CONTAINER=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E 'supa?base.*db|supa?base-db' | head -n 1 || true)
+fi
+if [ -z "$DB_CONTAINER" ]; then
+  DB_CONTAINER=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E 'postgres|db' | grep -v -E 'dpsjur-web|web|frontend|traefik|redis' | head -n 1 || true)
+fi
 
 if [ -n "$DB_CONTAINER" ]; then
   echo -e "Contêiner Postgres encontrado: ${GREEN}$DB_CONTAINER${NC}"
   docker exec -i "$DB_CONTAINER" psql -U postgres -d postgres << 'EOSQL'
 ALTER TABLE public.settings
   ADD COLUMN IF NOT EXISTS "googleClientId" text,
-  ADD COLUMN IF NOT EXISTS "googleClientSecret" text;
-COMMENT ON COLUMN public.settings."googleClientId" IS 'Client ID OAuth 2.0 do Google Cloud Console';
-COMMENT ON COLUMN public.settings."googleClientSecret" IS 'Client Secret OAuth 2.0 do Google Cloud Console';
+  ADD COLUMN IF NOT EXISTS "googleClientSecret" text,
+  ADD COLUMN IF NOT EXISTS "googleCalendarTokens" jsonb;
+
+ALTER TABLE public.appointments
+  ADD COLUMN IF NOT EXISTS "googleEventId" text;
+
+NOTIFY pgrst, 'reload schema';
 EOSQL
-  echo -e "${GREEN}✓ Migration aplicada com sucesso no Postgres do VPS!${NC}"
+  echo -e "${GREEN}✓ Migration aplicada e schema recarregado no Postgres do VPS!${NC}"
+
+  # Se houver contêiner PostgREST, reinicia para aplicar na hora
+  PGRST_CONTAINER=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E 'supa?base.*rest|postgrest' | head -n 1 || true)
+  if [ -n "$PGRST_CONTAINER" ]; then
+    docker restart "$PGRST_CONTAINER" >/dev/null 2>&1 || true
+    echo -e "${GREEN}✓ Contêiner PostgREST reiniciado!${NC}"
+  fi
 else
-  echo -e "${YELLOW}Aviso: contêiner Postgres não detectado por nome padrão. O app tentará salvar via API REST.${NC}"
+  echo -e "${YELLOW}Aviso: contêiner Postgres não detectado por nome padrão.${NC}"
 fi
 
-# 3. Informações das variáveis de ambiente no EasyPanel
+# 3. Informações finais
 echo ""
-echo -e "${YELLOW}[3/3] Variáveis de ambiente no EasyPanel (opcional, mas recomendado):${NC}"
-echo "Se preferir configurar via EasyPanel no contêiner do Edge Runtime, use os nomes:"
-echo "  GOOGLE_CLIENT_ID=<seu-client-id>"
-echo "  GOOGLE_CLIENT_SECRET=<seu-client-secret>"
-echo ""
-echo -e "${GREEN}Alternativa recomendada e mais simples:${NC}"
-echo "Agora você também pode simplesmente acessar o DPSjur:"
-echo "  Configurações > Integrações > Google Agenda"
-echo "  E colar o Client ID e Client Secret diretamente pela tela do sistema!"
+echo -e "${YELLOW}[3/3] Próximos passos:${NC}"
+echo "1. Acesse https://sistema.advdouglaspsantos.com.br"
+echo "2. Configurações > Integrações > Google Agenda"
+echo "3. Cole o Client ID e Client Secret"
+echo "4. Clique em 'Salvar Credenciais do Google'"
+echo "5. Clique em 'Conectar Conta Google'"
 echo ""
 echo -e "${GREEN}======================================================${NC}"
 echo -e "${GREEN}  Concluído com sucesso!                              ${NC}"

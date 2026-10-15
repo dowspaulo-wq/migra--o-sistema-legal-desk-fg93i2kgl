@@ -53,6 +53,48 @@ serve(async (req) => {
       Deno.env.get('GOOGLE_CLIENT_SECRET') || settingsData?.googleClientSecret || ''
 
     // ----------------------------------------------------
+    // ACTION: GET AUTH URL (Gerar URL de consentimento OAuth)
+    // ----------------------------------------------------
+    if (action === 'getAuthUrl' || action === 'get_auth_url') {
+      if (!GOOGLE_CLIENT_ID) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error:
+              'Google Client ID não configurado. Preencha o Client ID em Configurações > Integrações ou defina GOOGLE_CLIENT_ID no servidor.',
+            missingCredentials: true,
+          }),
+          {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: 200,
+          },
+        )
+      }
+
+      const clientRedirectUri =
+        redirectUri || 'https://sistema.advdouglaspsantos.com.br/google-callback'
+      const scope = encodeURIComponent(
+        'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events',
+      )
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
+        GOOGLE_CLIENT_ID,
+      )}&redirect_uri=${encodeURIComponent(
+        clientRedirectUri,
+      )}&response_type=code&scope=${scope}&access_type=offline&prompt=consent`
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          url: authUrl,
+        }),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 200,
+        },
+      )
+    }
+
+    // ----------------------------------------------------
     // ACTION: EXCHANGE CODE (OAuth Callback)
     // Suporta tanto 'exchange_code' quanto 'callback'
     // ----------------------------------------------------
@@ -548,9 +590,12 @@ serve(async (req) => {
 
     // ----------------------------------------------------
     // ACTION: DELETE EVENT
+    // Suporta tanto 'delete_event' quanto 'deleteEvent' (e eventId direto)
     // ----------------------------------------------------
-    if (action === 'delete_event') {
-      if (!appointment?.googleEventId) {
+    if (action === 'delete_event' || action === 'deleteEvent') {
+      const gEventId = appointment?.googleEventId || body.eventId
+
+      if (!gEventId) {
         return new Response(
           JSON.stringify({
             success: false,
@@ -565,7 +610,7 @@ serve(async (req) => {
 
       const gRes = await fetchGoogleApi(
         `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(
-          appointment.googleEventId,
+          gEventId,
         )}`,
         {
           method: 'DELETE',
