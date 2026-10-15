@@ -22,6 +22,9 @@ import {
   Eye,
   EyeOff,
   ExternalLink,
+  Calendar,
+  RefreshCw,
+  LogOut,
 } from 'lucide-react'
 import { FinancialEntitiesTab } from '@/components/FinancialEntitiesTab'
 import { SystemManagement } from '@/components/SystemManagement'
@@ -286,6 +289,13 @@ export default function Settings() {
   const [showAsaasKey, setShowAsaasKey] = useState(false)
   const [isSavingAsaas, setIsSavingAsaas] = useState(false)
 
+  // Google Calendar Integration states
+  const [googleClientIdInput, setGoogleClientIdInput] = useState(s.googleClientId || '')
+  const [googleClientSecretInput, setGoogleClientSecretInput] = useState(s.googleClientSecret || '')
+  const [showGoogleSecret, setShowGoogleSecret] = useState(false)
+  const [isSavingGoogle, setIsSavingGoogle] = useState(false)
+  const [isConnectingGoogle, setIsConnectingGoogle] = useState(false)
+
   // Sincroniza se os settings carregarem depois
   const currentApiKeyInStore = s.asaasApiKey || ''
   const currentApiUrlInStore = s.asaasApiUrl || 'https://api.asaas.com/v3'
@@ -297,6 +307,15 @@ export default function Settings() {
     currentApiUrlInStore !== 'https://api.asaas.com/v3'
   ) {
     setAsaasApiUrlInput(currentApiUrlInStore)
+  }
+
+  const currentGoogleClientId = s.googleClientId || ''
+  const currentGoogleClientSecret = s.googleClientSecret || ''
+  if (googleClientIdInput === '' && currentGoogleClientId !== '') {
+    setGoogleClientIdInput(currentGoogleClientId)
+  }
+  if (googleClientSecretInput === '' && currentGoogleClientSecret !== '') {
+    setGoogleClientSecretInput(currentGoogleClientSecret)
   }
 
   const handleSaveAsaas = async () => {
@@ -343,6 +362,94 @@ export default function Settings() {
       })
     } finally {
       setIsSavingAsaas(false)
+    }
+  }
+
+  const handleSaveGoogle = async () => {
+    setIsSavingGoogle(true)
+    try {
+      const cleanId = googleClientIdInput.trim()
+      const cleanSecret = googleClientSecretInput.trim()
+
+      await updateItem('settings', s.id, {
+        googleClientId: cleanId || null,
+        googleClientSecret: cleanSecret || null,
+      })
+
+      addLog('Atualizar', 'Configurações', 'Credenciais OAuth do Google Calendar atualizadas.')
+
+      toast({
+        title: 'Credenciais salvas',
+        description: cleanId
+          ? 'Client ID e Secret do Google salvos com sucesso!'
+          : 'Configurações do Google salvas (sem credenciais cadastradas).',
+      })
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao salvar credenciais do Google',
+        description: err.message || 'Erro ao salvar configurações do Google',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsSavingGoogle(false)
+    }
+  }
+
+  const handleConnectGoogle = async () => {
+    setIsConnectingGoogle(true)
+    try {
+      const redirectUri = `${window.location.origin}/google-callback`
+      const { data, error } = await supabase.functions.invoke('google-calendar', {
+        body: { action: 'getAuthUrl', redirectUri },
+      })
+
+      if (error) {
+        let errorMsg = error.message || 'Erro ao gerar URL de autorização'
+        try {
+          if ((error as any).context && typeof (error as any).context.json === 'function') {
+            const body = await (error as any).context.json()
+            if (body?.error) errorMsg = body.error
+          }
+        } catch {
+          // fallback
+        }
+        throw new Error(errorMsg)
+      }
+
+      if (data?.error) throw new Error(data.error)
+      if (data?.url) {
+        window.location.href = data.url
+        return
+      }
+      throw new Error('URL de autorização não retornada pelo Google.')
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao conectar Google Agenda',
+        description:
+          err.message ||
+          'Verifique se o Client ID e Client Secret estão salvos acima antes de conectar.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsConnectingGoogle(false)
+    }
+  }
+
+  const handleDisconnectGoogle = async () => {
+    try {
+      await updateItem('settings', s.id, { googleCalendarTokens: null })
+      toast({
+        title: 'Google Agenda desconectado',
+        description:
+          'Os tokens de acesso foram removidos. Você pode reconectar a qualquer momento.',
+      })
+      addLog('Atualizar', 'Configurações', 'Google Agenda desconectado do sistema.')
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao desconectar',
+        description: err.message || 'Erro ao limpar tokens.',
+        variant: 'destructive',
+      })
     }
   }
 
@@ -723,6 +830,139 @@ export default function Settings() {
                         className="bg-blue-600 hover:bg-blue-700"
                       >
                         {isSavingAsaas ? 'Salvando...' : 'Salvar Configurações do Asaas'}
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* CARD GOOGLE CALENDAR */}
+              <Card className="shadow-sm border">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-xl flex items-center gap-2">
+                        <Calendar className="h-5 w-5 text-primary" />
+                        Google Agenda (Google Calendar)
+                      </CardTitle>
+                      <CardDescription className="mt-1">
+                        Sincronização bidirecional entre os compromissos da Agenda DPSjur e a conta
+                        Google.
+                      </CardDescription>
+                    </div>
+                    {s.googleCalendarTokens ? (
+                      <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white font-normal text-xs">
+                        Conta conectada
+                      </Badge>
+                    ) : (
+                      <Badge
+                        variant="outline"
+                        className="border-amber-400 text-amber-700 bg-amber-50 font-normal text-xs"
+                      >
+                        Não conectada
+                      </Badge>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="rounded-lg bg-amber-50/70 p-4 border border-amber-200 text-xs text-amber-950 space-y-1.5">
+                    <p className="font-semibold text-sm text-amber-950">
+                      Como funciona a sincronização do Google Agenda:
+                    </p>
+                    <p>
+                      1. As credenciais do aplicativo OAuth (Client ID e Secret) podem ser salvas
+                      diretamente abaixo ou no arquivo de variáveis de ambiente do EasyPanel.
+                    </p>
+                    <p>
+                      2. Com as credenciais salvas, clique em{' '}
+                      <strong>"Conectar Conta Google"</strong> abaixo ou no botão{' '}
+                      <strong>"Sincronizar"</strong> na página da Agenda.
+                    </p>
+                    <p className="text-muted-foreground">
+                      URI de redirecionamento configurada no Google Cloud Console:{' '}
+                      <code className="bg-white/80 px-1 py-0.5 rounded font-mono text-xs border">
+                        {typeof window !== 'undefined'
+                          ? `${window.location.origin}/google-callback`
+                          : 'https://sistema.advdouglaspsantos.com.br/google-callback'}
+                      </code>
+                    </p>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="google-client-id" className="text-sm font-semibold">
+                        Google Client ID
+                      </Label>
+                      <Input
+                        id="google-client-id"
+                        type="text"
+                        value={googleClientIdInput}
+                        onChange={(e) => setGoogleClientIdInput(e.target.value)}
+                        placeholder="Ex: 1234567890-abc...apps.googleusercontent.com"
+                        className="font-mono text-sm"
+                        disabled={!isAdmin || isSavingGoogle}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="google-client-secret" className="text-sm font-semibold">
+                        Google Client Secret
+                      </Label>
+                      <div className="relative">
+                        <Input
+                          id="google-client-secret"
+                          type={showGoogleSecret ? 'text' : 'password'}
+                          value={googleClientSecretInput}
+                          onChange={(e) => setGoogleClientSecretInput(e.target.value)}
+                          placeholder="Ex: GOCSPX-..."
+                          className="pr-10 font-mono text-sm"
+                          disabled={!isAdmin || isSavingGoogle}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowGoogleSecret((prev) => !prev)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          title={showGoogleSecret ? 'Ocultar secret' : 'Mostrar secret'}
+                        >
+                          {showGoogleSecret ? (
+                            <EyeOff className="h-4 w-4" />
+                          ) : (
+                            <Eye className="h-4 w-4" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 flex flex-wrap items-center justify-between gap-2 border-t">
+                      <div className="flex items-center gap-2">
+                        {s.googleCalendarTokens ? (
+                          <Button
+                            variant="outline"
+                            onClick={handleDisconnectGoogle}
+                            disabled={!isAdmin}
+                            className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                          >
+                            <LogOut className="h-4 w-4 mr-2" />
+                            Desconectar Conta Google
+                          </Button>
+                        ) : (
+                          <Button
+                            onClick={handleConnectGoogle}
+                            disabled={!isAdmin || isConnectingGoogle}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                          >
+                            {isConnectingGoogle ? (
+                              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                              <Calendar className="h-4 w-4 mr-2" />
+                            )}
+                            Conectar Conta Google
+                          </Button>
+                        )}
+                      </div>
+
+                      <Button onClick={handleSaveGoogle} disabled={!isAdmin || isSavingGoogle}>
+                        {isSavingGoogle ? 'Salvando...' : 'Salvar Credenciais do Google'}
                       </Button>
                     </div>
                   </div>

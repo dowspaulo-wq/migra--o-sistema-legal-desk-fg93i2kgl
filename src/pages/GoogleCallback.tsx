@@ -50,10 +50,24 @@ export default function GoogleCallback() {
       try {
         const redirectUri = `${window.location.origin}/google-callback`
         const { data, error: invokeError } = await supabase.functions.invoke('google-calendar', {
-          body: { action: 'callback', code, redirectUri },
+          body: { action: 'exchange_code', code, redirectUri },
         })
 
-        if (invokeError) throw invokeError
+        if (invokeError) {
+          let errorMsg = invokeError.message || 'Falha ao autenticar com o Google'
+          try {
+            if (
+              (invokeError as any).context &&
+              typeof (invokeError as any).context.json === 'function'
+            ) {
+              const body = await (invokeError as any).context.json()
+              if (body?.error) errorMsg = body.error
+            }
+          } catch {
+            // fallback
+          }
+          throw new Error(errorMsg)
+        }
         if (data?.error) throw new Error(data.error)
 
         toast({

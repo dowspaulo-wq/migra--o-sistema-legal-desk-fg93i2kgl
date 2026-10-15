@@ -135,7 +135,7 @@ export default function Agenda() {
   const handleGoogleSync = async () => {
     setIsSyncing(true)
     try {
-      const hasTokens = !!(state.settings as any).googleCalendarTokens
+      const hasTokens = !!(state.settings as any)?.googleCalendarTokens
 
       if (!hasTokens) {
         const redirectUri = `${window.location.origin}/google-callback`
@@ -143,24 +143,51 @@ export default function Agenda() {
           body: { action: 'getAuthUrl', redirectUri },
         })
 
-        if (error) throw error
+        if (error) {
+          let errorMsg = error.message || 'Erro ao conectar com Google Calendar'
+          try {
+            if ((error as any).context && typeof (error as any).context.json === 'function') {
+              const body = await (error as any).context.json()
+              if (body?.error) errorMsg = body.error
+            }
+          } catch {
+            // mantém errorMsg
+          }
+          throw new Error(errorMsg)
+        }
         if (data?.error) throw new Error(data.error)
 
         if (data?.url) {
           window.location.href = data.url
           return
         }
+        throw new Error('URL de autenticação do Google não foi retornada.')
       } else {
         const { data, error } = await supabase.functions.invoke('google-calendar', {
           body: { action: 'sync' },
         })
 
-        if (error) throw error
+        if (error) {
+          let errorMsg = error.message || 'Erro ao sincronizar com o Google Calendar'
+          try {
+            if ((error as any).context && typeof (error as any).context.json === 'function') {
+              const body = await (error as any).context.json()
+              if (body?.error) errorMsg = body.error
+            }
+          } catch {
+            // mantém errorMsg
+          }
+          throw new Error(errorMsg)
+        }
         if (data?.error) throw new Error(data.error)
 
         toast({
           title: 'Sincronização Concluída',
-          description: data.message || 'Sua agenda foi sincronizada com o Google Calendar.',
+          description:
+            data?.message ||
+            (data?.importedFromGoogle !== undefined
+              ? `${data.importedFromGoogle} evento(s) importado(s) e ${data.exportedToGoogle || 0} exportado(s).`
+              : 'Sua agenda foi sincronizada com o Google Calendar.'),
         })
 
         setTimeout(() => {
@@ -168,13 +195,32 @@ export default function Agenda() {
         }, 1500)
       }
     } catch (err: any) {
+      const rawMsg = err?.message || 'Ocorreu um erro ao sincronizar com o Google.'
+      let userFriendlyMsg = rawMsg
+
+      if (
+        rawMsg.includes('Edge Function returned a non-2xx') ||
+        rawMsg.includes('Failed to send a request')
+      ) {
+        userFriendlyMsg =
+          'A função de sincronização no servidor (Edge Function) retornou erro. Verifique se as credenciais do Google estão preenchidas em Configurações > Integrações ou no painel do EasyPanel.'
+      }
+
       toast({
         title: 'Erro de Sincronização',
-        description: err.message || 'Ocorreu um erro ao sincronizar com o Google.',
+        description: userFriendlyMsg,
         variant: 'destructive',
       })
-      if (err.message?.includes('expirada') || err.message?.includes('não conectada')) {
-        updateItem('settings', state.settings.id, { googleCalendarTokens: null })
+
+      if (
+        rawMsg.toLowerCase().includes('expirou') ||
+        rawMsg.toLowerCase().includes('revogada') ||
+        rawMsg.toLowerCase().includes('não está conectada') ||
+        rawMsg.toLowerCase().includes('invalid_grant')
+      ) {
+        if (state.settings?.id) {
+          updateItem('settings', state.settings.id, { googleCalendarTokens: null })
+        }
       }
     } finally {
       setIsSyncing(false)

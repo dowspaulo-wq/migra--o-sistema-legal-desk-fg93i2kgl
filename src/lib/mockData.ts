@@ -143,6 +143,9 @@ export interface Settings {
   subprocessTypes?: string[]
   asaasApiKey?: string | null
   asaasApiUrl?: string | null
+  googleCalendarTokens?: any | null
+  googleClientId?: string | null
+  googleClientSecret?: string | null
 }
 export interface WhatsAppMessage {
   id: string
