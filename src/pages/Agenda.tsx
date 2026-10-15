@@ -68,7 +68,7 @@ const initialFilters = {
 }
 
 export default function Agenda() {
-  const { state, addAppointment, updateItem, deleteItem } = useLegalStore()
+  const { state, addAppointment, updateItem, deleteItem, reloadAppointments } = useLegalStore()
   const [searchParams, setSearchParams] = useSearchParams()
   const [filters, setFilters] = useState(initialFilters)
   const [appliedFilters, setAppliedFilters] = useState(initialFilters)
@@ -224,7 +224,18 @@ export default function Agenda() {
         const { data, error } = await supabase.functions.invoke('google-calendar', {
           body: {
             action: 'sync',
-            appointments: state.appointments,
+            appointments: state.appointments.map((a) => ({
+              id: a.id,
+              title: a.title,
+              date: a.date,
+              time: (a as any).time,
+              description: (a as any).description,
+              modality: (a as any).modality,
+              type: a.type,
+              clientId: (a as any).clientId,
+              processId: (a as any).processId,
+              googleEventId: (a as any).googleEventId,
+            })),
           },
         })
 
@@ -243,22 +254,39 @@ export default function Agenda() {
         if (data?.error) throw new Error(data.error)
 
         const exportedCount = data?.exportedToGoogle ?? 0
-        const importedCount = data?.importedFromGoogle ?? 0
+        const createdCount = data?.importCreatedCount ?? 0
+        const updatedCount = data?.importUpdatedCount ?? 0
+        const linkedCount = data?.importLinkedCount ?? 0
+        const importedTotal = data?.importedFromGoogle ?? createdCount + updatedCount + linkedCount
 
-        const finalDesc =
-          data?.message ||
-          (exportedCount > 0 || importedCount > 0
-            ? `${exportedCount} evento(s) enviado(s) ao Google Calendar e ${importedCount} harmonizado(s) no sistema.`
-            : 'Sua agenda e o Google Calendar já estão em harmonia.')
+        let finalDesc = data?.message || ''
+        if (!finalDesc) {
+          if (exportedCount > 0 && createdCount > 0) {
+            finalDesc = `${exportedCount} compromisso(s) enviado(s) ao Google Agenda e ${createdCount} novo(s) importado(s) para o sistema.`
+          } else if (exportedCount > 0) {
+            finalDesc = `${exportedCount} compromisso(s) enviado(s) com sucesso ao Google Agenda.`
+          } else if (createdCount > 0) {
+            finalDesc = `${createdCount} evento(s) novo(s) importado(s) do Google Agenda para o sistema.`
+          } else if (importedTotal > 0) {
+            finalDesc = `${importedTotal} evento(s) existente(s) foram atualizados ou vinculados.`
+          } else {
+            finalDesc =
+              'Nenhum novo compromisso a sincronizar. O Google Agenda e o DPSjur já estão atualizados.'
+          }
+        }
 
         toast({
           title: 'Sincronização Concluída',
           description: finalDesc,
         })
 
+        // Recarrega appointments do banco na store imediatamente
+        await reloadAppointments()
+
+        // Dá reload suave após 1.2s para garantir consistência total de qualquer cálculo
         setTimeout(() => {
           window.location.reload()
-        }, 1500)
+        }, 1200)
       }
     } catch (err: any) {
       const rawMsg = err?.message || 'Ocorreu um erro ao sincronizar com o Google.'

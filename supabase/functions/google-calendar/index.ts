@@ -17,9 +17,16 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL') || ''
-    const supabaseKey =
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SUPABASE_ANON_KEY') || ''
+    const supabaseUrl =
+      Deno.env.get('SUPABASE_URL') || Deno.env.get('SUPABASE_INTERNAL_URL') || 'http://kong:8000'
+
+    // Usa chave de service_role para contornar RLS ao gravar compromissos sincronizados
+    const authHeader = req.headers.get('Authorization') || req.headers.get('authorization') || ''
+    const reqBearerToken = authHeader.replace(/^Bearer\s+/i, '').trim()
+
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY') || ''
+    const supabaseKey = serviceRoleKey || reqBearerToken || anonKey
 
     let body: any = {}
     try {
@@ -38,9 +45,16 @@ Deno.serve(async (req: Request) => {
     let supabaseClient: any = null
     if (supabaseUrl && supabaseKey) {
       try {
-        supabaseClient = createClient(supabaseUrl, supabaseKey, {
+        const clientOptions: any = {
           auth: { persistSession: false },
-        })
+        }
+        // Se temos token do usuário autenticado no header da requisição e não temos service role, repassa
+        if (reqBearerToken && !serviceRoleKey) {
+          clientOptions.global = {
+            headers: { Authorization: `Bearer ${reqBearerToken}` },
+          }
+        }
+        supabaseClient = createClient(supabaseUrl, supabaseKey, clientOptions)
       } catch (clientErr) {
         console.warn('Erro ao inicializar supabaseClient:', clientErr)
       }
@@ -390,8 +404,48 @@ Deno.serve(async (req: Request) => {
         pageToken = googleData.nextPageToken || null
       } while (pageToken)
 
+      // Identifica cliente padrão e responsável padrão para importação
+      let defaultClientId: string | null = null
+      let defaultResponsibleId: string | null = null
+
+      if (supabaseClient) {
+        try {
+          const { data: googleClient } = await supabaseClient
+            .from('clients')
+            .select('id')
+            .eq('name', 'Sincronização Google')
+            .limit(1)
+            .maybeSingle()
+          if (googleClient?.id) {
+            defaultClientId = googleClient.id
+          } else {
+            const { data: anyClient } = await supabaseClient
+              .from('clients')
+              .select('id')
+              .limit(1)
+              .maybeSingle()
+            defaultClientId = anyClient?.id || null
+          }
+
+          const { data: adminProfile } = await supabaseClient
+            .from('profiles')
+            .select('id')
+            .eq('role', 'Admin')
+            .limit(1)
+            .maybeSingle()
+          defaultResponsibleId = adminProfile?.id || null
+        } catch (setupErr) {
+          console.warn('Aviso ao resolver cliente/responsável padrão:', setupErr)
+        }
+      }
+
       // 1. Sincroniza eventos do Google -> DPSjur (cria ou atualiza)
       const syncedAppointments = []
+      let importCreatedCount = 0
+      let importUpdatedCount = 0
+      let importLinkedCount = 0
+      const importErrors: string[] = []
+
       if (supabaseClient) {
         for (const gEvent of googleEvents) {
           // Ignora eventos cancelados/removidos no Google
@@ -406,25 +460,32 @@ Deno.serve(async (req: Request) => {
               : '08:00'
 
           // Procura se já temos um appointment com este googleEventId
-          const { data: existing } = await supabaseClient
+          const { data: existing, error: existingErr } = await supabaseClient
             .from('appointments')
-            .select('id, title, date, time, description, location')
+            .select('id, title, date, time, description')
             .eq('googleEventId', gEvent.id)
             .maybeSingle()
 
+          if (existingErr) {
+            console.warn(`Erro ao verificar existência do evento Google ${gEvent.id}:`, existingErr)
+          }
+
           if (existing) {
             // Atualiza se houve mudança nos dados
-            await supabaseClient
+            const { error: updErr } = await supabaseClient
               .from('appointments')
               .update({
                 title: gEvent.summary || existing.title || 'Sem título',
                 description: gEvent.description ?? existing.description ?? '',
                 date: dateStr || existing.date,
                 time: isAllDay ? existing.time || '08:00' : timeStr,
-                location: gEvent.location ?? existing.location ?? '',
               })
               .eq('id', existing.id)
-            syncedAppointments.push({ id: existing.id, action: 'updated' })
+
+            if (!updErr) {
+              importUpdatedCount++
+              syncedAppointments.push({ id: existing.id, action: 'updated' })
+            }
           } else {
             // Se não encontrou por googleEventId, procura correspondência por título + data + hora
             // para vincular compromisso já existente e evitar duplicação
@@ -445,29 +506,51 @@ Deno.serve(async (req: Request) => {
 
             if (existingMatch) {
               // Vincula o googleEventId ao compromisso do sistema existente
-              await supabaseClient
+              const { error: linkErr } = await supabaseClient
                 .from('appointments')
                 .update({ googleEventId: gEvent.id })
                 .eq('id', existingMatch.id)
-              syncedAppointments.push({ id: existingMatch.id, action: 'linked' })
+
+              if (!linkErr) {
+                importLinkedCount++
+                syncedAppointments.push({ id: existingMatch.id, action: 'linked' })
+              }
             } else {
               // Cria novo compromisso vindo do Google
+              const insertPayload: any = {
+                title: gEvent.summary || 'Sem título',
+                description: gEvent.description || '',
+                date: dateStr,
+                time: timeStr,
+                googleEventId: gEvent.id,
+                type: 'Reunião',
+                priority: 'Média',
+                status: 'Pendente',
+              }
+
+              if (defaultClientId) {
+                insertPayload.clientId = defaultClientId
+              }
+              if (defaultResponsibleId) {
+                insertPayload.responsibleId = defaultResponsibleId
+              }
+
               const { data: newApp, error: insertErr } = await supabaseClient
                 .from('appointments')
-                .insert({
-                  title: gEvent.summary || 'Sem título',
-                  description: gEvent.description || '',
-                  date: dateStr,
-                  time: timeStr,
-                  location: gEvent.location || '',
-                  googleEventId: gEvent.id,
-                  type: 'Reunião',
-                  status: 'Confirmado',
-                })
+                .insert(insertPayload)
                 .select('id')
                 .maybeSingle()
 
-              if (!insertErr && newApp) {
+              if (insertErr) {
+                console.error(
+                  `Erro ao inserir compromisso vindo do Google "${gEvent.summary}":`,
+                  insertErr,
+                )
+                if (importErrors.length < 3) {
+                  importErrors.push(insertErr.message || 'Falha ao salvar compromisso no banco')
+                }
+              } else if (newApp) {
+                importCreatedCount++
                 syncedAppointments.push({ id: newApp.id, action: 'created' })
               }
             }
@@ -497,13 +580,16 @@ Deno.serve(async (req: Request) => {
                 pendingToExport.push(app)
               }
             }
+          } else if (dbErr) {
+            console.warn('Erro ao consultar appointments sem googleEventId no banco:', dbErr)
           }
         } catch (fetchErr) {
-          console.warn('Erro ao consultar appointments pendentes no banco:', fetchErr)
+          console.warn('Exceção ao consultar appointments pendentes no banco:', fetchErr)
         }
       }
 
       // Inclui também os compromissos enviados pelo frontend que possam não ter googleEventId
+      // ou que o banco ainda não tenha refletido
       if (Array.isArray(appointments)) {
         for (const app of appointments) {
           if (!app.googleEventId && app.title && app.date) {
@@ -564,7 +650,11 @@ Deno.serve(async (req: Request) => {
           // Enriquece título com nome do cliente se não estiver presente
           const clientName = clientNameMap.get(app.clientId) || ''
           let summary = app.title
-          if (clientName && !summary.toLowerCase().includes(clientName.toLowerCase())) {
+          if (
+            clientName &&
+            clientName !== 'Sincronização Google' &&
+            !summary.toLowerCase().includes(clientName.toLowerCase())
+          ) {
             summary = `${summary} - ${clientName}`
           }
 
@@ -573,7 +663,8 @@ Deno.serve(async (req: Request) => {
           if (app.description) descParts.push(app.description)
           if (app.type) descParts.push(`Tipo: ${app.type}`)
           if (app.modality) descParts.push(`Modalidade: ${app.modality}`)
-          if (clientName) descParts.push(`Cliente: ${clientName}`)
+          if (clientName && clientName !== 'Sincronização Google')
+            descParts.push(`Cliente: ${clientName}`)
           descParts.push('Sincronizado via DPSjur')
           const descriptionText = descParts.join('\n')
 
@@ -624,20 +715,34 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      const summaryMessage =
-        exportedCount > 0 || syncedAppointments.length > 0
-          ? `Sincronização concluída: ${exportedCount} evento(s) enviado(s) ao Google e ${syncedAppointments.length} harmonizado(s) no sistema.`
-          : 'Sincronização concluída: a agenda do DPSjur e o Google Calendar já estão em harmonia.'
+      // Constrói mensagem clara e informativa baseada em dados reais
+      let summaryMessage = ''
+      if (exportedCount > 0 && importCreatedCount > 0) {
+        summaryMessage = `Sincronização concluída: ${exportedCount} compromisso(s) enviado(s) ao Google Agenda e ${importCreatedCount} novo(s) importado(s) para o sistema.`
+      } else if (exportedCount > 0) {
+        summaryMessage = `Sincronização concluída: ${exportedCount} compromisso(s) enviado(s) com sucesso ao Google Agenda.`
+      } else if (importCreatedCount > 0) {
+        summaryMessage = `Sincronização concluída: ${importCreatedCount} evento(s) do Google Agenda importado(s) para o sistema.`
+      } else if (importUpdatedCount > 0 || importLinkedCount > 0) {
+        summaryMessage = `Sincronização concluída: ${importUpdatedCount + importLinkedCount} evento(s) existente(s) foram atualizados/vinculados.`
+      } else {
+        summaryMessage = `Sincronização concluída: todos os compromissos já estão em harmonia. (0 pendentes de envio, 0 novos no Google).`
+      }
+
+      const allErrors = [...importErrors, ...exportErrors]
 
       return new Response(
         JSON.stringify({
           success: true,
           message: summaryMessage,
           importedFromGoogle: syncedAppointments.length,
+          importCreatedCount,
+          importUpdatedCount,
+          importLinkedCount,
           exportedToGoogle: exportedCount,
           pendingTotal: pendingToExport.length,
           totalGoogleEvents: googleEvents.length,
-          errors: exportErrors.length > 0 ? exportErrors : undefined,
+          errors: allErrors.length > 0 ? allErrors : undefined,
         }),
         {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },

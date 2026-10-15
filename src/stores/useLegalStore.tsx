@@ -68,6 +68,7 @@ interface LegalContextType {
   addSupplier: (s: Omit<Supplier, 'id'>) => void
   addPetition: (p: Omit<any, 'id' | 'created_at'>) => void
   reloadTransactions: () => Promise<void>
+  reloadAppointments: () => Promise<void>
   addClientFee: (fee: {
     amount: number
     description: string
@@ -1101,6 +1102,48 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
             }
           } catch (err) {
             console.warn('Erro ao recarregar transactions:', err)
+          }
+        },
+        reloadAppointments: async () => {
+          try {
+            const allRows: any[] = []
+            const pageSize = 1000
+            let from = 0
+            const maxPages = 50
+
+            for (let page = 0; page < maxPages; page++) {
+              const { data, error } = await supabase
+                .from('appointments')
+                .select('*')
+                .range(from, from + pageSize - 1)
+
+              if (error) {
+                console.warn('Erro ao recarregar appointments:', error)
+                break
+              }
+
+              if (data && Array.isArray(data) && data.length > 0) {
+                allRows.push(...data)
+                if (data.length < pageSize) {
+                  break
+                }
+                from += pageSize
+              } else {
+                break
+              }
+            }
+
+            if (allRows.length > 0) {
+              setState((prev) => ({
+                ...prev,
+                appointments: (allRows as any[]).sort(
+                  (a: any, b: any) =>
+                    new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime(),
+                ),
+              }))
+            }
+          } catch (err) {
+            console.warn('Erro ao recarregar appointments:', err)
           }
         },
       }}
