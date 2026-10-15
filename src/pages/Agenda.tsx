@@ -140,6 +140,44 @@ export default function Agenda() {
       const currentClientId = settings?.googleClientId?.trim() || ''
       const currentClientSecret = settings?.googleClientSecret?.trim() || ''
 
+      const extractFunctionError = async (invokeError: any): Promise<string> => {
+        let msg = invokeError?.message || 'Erro ao comunicar com o servidor'
+        let status = (invokeError as any)?.status || (invokeError as any)?.context?.status
+
+        const ctx = (invokeError as any)?.context
+        if (ctx) {
+          try {
+            if (typeof ctx.json === 'function') {
+              const body = await ctx.json().catch(() => null)
+              if (body?.error) {
+                msg = body.error
+              } else if (body?.message) {
+                msg = body.message
+              }
+            } else if (typeof ctx.text === 'function') {
+              const text = await ctx.text().catch(() => '')
+              if (text) {
+                try {
+                  const parsed = JSON.parse(text)
+                  if (parsed?.error) {
+                    msg = parsed.error
+                  } else if (parsed?.message) {
+                    msg = parsed.message
+                  }
+                } catch {
+                  if (text.length < 300) msg = text
+                }
+              }
+            }
+          } catch {
+            // fallback
+          }
+        }
+
+        const statusPrefix = status ? `[HTTP ${status}] ` : ''
+        return `${statusPrefix}${msg}`
+      }
+
       if (!hasTokens) {
         const redirectUri = `${window.location.origin}/google-callback`
         const headers: Record<string, string> = {}
@@ -157,32 +195,11 @@ export default function Agenda() {
         })
 
         if (error) {
-          let errorMsg = error.message || 'Erro ao conectar com Google Calendar'
-          try {
-            const ctx = (error as any).context
-            if (ctx) {
-              if (typeof ctx.json === 'function') {
-                const body = await ctx.json().catch(() => null)
-                if (body?.error) errorMsg = body.error
-              } else if (typeof ctx.text === 'function') {
-                const text = await ctx.text().catch(() => '')
-                if (text) {
-                  try {
-                    const parsed = JSON.parse(text)
-                    if (parsed?.error) errorMsg = parsed.error
-                  } catch {
-                    // mantém errorMsg
-                  }
-                }
-              }
-            }
-          } catch {
-            // mantém errorMsg
-          }
+          const detail = await extractFunctionError(error)
 
           if (
-            (errorMsg.includes('non-2xx') ||
-              errorMsg.includes('Edge Function returned a non-2xx status code')) &&
+            (detail.includes('non-2xx') ||
+              detail.includes('Edge Function returned a non-2xx status code')) &&
             currentClientId
           ) {
             const scope = encodeURIComponent(
@@ -197,9 +214,12 @@ export default function Agenda() {
             return
           }
 
-          throw new Error(errorMsg)
+          throw new Error(detail)
         }
-        if (data?.error) throw new Error(data.error)
+
+        if (data?.error) {
+          throw new Error(data.error)
+        }
 
         if (data?.url) {
           window.location.href = data.url
@@ -240,18 +260,13 @@ export default function Agenda() {
         })
 
         if (error) {
-          let errorMsg = error.message || 'Erro ao sincronizar com o Google Calendar'
-          try {
-            if ((error as any).context && typeof (error as any).context.json === 'function') {
-              const body = await (error as any).context.json()
-              if (body?.error) errorMsg = body.error
-            }
-          } catch {
-            // mantém errorMsg
-          }
-          throw new Error(errorMsg)
+          const detail = await extractFunctionError(error)
+          throw new Error(detail)
         }
-        if (data?.error) throw new Error(data.error)
+
+        if (data?.error) {
+          throw new Error(data.error)
+        }
 
         const exportedCount = data?.exportedToGoogle ?? 0
         const createdCount = data?.importCreatedCount ?? 0
@@ -290,19 +305,10 @@ export default function Agenda() {
       }
     } catch (err: any) {
       const rawMsg = err?.message || 'Ocorreu um erro ao sincronizar com o Google.'
-      let userFriendlyMsg = rawMsg
-
-      if (
-        rawMsg.includes('Edge Function returned a non-2xx') ||
-        rawMsg.includes('Failed to send a request')
-      ) {
-        userFriendlyMsg =
-          'A função de sincronização no servidor (Edge Function) retornou erro. Verifique se as credenciais do Google estão preenchidas em Configurações > Integrações ou no painel do EasyPanel.'
-      }
 
       toast({
-        title: 'Erro de Sincronização',
-        description: userFriendlyMsg,
+        title: 'Falha na Sincronização',
+        description: rawMsg,
         variant: 'destructive',
       })
 
