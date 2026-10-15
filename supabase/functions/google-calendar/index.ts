@@ -904,7 +904,7 @@ Deno.serve(async (req: Request) => {
           importUpdatedCount,
           importLinkedCount,
           exportedToGoogle: exportedCount,
-          pendingTotal: pendingToExport.length,
+          pendingTotal: totalExported,
           totalGoogleEvents: googleEvents.length,
           errors: allErrors.length > 0 ? allErrors : undefined,
         }),
