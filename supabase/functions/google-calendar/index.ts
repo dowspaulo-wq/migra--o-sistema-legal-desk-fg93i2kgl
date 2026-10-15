@@ -445,175 +445,90 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      // 1. Sincroniza eventos do Google -> DPSjur (cria ou atualiza)
-      const syncedAppointments = []
-      let importCreatedCount = 0
-      let importUpdatedCount = 0
-      let importLinkedCount = 0
-      const importErrors: string[] = []
-
-      if (supabaseClient) {
-        for (const gEvent of googleEvents) {
-          // Ignora eventos cancelados/removidos no Google
-          if (gEvent.status === 'cancelled' || !gEvent.start) continue
-
-          const isAllDay = !!gEvent.start.date && !gEvent.start.dateTime
-          const startDateTime = gEvent.start.dateTime || gEvent.start.date
-          const dateStr = startDateTime ? startDateTime.split('T')[0] : ''
-          const timeStr =
-            gEvent.start.dateTime && gEvent.start.dateTime.includes('T')
-              ? gEvent.start.dateTime.split('T')[1].substring(0, 5)
-              : '08:00'
-
-          // Procura se já temos um appointment com este googleEventId
-          const { data: existing, error: existingErr } = await supabaseClient
-            .from('appointments')
-            .select('id, title, date, time, description')
-            .eq('googleEventId', gEvent.id)
-            .maybeSingle()
-
-          if (existingErr) {
-            console.warn(`Erro ao verificar existência do evento Google ${gEvent.id}:`, existingErr)
-          }
-
-          if (existing) {
-            // Atualiza se houve mudança nos dados
-            const { error: updErr } = await supabaseClient
-              .from('appointments')
-              .update({
-                title: gEvent.summary || existing.title || 'Sem título',
-                description: gEvent.description ?? existing.description ?? '',
-                date: dateStr || existing.date,
-                time: isAllDay ? existing.time || '08:00' : timeStr,
-              })
-              .eq('id', existing.id)
-
-            if (!updErr) {
-              importUpdatedCount++
-              syncedAppointments.push({ id: existing.id, action: 'updated' })
-            }
-          } else {
-            // Se não encontrou por googleEventId, procura correspondência por título + data + hora
-            // para vincular compromisso já existente e evitar duplicação
-            const cleanSummary = (gEvent.summary || '').trim()
-            let existingMatch: any = null
-
-            if (cleanSummary && dateStr) {
-              const { data: matchedApp } = await supabaseClient
-                .from('appointments')
-                .select('id, title')
-                .is('googleEventId', null)
-                .eq('date', dateStr)
-                .ilike('title', `%${cleanSummary.substring(0, 30)}%`)
-                .limit(1)
-                .maybeSingle()
-              existingMatch = matchedApp
-            }
-
-            if (existingMatch) {
-              // Vincula o googleEventId ao compromisso do sistema existente
-              const { error: linkErr } = await supabaseClient
-                .from('appointments')
-                .update({ googleEventId: gEvent.id })
-                .eq('id', existingMatch.id)
-
-              if (!linkErr) {
-                importLinkedCount++
-                syncedAppointments.push({ id: existingMatch.id, action: 'linked' })
-              }
-            } else {
-              // Cria novo compromisso vindo do Google
-              const insertPayload: any = {
-                title: gEvent.summary || 'Sem título',
-                description: gEvent.description || '',
-                date: dateStr,
-                time: timeStr,
-                googleEventId: gEvent.id,
-                type: 'Reunião',
-                priority: 'Média',
-                status: 'Pendente',
-              }
-
-              if (defaultClientId) {
-                insertPayload.clientId = defaultClientId
-              }
-              if (defaultResponsibleId) {
-                insertPayload.responsibleId = defaultResponsibleId
-              }
-
-              const { data: newApp, error: insertErr } = await supabaseClient
-                .from('appointments')
-                .insert(insertPayload)
-                .select('id')
-                .maybeSingle()
-
-              if (insertErr) {
-                console.error(
-                  `Erro ao inserir compromisso vindo do Google "${gEvent.summary}":`,
-                  insertErr,
-                )
-                if (importErrors.length < 3) {
-                  importErrors.push(insertErr.message || 'Falha ao salvar compromisso no banco')
-                }
-              } else if (newApp) {
-                importCreatedCount++
-                syncedAppointments.push({ id: newApp.id, action: 'created' })
-              }
-            }
-          }
+      // ----------------------------------------------------
+      // SINCRONIZAÇÃO INTELIGENTE COM PRECEDÊNCIA (EDIÇÃO LOCAL VENCE)
+      // ----------------------------------------------------
+      // Mapeia eventos retornados pelo Google Calendar por ID para acesso O(1)
+      const googleEventsMap = new Map<string, any>()
+      for (const ge of googleEvents) {
+        if (ge?.id) {
+          googleEventsMap.set(ge.id, ge)
         }
       }
 
-      // 2. Exporta compromissos do DPSjur para o Google Calendar
-      // Busca todos os appointments sem googleEventId diretamente do banco (fonte de verdade)
-      // e une com a lista opcional passada no payload da requisição
-      const pendingToExport: any[] = []
-      const seenAppIds = new Set<string>()
-
+      // Carrega appointments do banco de dados (fonte de verdade local)
+      let allDbAppointments: any[] = []
       if (supabaseClient) {
         try {
-          const { data: dbPending, error: dbErr } = await supabaseClient
+          const { data: dbRows, error: fetchErr } = await supabaseClient
             .from('appointments')
             .select(
-              'id, title, description, date, time, modality, type, clientId, processId, googleEventId',
+              'id, title, date, time, description, modality, type, clientId, processId, status, googleEventId, created_at, updated_at, google_synced_at',
             )
-            .is('googleEventId', null)
 
-          if (!dbErr && Array.isArray(dbPending)) {
-            for (const app of dbPending) {
-              if (app.id && !seenAppIds.has(app.id)) {
-                seenAppIds.add(app.id)
-                pendingToExport.push(app)
-              }
-            }
-          } else if (dbErr) {
-            console.warn('Erro ao consultar appointments sem googleEventId no banco:', dbErr)
+          if (fetchErr) {
+            console.warn('Aviso ao carregar appointments para sincronização:', fetchErr)
+          } else if (Array.isArray(dbRows)) {
+            allDbAppointments = dbRows
           }
-        } catch (fetchErr) {
-          console.warn('Exceção ao consultar appointments pendentes no banco:', fetchErr)
+        } catch (fetchEx) {
+          console.warn('Exceção ao consultar appointments no banco:', fetchEx)
         }
       }
 
-      // Inclui também os compromissos enviados pelo frontend que possam não ter googleEventId
-      // ou que o banco ainda não tenha refletido
+      // Se o frontend passou lista em appointments (ex.: acabou de editar e não persistiu no banco),
+      // funde com allDbAppointments priorizando o que veio do payload
+      const dbAppointmentsById = new Map<string, any>()
+      for (const a of allDbAppointments) {
+        if (a.id) dbAppointmentsById.set(a.id, a)
+      }
+
       if (Array.isArray(appointments)) {
-        for (const app of appointments) {
-          if (!app.googleEventId && app.title && app.date) {
-            const appId = app.id || `${app.title}-${app.date}-${app.time}`
-            if (!seenAppIds.has(appId)) {
-              seenAppIds.add(appId)
-              pendingToExport.push(app)
+        for (const reqApp of appointments) {
+          if (reqApp.id) {
+            const existing = dbAppointmentsById.get(reqApp.id)
+            if (existing) {
+              // Se os dados do body diferem do banco (edição quente), atualiza o registro no banco antes
+              const dateChanged = reqApp.date && reqApp.date !== existing.date
+              const timeChanged = reqApp.time && reqApp.time !== existing.time
+              const titleChanged = reqApp.title && reqApp.title !== existing.title
+              const descChanged =
+                reqApp.description !== undefined && reqApp.description !== existing.description
+              const modChanged =
+                reqApp.modality !== undefined && reqApp.modality !== existing.modality
+
+              if (dateChanged || timeChanged || titleChanged || descChanged || modChanged) {
+                const merged = { ...existing, ...reqApp, updated_at: new Date().toISOString() }
+                dbAppointmentsById.set(reqApp.id, merged)
+                if (supabaseClient) {
+                  await supabaseClient
+                    .from('appointments')
+                    .update({
+                      date: reqApp.date,
+                      time: reqApp.time,
+                      title: reqApp.title,
+                      description: reqApp.description,
+                      modality: reqApp.modality,
+                      updated_at: new Date().toISOString(),
+                    })
+                    .eq('id', reqApp.id)
+                }
+              }
+            } else {
+              dbAppointmentsById.set(reqApp.id, reqApp)
             }
           }
         }
       }
 
-      // Busca dados complementares de clientes para enriquecer a descrição e título no Google
+      const appointmentsToSync = Array.from(dbAppointmentsById.values())
+
+      // Mapeamento auxiliar de clientes para enriquecer eventos exportados
       const clientNameMap = new Map<string, string>()
-      if (supabaseClient && pendingToExport.some((a) => a.clientId)) {
+      if (supabaseClient) {
         try {
           const clientIds = Array.from(
-            new Set(pendingToExport.map((a) => a.clientId).filter(Boolean)),
+            new Set(appointmentsToSync.map((a) => a.clientId).filter(Boolean)),
           )
           if (clientIds.length > 0) {
             const { data: clientsData } = await supabaseClient
@@ -631,102 +546,346 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      let exportedCount = 0
-      const exportErrors: string[] = []
+      // Helper para montar payload do Google Calendar
+      const buildGoogleEventPayload = (app: any) => {
+        const timeClean = (app.time || '09:00').trim()
+        const timePart = timeClean.length === 5 ? `${timeClean}:00` : timeClean
+        const cleanDate = (app.date || '').split('T')[0]
+        const startDateTime = `${cleanDate}T${timePart}`
+        const startDate = new Date(startDateTime)
+        const endDate = !isNaN(startDate.getTime())
+          ? new Date(startDate.getTime() + 60 * 60 * 1000)
+          : new Date()
+        const endTimePart = !isNaN(endDate.getTime())
+          ? endDate.toTimeString().split(' ')[0]
+          : '10:00:00'
+        const endDateTime = `${cleanDate}T${endTimePart}`
 
-      for (const app of pendingToExport) {
+        const clientName = clientNameMap.get(app.clientId) || ''
+        let summary = app.title || 'Compromisso'
+        if (
+          clientName &&
+          clientName !== 'Sincronização Google' &&
+          !summary.toLowerCase().includes(clientName.toLowerCase())
+        ) {
+          summary = `${summary} - ${clientName}`
+        }
+
+        const descParts: string[] = []
+        if (app.description) descParts.push(app.description)
+        if (app.type) descParts.push(`Tipo: ${app.type}`)
+        if (app.modality) descParts.push(`Modalidade: ${app.modality}`)
+        if (clientName && clientName !== 'Sincronização Google') {
+          descParts.push(`Cliente: ${clientName}`)
+        }
+        descParts.push('Sincronizado via DPSjur')
+        const descriptionText = descParts.join('\n')
+
+        return {
+          summary,
+          description: descriptionText,
+          location: app.location || (app.modality === 'Virtual' ? 'Online / Videoconferência' : ''),
+          start: {
+            dateTime: `${startDateTime}-03:00`,
+            timeZone: 'America/Sao_Paulo',
+          },
+          end: {
+            dateTime: `${endDateTime}-03:00`,
+            timeZone: 'America/Sao_Paulo',
+          },
+        }
+      }
+
+      // Conjunto de IDs do Google já processados para evitar reprocessamento
+      const handledGoogleIds = new Set<string>()
+
+      let exportedCount = 0
+      let exportUpdatedCount = 0
+      let importCreatedCount = 0
+      let importUpdatedCount = 0
+      let importLinkedCount = 0
+      const exportErrors: string[] = []
+      const importErrors: string[] = []
+      const syncedAppointments = []
+
+      const nowIso = new Date().toISOString()
+
+      // PASSO 1: Itera pelos compromissos do DPSjur (Local -> Google / Reconciliação com precedência)
+      for (const app of appointmentsToSync) {
         if (!app.title || !app.date) continue
 
-        try {
-          const timeClean = (app.time || '09:00').trim()
-          const timePart = timeClean.length === 5 ? `${timeClean}:00` : timeClean
-          const cleanDate = app.date.split('T')[0]
+        if (app.googleEventId) {
+          const matchingGEvent = googleEventsMap.get(app.googleEventId)
 
-          // Monta o timestamp ISO com fuso horário de Brasília (UTC-3)
-          const startDateTime = `${cleanDate}T${timePart}`
-          const startDate = new Date(startDateTime)
-          const endDate = !isNaN(startDate.getTime())
-            ? new Date(startDate.getTime() + 60 * 60 * 1000)
-            : new Date()
-          const endTimePart = !isNaN(endDate.getTime())
-            ? endDate.toTimeString().split(' ')[0]
-            : '10:00:00'
-          const endDateTime = `${cleanDate}T${endTimePart}`
+          if (matchingGEvent) {
+            handledGoogleIds.add(matchingGEvent.id)
 
-          // Enriquece título com nome do cliente se não estiver presente
-          const clientName = clientNameMap.get(app.clientId) || ''
-          let summary = app.title
-          if (
-            clientName &&
-            clientName !== 'Sincronização Google' &&
-            !summary.toLowerCase().includes(clientName.toLowerCase())
-          ) {
-            summary = `${summary} - ${clientName}`
-          }
+            // Se o evento foi cancelado no Google, poderíamos mantê-lo ou atualizar status
+            if (matchingGEvent.status === 'cancelled') {
+              continue
+            }
 
-          // Monta descrição com detalhes do processo/sistema
-          const descParts: string[] = []
-          if (app.description) descParts.push(app.description)
-          if (app.type) descParts.push(`Tipo: ${app.type}`)
-          if (app.modality) descParts.push(`Modalidade: ${app.modality}`)
-          if (clientName && clientName !== 'Sincronização Google')
-            descParts.push(`Cliente: ${clientName}`)
-          descParts.push('Sincronizado via DPSjur')
-          const descriptionText = descParts.join('\n')
+            // Extrai datas/horas do Google para comparação
+            const isAllDay = !!matchingGEvent.start.date && !matchingGEvent.start.dateTime
+            const gStartDateTime = matchingGEvent.start.dateTime || matchingGEvent.start.date
+            const gDateStr = gStartDateTime ? gStartDateTime.split('T')[0] : ''
+            const gTimeStr =
+              matchingGEvent.start.dateTime && matchingGEvent.start.dateTime.includes('T')
+                ? matchingGEvent.start.dateTime.split('T')[1].substring(0, 5)
+                : '08:00'
 
-          const postRes = await fetchGoogleApi(
-            'https://www.googleapis.com/calendar/v3/calendars/primary/events',
-            {
-              method: 'POST',
-              body: JSON.stringify({
-                summary,
-                description: descriptionText,
-                location:
-                  app.location || (app.modality === 'Virtual' ? 'Online / Videoconferência' : ''),
-                start: {
-                  dateTime: `${startDateTime}-03:00`,
-                  timeZone: 'America/Sao_Paulo',
-                },
-                end: {
-                  dateTime: `${endDateTime}-03:00`,
-                  timeZone: 'America/Sao_Paulo',
-                },
-              }),
-            },
-          )
+            // Normaliza título (sem o sufixo - Cliente caso exista no Google)
+            const localCleanDate = (app.date || '').split('T')[0]
+            const localTime = (app.time || '08:00').substring(0, 5)
 
-          if (postRes.ok) {
-            const createdGEvent = await postRes.json()
-            if (createdGEvent?.id) {
-              exportedCount++
-              if (app.id && supabaseClient) {
+            const dateDiff = gDateStr !== localCleanDate
+            const timeDiff = !isAllDay && gTimeStr !== localTime
+            const descDiff =
+              app.description !== undefined &&
+              app.description !== null &&
+              (matchingGEvent.description || '').trim() !== (app.description || '').trim() &&
+              !(matchingGEvent.description || '').includes(app.description || 'DPSjur')
+
+            const hasDifference = dateDiff || timeDiff
+
+            if (hasDifference) {
+              // REGRA DE PRECEDÊNCIA:
+              // 1. Se google_synced_at existe e updated_at > google_synced_at => EDIÇÃO LOCAL VENCE
+              // 2. Se google_synced_at NÃO existe mas updated_at é posterior a gEvent.updated => EDIÇÃO LOCAL VENCE
+              // 3. Se updated_at > matchingGEvent.updated (timestamp ISO do Google) => EDIÇÃO LOCAL VENCE
+              const localUpdatedTime = app.updated_at ? new Date(app.updated_at).getTime() : 0
+              const localSyncedTime = app.google_synced_at
+                ? new Date(app.google_synced_at).getTime()
+                : 0
+              const googleUpdatedTime = matchingGEvent.updated
+                ? new Date(matchingGEvent.updated).getTime()
+                : 0
+
+              const localWasEditedAfterSync =
+                (localSyncedTime > 0 && localUpdatedTime > localSyncedTime) ||
+                (localSyncedTime === 0 && localUpdatedTime >= googleUpdatedTime) ||
+                localUpdatedTime > googleUpdatedTime
+
+              if (localWasEditedAfterSync) {
+                // EDIÇÃO LOCAL VENCE: Atualiza o evento no Google Calendar (PATCH)
+                try {
+                  const payload = buildGoogleEventPayload(app)
+                  const patchRes = await fetchGoogleApi(
+                    `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(
+                      app.googleEventId,
+                    )}`,
+                    {
+                      method: 'PATCH',
+                      body: JSON.stringify(payload),
+                    },
+                  )
+
+                  if (patchRes.ok) {
+                    exportUpdatedCount++
+                    if (supabaseClient) {
+                      await supabaseClient
+                        .from('appointments')
+                        .update({ google_synced_at: nowIso })
+                        .eq('id', app.id)
+                    }
+                  } else {
+                    const errData = await patchRes.json().catch(() => ({}))
+                    console.error(`Erro ao atualizar evento no Google (${app.title}):`, errData)
+                    if (exportErrors.length < 3) {
+                      exportErrors.push(errData?.error?.message || `HTTP ${patchRes.status}`)
+                    }
+                  }
+                } catch (patchErr: any) {
+                  console.error('Falha de rede ao atualizar no Google:', patchErr)
+                }
+              } else {
+                // O GOOGLE FOI ALTERADO APÓS A ÚLTIMA EDIÇÃO LOCAL: Google vence e atualiza sistema
+                if (supabaseClient) {
+                  const { error: updErr } = await supabaseClient
+                    .from('appointments')
+                    .update({
+                      date: gDateStr || app.date,
+                      time: isAllDay ? app.time : gTimeStr,
+                      google_synced_at: nowIso,
+                    })
+                    .eq('id', app.id)
+
+                  if (!updErr) {
+                    importUpdatedCount++
+                    syncedAppointments.push({ id: app.id, action: 'updated' })
+                  }
+                }
+              }
+            } else {
+              // Sem divergências relevantes de data/hora: apenas atualiza o marco temporal google_synced_at
+              if (
+                supabaseClient &&
+                (!app.google_synced_at || app.google_synced_at < app.updated_at)
+              ) {
                 await supabaseClient
                   .from('appointments')
-                  .update({ googleEventId: createdGEvent.id })
+                  .update({ google_synced_at: nowIso })
                   .eq('id', app.id)
               }
             }
           } else {
-            const errData = await postRes.json().catch(() => ({}))
-            console.error(`Erro ao criar evento "${app.title}" no Google:`, errData)
-            if (exportErrors.length < 3) {
-              exportErrors.push(errData?.error?.message || `HTTP ${postRes.status}`)
+            // O appointment tem googleEventId mas o evento não foi encontrado na lista do Google (pode ter sido excluído lá ou estar fora da janela)
+            // Marca google_synced_at para manter rastreabilidade
+            if (supabaseClient && !app.google_synced_at) {
+              await supabaseClient
+                .from('appointments')
+                .update({ google_synced_at: nowIso })
+                .eq('id', app.id)
             }
           }
-        } catch (e: any) {
-          console.error(`Falha ao exportar compromisso "${app.title}" para Google:`, e)
-          if (exportErrors.length < 3) {
-            exportErrors.push(e?.message || 'Falha de rede')
+        } else {
+          // Compromisso LOCAL SEM googleEventId:
+          // Verifica primeiro se não existe evento idêntico já no Google (mesma data + horário + início de título)
+          // para vincular em vez de duplicar
+          const appCleanDate = (app.date || '').split('T')[0]
+          const appCleanTime = (app.time || '08:00').substring(0, 5)
+          const appTitleClean = (app.title || '').trim().toLowerCase()
+
+          let matchedGEvent: any = null
+          for (const ge of googleEvents) {
+            if (handledGoogleIds.has(ge.id) || ge.status === 'cancelled' || !ge.start) continue
+            const geDateTime = ge.start.dateTime || ge.start.date || ''
+            const geDate = geDateTime.split('T')[0]
+            const geTime = geDateTime.includes('T') ? geDateTime.split('T')[1].substring(0, 5) : ''
+            const geSummary = (ge.summary || '').trim().toLowerCase()
+
+            if (geDate === appCleanDate) {
+              const timeMatch = !geTime || geTime === appCleanTime
+              const titleMatch =
+                geSummary.includes(appTitleClean.substring(0, 20)) ||
+                appTitleClean.includes(geSummary.substring(0, 20))
+              if (timeMatch && titleMatch) {
+                matchedGEvent = ge
+                break
+              }
+            }
+          }
+
+          if (matchedGEvent) {
+            handledGoogleIds.add(matchedGEvent.id)
+            if (supabaseClient) {
+              await supabaseClient
+                .from('appointments')
+                .update({
+                  googleEventId: matchedGEvent.id,
+                  google_synced_at: nowIso,
+                })
+                .eq('id', app.id)
+              importLinkedCount++
+            }
+          } else {
+            // Exporta novo compromisso para o Google Calendar
+            try {
+              const payload = buildGoogleEventPayload(app)
+              const postRes = await fetchGoogleApi(
+                'https://www.googleapis.com/calendar/v3/calendars/primary/events',
+                {
+                  method: 'POST',
+                  body: JSON.stringify(payload),
+                },
+              )
+
+              if (postRes.ok) {
+                const createdGEvent = await postRes.json()
+                if (createdGEvent?.id) {
+                  exportedCount++
+                  handledGoogleIds.add(createdGEvent.id)
+                  if (app.id && supabaseClient) {
+                    await supabaseClient
+                      .from('appointments')
+                      .update({
+                        googleEventId: createdGEvent.id,
+                        google_synced_at: nowIso,
+                      })
+                      .eq('id', app.id)
+                  }
+                }
+              } else {
+                const errData = await postRes.json().catch(() => ({}))
+                console.error(`Erro ao criar evento "${app.title}" no Google:`, errData)
+                if (exportErrors.length < 3) {
+                  exportErrors.push(errData?.error?.message || `HTTP ${postRes.status}`)
+                }
+              }
+            } catch (postEx: any) {
+              console.error(`Falha ao exportar compromisso "${app.title}" para Google:`, postEx)
+              if (exportErrors.length < 3) {
+                exportErrors.push(postEx?.message || 'Falha de rede')
+              }
+            }
+          }
+        }
+      }
+
+      // PASSO 2: Eventos que existem no Google mas ainda NÃO foram processados
+      // (Novos eventos criados diretamente no Google Calendar)
+      if (supabaseClient) {
+        for (const gEvent of googleEvents) {
+          if (handledGoogleIds.has(gEvent.id)) continue
+          if (gEvent.status === 'cancelled' || !gEvent.start) continue
+
+          const isAllDay = !!gEvent.start.date && !gEvent.start.dateTime
+          const startDateTime = gEvent.start.dateTime || gEvent.start.date
+          const dateStr = startDateTime ? startDateTime.split('T')[0] : ''
+          const timeStr =
+            gEvent.start.dateTime && gEvent.start.dateTime.includes('T')
+              ? gEvent.start.dateTime.split('T')[1].substring(0, 5)
+              : '08:00'
+
+          // Cria novo compromisso vindo do Google
+          const insertPayload: any = {
+            title: gEvent.summary || 'Sem título',
+            description: gEvent.description || '',
+            date: dateStr,
+            time: timeStr,
+            googleEventId: gEvent.id,
+            google_synced_at: nowIso,
+            type: 'Reunião',
+            priority: 'Média',
+            status: 'Pendente',
+          }
+
+          if (defaultClientId) {
+            insertPayload.clientId = defaultClientId
+          }
+          if (defaultResponsibleId) {
+            insertPayload.responsibleId = defaultResponsibleId
+          }
+
+          const { data: newApp, error: insertErr } = await supabaseClient
+            .from('appointments')
+            .insert(insertPayload)
+            .select('id')
+            .maybeSingle()
+
+          if (insertErr) {
+            console.error(
+              `Erro ao inserir compromisso vindo do Google "${gEvent.summary}":`,
+              insertErr,
+            )
+            if (importErrors.length < 3) {
+              importErrors.push(insertErr.message || 'Falha ao salvar compromisso no banco')
+            }
+          } else if (newApp) {
+            importCreatedCount++
+            handledGoogleIds.add(gEvent.id)
+            syncedAppointments.push({ id: newApp.id, action: 'created' })
           }
         }
       }
 
       // Constrói mensagem clara e informativa baseada em dados reais
+      const totalExported = exportedCount + exportUpdatedCount
       let summaryMessage = ''
-      if (exportedCount > 0 && importCreatedCount > 0) {
-        summaryMessage = `Sincronização concluída: ${exportedCount} compromisso(s) enviado(s) ao Google Agenda e ${importCreatedCount} novo(s) importado(s) para o sistema.`
-      } else if (exportedCount > 0) {
-        summaryMessage = `Sincronização concluída: ${exportedCount} compromisso(s) enviado(s) com sucesso ao Google Agenda.`
+      if (totalExported > 0 && importCreatedCount > 0) {
+        summaryMessage = `Sincronização concluída: ${totalExported} compromisso(s) atualizado(s)/enviado(s) ao Google Agenda e ${importCreatedCount} novo(s) importado(s) para o sistema.`
+      } else if (totalExported > 0) {
+        summaryMessage = `Sincronização concluída: ${totalExported} compromisso(s) sincronizado(s) com sucesso com o Google Agenda (${exportUpdatedCount} atualizado(s), ${exportedCount} novo(s)).`
       } else if (importCreatedCount > 0) {
         summaryMessage = `Sincronização concluída: ${importCreatedCount} evento(s) do Google Agenda importado(s) para o sistema.`
       } else if (importUpdatedCount > 0 || importLinkedCount > 0) {
@@ -734,7 +893,6 @@ Deno.serve(async (req: Request) => {
       } else {
         summaryMessage = `Sincronização concluída: todos os compromissos já estão em harmonia. (0 pendentes de envio, 0 novos no Google).`
       }
-
       const allErrors = [...importErrors, ...exportErrors]
 
       return new Response(

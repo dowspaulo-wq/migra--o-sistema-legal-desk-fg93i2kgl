@@ -132,6 +132,7 @@ export function AppointmentDialog({
       description: fd.description,
       modality: fd.modality || null,
       status: forceStatus || fd.status || 'Pendente',
+      googleEventId: (data as any)?.googleEventId || undefined,
     }
 
     onSave(payload)

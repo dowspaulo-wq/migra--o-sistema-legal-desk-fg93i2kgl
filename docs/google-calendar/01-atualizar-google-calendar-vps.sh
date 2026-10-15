@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # SCRIPT DE ATUALIZAÇÃO DA EDGE FUNCTION GOOGLE-CALENDAR NO VPS (HOSTINGER / EASYPANEL)
-# Versão: v0.0.564
+# Versão: v0.0.565
 # Alvo: VPS Hostinger 2.25.181.69 (EasyPanel / Supabase Self-Hosted)
 #
 # O QUE ESTE SCRIPT FAZ:
 # 1. Localiza os contêineres Docker do edge-runtime e do banco de dados no VPS
-# 2. Garante no banco PostgreSQL a coluna googleEventId, cliente de apoio
+# 2. Garante no banco PostgreSQL as colunas googleEventId e google_synced_at, cliente de apoio
 #    "Sincronização Google" e flexibilização de clientId para appointments
 # 3. Baixa o código atualizado da função google-calendar e de _shared do repositório
 #    oficial (dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl, branch main)
@@ -28,7 +28,7 @@ BLUE='\033[0;34m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-echo -e "${BOLD}${BLUE}=== DPSjur - Atualização Edge Function Google Calendar (v0.0.564) ===${NC}"
+echo -e "${BOLD}${BLUE}=== DPSjur - Atualização Edge Function Google Calendar (v0.0.565) ===${NC}"
 
 # 1. Identificar contêineres Docker do Supabase no EasyPanel
 echo -e "\n${BOLD}[1/5] Procurando contêineres Docker do Supabase no VPS...${NC}"
@@ -65,6 +65,18 @@ BEGIN
         CREATE INDEX IF NOT EXISTS idx_appointments_google_event_id ON public.appointments("googleEventId");
     END IF;
 
+    -- 1b. Garante que a coluna google_synced_at existe para precedência de edição bidirecional
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'appointments'
+          AND column_name = 'google_synced_at'
+    ) THEN
+        ALTER TABLE public.appointments ADD COLUMN google_synced_at timestamptz;
+        UPDATE public.appointments SET google_synced_at = COALESCE(updated_at, created_at, NOW()) WHERE "googleEventId" IS NOT NULL AND google_synced_at IS NULL;
+        CREATE INDEX IF NOT EXISTS idx_appointments_google_synced_at ON public.appointments(google_synced_at);
+    END IF;
+
     -- 2. Cria ou localiza o cliente de apoio 'Sincronização Google'
     SELECT id INTO google_sync_client_id FROM public.clients WHERE name = 'Sincronização Google' LIMIT 1;
     IF google_sync_client_id IS NULL THEN
@@ -84,7 +96,7 @@ else
 fi
 
 # 3. Baixar código atualizado da função google-calendar e da pasta _shared
-echo -e "\n${BOLD}[3/5] Baixando pacote v0.0.564 da função google-calendar do repositório oficial...${NC}"
+echo -e "\n${BOLD}[3/5] Baixando pacote v0.0.565 da função google-calendar do repositório oficial...${NC}"
 TMP_DIR="/tmp/google-calendar-update"
 rm -rf "$TMP_DIR"
 mkdir -p "$TMP_DIR/google-calendar"
@@ -197,7 +209,7 @@ fi
 
 rm -rf "$TMP_DIR"
 
-echo -e "\n${BOLD}${GREEN}=== ATUALIZAÇÃO CONCLUÍDA COM SUCESSO (v0.0.564) ===${NC}"
+echo -e "\n${BOLD}${GREEN}=== ATUALIZAÇÃO CONCLUÍDA COM SUCESSO (v0.0.565) ===${NC}"
 echo -e "Diagnóstico final:"
 echo -e "1. A função google-calendar foi instalada com CORS inline e dependências compatíveis com Deno/VPS."
 echo -e "2. A pasta _shared também foi criada com cors.ts para retrocompatibilidade."

@@ -244,17 +244,19 @@ export default function Agenda() {
         const { data, error } = await supabase.functions.invoke('google-calendar', {
           body: {
             action: 'sync',
-            appointments: state.appointments.map((a) => ({
+            appointments: state.appointments.map((a: any) => ({
               id: a.id,
               title: a.title,
               date: a.date,
-              time: (a as any).time,
-              description: (a as any).description,
-              modality: (a as any).modality,
+              time: a.time,
+              description: a.description,
+              modality: a.modality,
               type: a.type,
-              clientId: (a as any).clientId,
-              processId: (a as any).processId,
-              googleEventId: (a as any).googleEventId,
+              clientId: a.clientId,
+              processId: a.processId,
+              googleEventId: a.googleEventId,
+              updated_at: a.updated_at,
+              google_synced_at: a.google_synced_at,
             })),
           },
         })
