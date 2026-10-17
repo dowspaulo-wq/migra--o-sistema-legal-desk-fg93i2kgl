@@ -158,10 +158,11 @@ export default function ClientDetail() {
           caseId: c.id,
           caseNumber: c.number,
           caseTitle: c.number,
-          feeType,
+          feeType: isSuccessFeeType(feeType) ? 'Honorários de Êxito' : feeType,
           feeValue,
+          feePercentage: c.feePercentage,
           feeInstallments: c.feeInstallments,
-          status: isSuccessFeeType(feeType) ? 'Êxito' : 'Registrado no Processo',
+          status: 'Registrado no Processo',
           updatedAt: c.updatedAt || c.startDate,
         }
       })
@@ -401,7 +402,7 @@ export default function ClientDetail() {
         }}
         data={editingCase}
         lockedClientId={client.id}
-        onSave={(d: any) => {
+        onSave={async (d: any) => {
           if (editingCase?.id) {
             updateItem('cases', editingCase.id, d)
             toast({ title: 'Processo atualizado com sucesso' })
@@ -431,10 +432,10 @@ export default function ClientDetail() {
         onCancel={() => {
           clearEditDraft()
         }}
-        onSave={(d: any) => {
+        onSave={async (d: any) => {
           if (feeEditDraft?.feeId) {
             const feeId = feeEditDraft.feeId
-            updateItem('transactions', feeId, d)
+            await updateItem('transactions', feeId, d)
             if (d.amount !== undefined) {
               const linkedCaseIds = (state.transactionCases || [])
                 .filter((tc: any) => tc.transaction_id === feeId)
@@ -1168,13 +1169,9 @@ export default function ClientDetail() {
                           <span className="font-semibold text-sm">Honorários ({df.feeType})</span>
                           <Badge
                             variant="secondary"
-                            className={
-                              isSuccess
-                                ? 'bg-blue-50 text-blue-700 border-blue-200 text-xs font-semibold'
-                                : 'bg-slate-100 text-slate-700 text-xs'
-                            }
+                            className="bg-blue-50 text-blue-700 border-blue-200 text-xs font-semibold"
                           >
-                            {isSuccess ? 'Êxito' : df.feeType}
+                            {df.feeType}
                           </Badge>
                           <Badge
                             variant="outline"
@@ -1191,6 +1188,7 @@ export default function ClientDetail() {
                           >
                             Processo: {df.caseNumber}
                           </Link>
+                          {df.feePercentage ? <span>• Percentual: {df.feePercentage}%</span> : null}
                           {df.feeInstallments && Number(df.feeInstallments) > 1 && (
                             <span>• {df.feeInstallments} parcelas</span>
                           )}
@@ -1203,13 +1201,15 @@ export default function ClientDetail() {
                         <span className="font-bold text-green-600 text-sm">
                           {df.feeValue > 0
                             ? `R$ ${df.feeValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-                            : 'A apurar'}
+                            : df.feePercentage
+                              ? `${df.feePercentage}% (A apurar)`
+                              : 'A apurar'}
                         </span>
                         <Badge
-                          variant={isSuccess ? 'default' : 'secondary'}
-                          className={isSuccess ? 'bg-blue-600 hover:bg-blue-700 text-white' : ''}
+                          variant="secondary"
+                          className="bg-amber-100 text-amber-800 border-amber-200 text-xs font-medium"
                         >
-                          {df.status}
+                          Registrado no Processo
                         </Badge>
                         <Button
                           variant="ghost"

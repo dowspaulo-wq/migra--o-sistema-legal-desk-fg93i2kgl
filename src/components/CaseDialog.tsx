@@ -131,10 +131,15 @@ export function CaseDialog({
     data && !data.isNew ? { ...data, classification: data.classification || 'DPS' } : getInitial(),
   )
 
+  const currentYear = new Date().getFullYear()
+  const defaultSuccessDueDate = `${currentYear}-12-31`
+
   const [feeConfig, setFeeConfig] = useState({
     hasFees: false,
     feeType: 'Honorários Contratuais',
     feeValue: '',
+    feePercentage: '',
+    valueMode: 'fixed' as 'fixed' | 'percent',
     feeInstallments: '1',
     feeFirstDueDate: new Date().toISOString().split('T')[0],
     bankAccount: 'ASAAS',
@@ -509,13 +514,23 @@ export function CaseDialog({
                       <Label className="text-blue-900">Tipo</Label>
                       <Select
                         value={feeConfig.feeType}
-                        onValueChange={(v) => setFeeConfig({ ...feeConfig, feeType: v })}
+                        onValueChange={(v) => {
+                          const isSucc = isSuccessFeeType(v)
+                          setFeeConfig({
+                            ...feeConfig,
+                            feeType: v,
+                            feeFirstDueDate: isSucc
+                              ? defaultSuccessDueDate
+                              : feeConfig.feeFirstDueDate,
+                            valueMode: isSucc ? feeConfig.valueMode : 'fixed',
+                          })
+                        }}
                       >
                         <SelectTrigger className="bg-white">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {getFeeTypeOptions(settings.transactionCategories as string[]).map(
+                          {getFeeTypeOptions(settings.transactionCategories as string[], false).map(
                             (t) => (
                               <SelectItem key={t} value={t}>
                                 {t}
@@ -525,21 +540,70 @@ export function CaseDialog({
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-blue-900">Valor Total (R$)</Label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        className="bg-white"
-                        value={feeConfig.feeValue}
-                        onChange={(e) => setFeeConfig({ ...feeConfig, feeValue: e.target.value })}
-                      />
-                    </div>
+
+                    {isSuccessFeeType(feeConfig.feeType) ? (
+                      <div className="space-y-1.5">
+                        <Label className="text-blue-900">Cobrança</Label>
+                        <div className="flex gap-1">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={feeConfig.valueMode === 'fixed' ? 'default' : 'outline'}
+                            className="h-9 text-xs px-2"
+                            onClick={() => setFeeConfig({ ...feeConfig, valueMode: 'fixed' })}
+                          >
+                            R$
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={feeConfig.valueMode === 'percent' ? 'default' : 'outline'}
+                            className="h-9 text-xs px-2"
+                            onClick={() => setFeeConfig({ ...feeConfig, valueMode: 'percent' })}
+                          >
+                            %
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {isSuccessFeeType(feeConfig.feeType) && feeConfig.valueMode === 'percent' ? (
+                      <div className="space-y-1.5">
+                        <Label className="text-blue-900">Percentual (%)</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          max="100"
+                          placeholder="Ex: 30"
+                          className="bg-white"
+                          value={feeConfig.feePercentage}
+                          onChange={(e) =>
+                            setFeeConfig({ ...feeConfig, feePercentage: e.target.value })
+                          }
+                        />
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <Label className="text-blue-900">Valor Total (R$)</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          className="bg-white"
+                          value={feeConfig.feeValue}
+                          onChange={(e) => setFeeConfig({ ...feeConfig, feeValue: e.target.value })}
+                        />
+                      </div>
+                    )}
+
                     <div className="space-y-1.5">
                       <Label className="text-blue-900">Parcelas</Label>
                       <Input
                         type="number"
                         min="1"
+                        disabled={
+                          isSuccessFeeType(feeConfig.feeType) && feeConfig.valueMode === 'percent'
+                        }
                         className="bg-white"
                         value={feeConfig.feeInstallments}
                         onChange={(e) =>
@@ -549,12 +613,12 @@ export function CaseDialog({
                     </div>
                     <div className="space-y-1.5">
                       <Label className="text-blue-900">
-                        1º Vencimento {isSuccessFeeType(feeConfig.feeType) ? '(Opcional)' : ''}
+                        1º Vencimento {isSuccessFeeType(feeConfig.feeType) ? '(Padrão 31/12)' : ''}
                       </Label>
                       <Input
                         type="date"
                         className="bg-white"
-                        required={!isSuccessFeeType(feeConfig.feeType)}
+                        required
                         value={feeConfig.feeFirstDueDate}
                         onChange={(e) =>
                           setFeeConfig({ ...feeConfig, feeFirstDueDate: e.target.value })

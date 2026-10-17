@@ -19,21 +19,26 @@ import { Button } from '@/components/ui/button'
 import { toast } from '@/hooks/use-toast'
 import { Checkbox } from '@/components/ui/checkbox'
 import useLegalStore from '@/stores/useLegalStore'
-import { isSuccessFeeType } from '@/lib/fee-types'
+import {
+  isSuccessFeeType,
+  capitalizeFirstLetter,
+  getFeeTypeOptions,
+  getClientExpenseOptions,
+} from '@/lib/fee-types'
 import { syncChargeWithAsaas } from '@/services/asaas'
 
 const DEFAULT_CATEGORIES = [
-  'Custas Iniciais',
+  'Acordo',
+  'Alvará / Condenação',
   'Custas Finais',
+  'Custas Iniciais',
   'Depósito Recursal',
-  'Honorários Periciais',
+  'Diligência',
   'Honorários Contratuais',
   'Honorários de Êxito',
   'Honorários de Permuta',
+  'Honorários Periciais',
   'Honorários Sucumbenciais',
-  'Alvará / Condenação',
-  'Diligência',
-  'Acordo',
   'Outros',
 ]
 
@@ -48,14 +53,9 @@ export function TransactionDialog({
 }: any) {
   const { state } = useLegalStore() as any
 
-  const categories: string[] = Array.from(
-    new Set([
-      ...((state?.settings?.transactionCategories as string[])?.length
-        ? (state.settings.transactionCategories as string[])
-        : DEFAULT_CATEGORIES),
-      ...(data?.category ? [data.category] : []),
-    ]),
-  ).sort()
+  const rawCategories = (state?.settings?.transactionCategories as string[]) || DEFAULT_CATEGORIES
+  const feeCategories = getFeeTypeOptions(rawCategories, false)
+  const expenseCategories = getClientExpenseOptions(rawCategories)
 
   const bankOptions = Array.from(
     new Set([
@@ -75,14 +75,16 @@ export function TransactionDialog({
     ]),
   )
 
-  const isCategorySuccessFee = (cat: string, statusVal?: string) =>
-    isSuccessFeeType(cat) || cat === 'Honorários de Êxito' || statusVal === 'Êxito'
+  const isCategorySuccessFee = (cat: string) => isSuccessFeeType(cat)
+
+  const currentYear = new Date().getFullYear()
+  const defaultSuccessDueDate = `${currentYear}-12-31`
 
   const getInitial = () => ({
     description: '',
     amount: '',
     type: 'expense',
-    category: '',
+    category: 'Custas Iniciais',
     status: 'Previsto',
     date: new Date().toISOString().split('T')[0],
     clientId: lockedClientId || '',
@@ -120,10 +122,25 @@ export function TransactionDialog({
       // Só sobrescreve os dados se o item mudou (ex: abriu outro registro) ou se ainda não foi inicializado
       if (lastInitializedIdRef.id !== dataId) {
         lastInitializedIdRef.id = dataId
+        const initialStatus =
+          data?.status === 'Realizado' || data?.status === 'Êxito'
+            ? data?.amount > 0
+              ? 'Pago'
+              : 'Previsto'
+            : data?.status || 'Previsto'
+
+        const initialCategory =
+          data?.category && isSuccessFeeType(data.category)
+            ? 'Honorários de Êxito'
+            : data?.category ||
+              (data?.type === 'income' ? 'Honorários Contratuais' : 'Custas Iniciais')
+
         setFd(
           data
             ? {
                 ...data,
+                status: initialStatus,
+                category: initialCategory,
                 amount: data.amount != null ? data.amount.toString() : '',
                 date: data.date ?? '',
                 sendToFinance: data.sendToFinance !== false,
@@ -142,32 +159,33 @@ export function TransactionDialog({
     }
   }, [data, open, lockedProcessId, lockedClientId])
 
-  const isSuccessFee = isCategorySuccessFee(fd.category, fd.status)
+  const isSuccessFee = isCategorySuccessFee(fd.category)
+  const currentCategoryList = fd.type === 'income' ? feeCategories : expenseCategories
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
     if (
       !fd.description ||
-      !fd.amount ||
+      (!fd.amount && !isSuccessFee) ||
       !fd.type ||
       !fd.category ||
       !fd.status ||
-      (!fd.date && !isSuccessFee)
+      !fd.date
     ) {
       toast({
         title: 'Campos Obrigatórios',
-        description: isSuccessFee
-          ? 'Por favor, preencha todos os campos obrigatórios. A data de pagamento é opcional para honorários de êxito.'
-          : 'Por favor, preencha todos os campos obrigatórios.',
+        description: 'Por favor, preencha todos os campos obrigatórios.',
         variant: 'destructive',
       })
       return
     }
 
+    const finalDescription = capitalizeFirstLetter(fd.description)
     const payload: any = {
       ...fd,
-      amount: parseFloat(fd.amount.replace(',', '.')),
+      description: finalDescription,
+      amount: fd.amount ? parseFloat(fd.amount.toString().replace(',', '.')) : 0,
       date: fd.date && fd.date.trim() !== '' ? fd.date : null,
     }
 
@@ -202,22 +220,30 @@ export function TransactionDialog({
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Tipo *</Label>
-                <Select value={fd.type} onValueChange={(v) => setFd({ ...fd, type: v })}>
+                <Select
+                  value={fd.type}
+                  onValueChange={(v) => {
+                    const newDefaultCat =
+                      v === 'income' ? 'Honorários Contratuais' : 'Custas Iniciais'
+                    setFd({ ...fd, type: v, category: newDefaultCat })
+                  }}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Tipo" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="expense">Despesa / Custa</SelectItem>
-                    <SelectItem value="income">Receita / Alvará / Honorário</SelectItem>
+                    <SelectItem value="expense">Despesa do Cliente / Custa</SelectItem>
+                    <SelectItem value="income">Honorário / Receita</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Valor (R$) *</Label>
+                <Label>Valor (R$) {isSuccessFee ? '(Opcional se %)' : '*'}</Label>
                 <Input
                   type="number"
                   step="0.01"
-                  required
+                  required={!isSuccessFee}
+                  placeholder={isSuccessFee ? 'A apurar ou informe R$' : '0,00'}
                   value={fd.amount}
                   onChange={(e) => setFd({ ...fd, amount: e.target.value })}
                 />
@@ -228,35 +254,33 @@ export function TransactionDialog({
               <Label>Descrição *</Label>
               <Input
                 required
-                placeholder="Ex: Guia de custas iniciais"
+                placeholder="Ex: Honorários contratuais ou Guia de custas"
                 value={fd.description}
-                onChange={(e) => setFd({ ...fd, description: e.target.value })}
+                onChange={(e) =>
+                  setFd({ ...fd, description: capitalizeFirstLetter(e.target.value) })
+                }
               />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Categoria *</Label>
+                <Label>{fd.type === 'income' ? 'Tipo de Honorário *' : 'Tipo de Despesa *'}</Label>
                 <Select
                   value={fd.category}
                   onValueChange={(v) => {
-                    const isSucc = isCategorySuccessFee(v, fd.status)
+                    const isSucc = isCategorySuccessFee(v)
                     setFd((prev: any) => ({
                       ...prev,
                       category: v,
-                      status: isSucc ? 'Êxito' : prev.status,
-                      date:
-                        isSucc && prev.date === new Date().toISOString().split('T')[0]
-                          ? ''
-                          : prev.date,
+                      date: isSucc ? prev.date || defaultSuccessDueDate : prev.date,
                     }))
                   }}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Categoria" />
+                    <SelectValue placeholder="Selecione" />
                   </SelectTrigger>
                   <SelectContent>
-                    {categories.map((c) => (
+                    {currentCategoryList.map((c) => (
                       <SelectItem key={c} value={c}>
                         {c}
                       </SelectItem>
@@ -265,10 +289,10 @@ export function TransactionDialog({
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Data {isSuccessFee ? '(Opcional)' : '*'}</Label>
+                <Label>Data / Vencimento {isSuccessFee ? '(Padrão 31/12)' : '*'}</Label>
                 <Input
                   type="date"
-                  required={!isSuccessFee}
+                  required
                   value={fd.date || ''}
                   onChange={(e) => setFd({ ...fd, date: e.target.value })}
                 />
@@ -321,12 +345,11 @@ export function TransactionDialog({
                     <SelectValue placeholder="Status" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Previsto">Previsto (Pendente)</SelectItem>
-                    <SelectItem value="Realizado">Realizado (Pago)</SelectItem>
-                    <SelectItem value="Pago">Pago / Recebido</SelectItem>
+                    <SelectItem value="Previsto">Previsto</SelectItem>
+                    <SelectItem value="Pago">Pago</SelectItem>
                     <SelectItem value="Pendente">Pendente</SelectItem>
                     <SelectItem value="Atrasado">Atrasado</SelectItem>
-                    <SelectItem value="Êxito">Êxito</SelectItem>
+                    <SelectItem value="Cancelado">Cancelado</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

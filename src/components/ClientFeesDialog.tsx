@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -6,8 +6,9 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { Label } from '@/components/ui/label'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -15,12 +16,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import useLegalStore from '@/stores/useLegalStore'
 import { useClientFeesFormStore } from '@/stores/useClientFeesFormStore'
 import { toast } from '@/hooks/use-toast'
-import { getFeeTypeOptions, isSuccessFeeType, isNonFinancialFeeType } from '@/lib/fee-types'
+import {
+  getFeeTypeOptions,
+  isSuccessFeeType,
+  isNonFinancialFeeType,
+  capitalizeFirstLetter,
+} from '@/lib/fee-types'
 
 export function ClientFeesDialog({
   open,
@@ -39,23 +44,31 @@ export function ClientFeesDialog({
   const { draft, setDraft, clearDraft, activeClientId } = useClientFeesFormStore()
 
   const transactionCategories = (state.settings?.transactionCategories as string[]) || []
-  const feeTypeOptions = getFeeTypeOptions(transactionCategories)
+  // Apenas honorários (sem despesas), em ordem alfabética
+  const feeTypeOptions = getFeeTypeOptions(transactionCategories, false)
+
+  // Alternância R$ ou % para honorários de êxito
+  const [valueMode, setValueMode] = useState<'fixed' | 'percent'>('fixed')
+
+  const currentYear = new Date().getFullYear()
+  const defaultSuccessDueDate = `${currentYear}-12-31`
 
   // Inicializa o rascunho apenas se ainda não existir ou for de outro cliente
   useEffect(() => {
     if (open && (!draft || activeClientId !== clientId)) {
-      const initialType = transactionCategories[0] || 'Honorários Contratuais'
+      const initialType = 'Honorários Contratuais'
       const isInitialSuccess = isSuccessFeeType(initialType)
       const defaultBank = state.settings?.bankAccounts?.[0] || 'ASAAS'
 
+      setValueMode('fixed')
       setDraft({
         description: '',
         amount: '',
-        date: isInitialSuccess ? '' : new Date().toISOString().split('T')[0],
+        date: isInitialSuccess ? defaultSuccessDueDate : new Date().toISOString().split('T')[0],
         installments: '1',
         paymentMethod: 'PIX',
         bankAccount: defaultBank,
-        status: isInitialSuccess ? 'Êxito' : 'Previsto',
+        status: 'Previsto',
         feeType: initialType,
         percentage: '',
         selectedCases: [],
@@ -67,8 +80,8 @@ export function ClientFeesDialog({
     activeClientId,
     draft,
     state.settings?.bankAccounts,
-    transactionCategories,
     setDraft,
+    defaultSuccessDueDate,
   ])
 
   const currentDraft = draft || {
@@ -79,7 +92,7 @@ export function ClientFeesDialog({
     paymentMethod: 'PIX',
     bankAccount: state.settings?.bankAccounts?.[0] || 'ASAAS',
     status: 'Previsto',
-    feeType: transactionCategories[0] || 'Honorários Contratuais',
+    feeType: 'Honorários Contratuais',
     percentage: '',
     selectedCases: [],
   }
@@ -105,9 +118,14 @@ export function ClientFeesDialog({
     setDraft((prev) => ({
       ...prev,
       feeType: newFeeType,
-      status: isNewSuccess ? 'Êxito' : prev.status === 'Êxito' ? 'Previsto' : prev.status,
-      date: isNewSuccess ? '' : !prev.date ? new Date().toISOString().split('T')[0] : prev.date,
+      status: 'Previsto',
+      date: isNewSuccess
+        ? prev.date || defaultSuccessDueDate
+        : prev.date || new Date().toISOString().split('T')[0],
     }))
+    if (!isNewSuccess) {
+      setValueMode('fixed')
+    }
   }
 
   const handleCancel = () => {
@@ -119,47 +137,68 @@ export function ClientFeesDialog({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (
-      !currentDraft.description ||
-      !currentDraft.amount ||
-      (!currentDraft.date && !isSuccessFee)
-    ) {
+    const rawDescription = currentDraft.description.trim()
+    if (!rawDescription) {
       toast({
-        title: 'Campos Obrigatórios',
-        description: isSuccessFee
-          ? 'Preencha descrição e valor. O vencimento é opcional para honorários de êxito.'
-          : 'Preencha descrição, valor e data.',
+        title: 'Campo Obrigatório',
+        description: 'Preencha a descrição do honorário.',
         variant: 'destructive',
       })
       return
     }
 
-    const parsedAmount = parseFloat(currentDraft.amount.replace(',', '.'))
+    if (!isSuccessFee && !currentDraft.amount) {
+      toast({
+        title: 'Valor Obrigatório',
+        description: 'Informe o valor dos honorários.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    if (
+      isSuccessFee &&
+      valueMode === 'percent' &&
+      !currentDraft.percentage &&
+      !currentDraft.amount
+    ) {
+      toast({
+        title: 'Valor ou Percentual Obrigatório',
+        description: 'Informe a porcentagem do êxito ou o valor em R$.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    const parsedAmount = currentDraft.amount ? parseFloat(currentDraft.amount.replace(',', '.')) : 0
+    const parsedPercent = currentDraft.percentage
+      ? parseFloat(currentDraft.percentage.replace(',', '.'))
+      : undefined
     const parsedInstallments = parseInt(currentDraft.installments, 10) || 1
+    const finalDescription = capitalizeFirstLetter(rawDescription)
 
     await addClientFee({
       amount: parsedAmount,
-      description: currentDraft.description,
-      date: currentDraft.date || new Date().toISOString().split('T')[0],
+      description: finalDescription,
+      date:
+        currentDraft.date ||
+        (isSuccessFee ? defaultSuccessDueDate : new Date().toISOString().split('T')[0]),
       clientId,
       caseIds: currentDraft.selectedCases,
       bankAccount: currentDraft.bankAccount,
-      status: currentDraft.status,
+      status: currentDraft.status || 'Previsto',
       installments: parsedInstallments,
       paymentMethod: currentDraft.paymentMethod,
       feeType: currentDraft.feeType,
-      percentage: isSuccessFee
-        ? parseFloat(currentDraft.percentage.replace(',', '.')) || undefined
-        : undefined,
+      percentage: isSuccessFee ? parsedPercent : undefined,
     })
 
-    // Ao salvar com sucesso, limpa o rascunho persistido
     clearDraft()
     onOpenChange(false)
   }
 
   const installmentValue =
-    parseFloat(currentDraft.amount.replace(',', '.')) /
+    (parseFloat(currentDraft.amount.replace(',', '.')) || 0) /
     (parseInt(currentDraft.installments, 10) || 1)
 
   return (
@@ -167,7 +206,6 @@ export function ClientFeesDialog({
       open={open}
       onOpenChange={(v) => {
         if (!v) {
-          // Quando o usuário fecha pelo 'X' ou backdrop, fechamos a visualização mas NÃO apagamos os dados digitados
           onOpenChange(false)
         } else {
           onOpenChange(true)
@@ -201,51 +239,89 @@ export function ClientFeesDialog({
                 required
                 placeholder="Ex: Honorários contratuais"
                 value={currentDraft.description}
-                onChange={(e) => setDraft({ description: e.target.value })}
+                onChange={(e) => setDraft({ description: capitalizeFirstLetter(e.target.value) })}
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Valor (R$) *</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  required
-                  value={currentDraft.amount}
-                  onChange={(e) => setDraft({ amount: e.target.value })}
-                />
+
+            {/* Alternância R$ ou % para honorários de êxito */}
+            {isSuccessFee && (
+              <div className="space-y-2 bg-blue-50/70 p-3 rounded-md border border-blue-100">
+                <Label className="text-xs font-semibold text-blue-900 block mb-1">
+                  Forma de Cobrança do Êxito
+                </Label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={valueMode === 'fixed' ? 'default' : 'outline'}
+                    className="flex-1 h-8 text-xs"
+                    onClick={() => setValueMode('fixed')}
+                  >
+                    Valor em R$
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={valueMode === 'percent' ? 'default' : 'outline'}
+                    className="flex-1 h-8 text-xs"
+                    onClick={() => setValueMode('percent')}
+                  >
+                    Porcentagem (%)
+                  </Button>
+                </div>
               </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-4">
+              {isSuccessFee && valueMode === 'percent' ? (
+                <div className="space-y-2">
+                  <Label>Percentual (%) *</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max="100"
+                    required
+                    placeholder="Ex: 30"
+                    value={currentDraft.percentage}
+                    onChange={(e) => setDraft({ percentage: e.target.value })}
+                  />
+                  <span className="text-[11px] text-muted-foreground block">
+                    Valor ficará como &quot;A apurar&quot;
+                  </span>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label>Valor (R$) {isSuccessFee ? '(Opcional se a apurar)' : '*'}</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    required={!isSuccessFee}
+                    placeholder="0,00"
+                    value={currentDraft.amount}
+                    onChange={(e) => setDraft({ amount: e.target.value })}
+                  />
+                </div>
+              )}
               <div className="space-y-2">
                 <Label>Parcelas</Label>
                 <Input
                   type="number"
                   min="1"
                   max="120"
+                  disabled={isSuccessFee && valueMode === 'percent'}
                   value={currentDraft.installments}
                   onChange={(e) => setDraft({ installments: e.target.value })}
                 />
               </div>
             </div>
-            {isSuccessFee && (
-              <div className="space-y-2">
-                <Label>Percentual (%)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  max="100"
-                  placeholder="Ex: 30"
-                  value={currentDraft.percentage}
-                  onChange={(e) => setDraft({ percentage: e.target.value })}
-                />
-              </div>
-            )}
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Vencimento {isSuccessFee ? '(Opcional)' : '*'}</Label>
+                <Label>Vencimento {isSuccessFee ? '(Padrão 31/12)' : '*'}</Label>
                 <Input
                   type="date"
-                  required={!isSuccessFee}
+                  required
                   value={currentDraft.date}
                   onChange={(e) => setDraft({ date: e.target.value })}
                 />
@@ -266,6 +342,7 @@ export function ClientFeesDialog({
                 </Select>
               </div>
             </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Status</Label>
@@ -278,11 +355,10 @@ export function ClientFeesDialog({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Previsto">Previsto</SelectItem>
-                    <SelectItem value="Realizado">Realizado</SelectItem>
                     <SelectItem value="Pago">Pago</SelectItem>
                     <SelectItem value="Pendente">Pendente</SelectItem>
                     <SelectItem value="Atrasado">Atrasado</SelectItem>
-                    <SelectItem value="Êxito">Êxito</SelectItem>
+                    <SelectItem value="Cancelado">Cancelado</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -305,6 +381,7 @@ export function ClientFeesDialog({
                 </Select>
               </div>
             </div>
+
             {cases.length > 0 && (
               <div className="space-y-2">
                 <Label>Processos Vinculados</Label>
@@ -324,29 +401,34 @@ export function ClientFeesDialog({
                 </div>
               </div>
             )}
+
             {isNonFinancial && (
               <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-sm text-amber-700">
                 ⚠️ Esta modalidade não gera lançamentos financeiros. O tipo será registrado apenas
                 no processo.
               </div>
             )}
+
             {isSuccessFee && (
-              <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-sm text-blue-700">
-                ℹ️ Honorários de Êxito: o vencimento é opcional pois a data de recebimento é
-                incerta. O status será definido como "Êxito".
-                {currentDraft.percentage && (
-                  <>
-                    {' '}
-                    Percentual de {parseFloat(currentDraft.percentage.replace(',', '.'))}% aplicado
-                    sobre o valor do processo.
-                  </>
+              <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-xs text-blue-700 space-y-1">
+                <p className="font-semibold">ℹ️ Honorários de Êxito:</p>
+                <p>
+                  Vencimento padrão em 31/12 do ano corrente. Status &quot;Previsto&quot;. Caso a
+                  ação seja ganha, altere para &quot;Pago&quot; com o valor apurado.
+                </p>
+                {valueMode === 'percent' && currentDraft.percentage && (
+                  <p className="font-medium text-blue-800">
+                    Percentual: {currentDraft.percentage}% (Valor exibido: &quot;A apurar&quot;)
+                  </p>
                 )}
               </div>
             )}
+
             {!isNonFinancial &&
               !isSuccessFee &&
               parseInt(currentDraft.installments, 10) > 1 &&
-              !isNaN(installmentValue) && (
+              !isNaN(installmentValue) &&
+              installmentValue > 0 && (
                 <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-sm text-blue-700">
                   Serão criadas {currentDraft.installments} parcelas de R${' '}
                   {installmentValue.toLocaleString('pt-BR', {
