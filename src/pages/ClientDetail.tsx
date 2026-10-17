@@ -64,7 +64,7 @@ import { isSuccessFeeType } from '@/lib/fee-types'
 export default function ClientDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { state, updateItem, deleteItem, addCase, addAppointment } = useLegalStore()
+  const { state, updateItem, deleteItem, addCase, addAppointment, addTransaction } = useLegalStore()
   const {
     isCreateOpen: isFeeOpen,
     activeClientId: feeActiveClientId,
@@ -89,6 +89,7 @@ export default function ClientDetail() {
   const [bulkSyncing, setBulkSyncing] = useState(false)
   const [editingCase, setEditingCase] = useState<any>(null)
   const [isEditCaseOpen, setIsEditCaseOpen] = useState(false)
+  const [editingDirectFee, setEditingDirectFee] = useState<any>(null)
   const [linkingTx, setLinkingTx] = useState<any>(null)
 
   const client = state.clients.find((c) => c.id === id)
@@ -404,7 +405,9 @@ export default function ClientDetail() {
         lockedClientId={client.id}
         onSave={async (d: any) => {
           if (editingCase?.id) {
-            updateItem('cases', editingCase.id, d)
+            const caseId = editingCase.id
+            const { _previousStatus, ...caseData } = d
+            await updateItem('cases', caseId, caseData)
             toast({ title: 'Processo atualizado com sucesso' })
           }
         }}
@@ -450,6 +453,78 @@ export default function ClientDetail() {
             }
           }
           clearEditDraft()
+        }}
+      />
+
+      {/* Dialog para editar honorário registrado diretamente no processo */}
+      <TransactionDialog
+        open={!!editingDirectFee}
+        onOpenChange={(v: boolean) => !v && setEditingDirectFee(null)}
+        data={
+          editingDirectFee
+            ? {
+                type: 'income',
+                category: editingDirectFee.feeType || 'Honorários de Êxito',
+                description: `Honorários (${editingDirectFee.feeType}) - Processo ${editingDirectFee.caseNumber}`,
+                amount: editingDirectFee.feeValue > 0 ? editingDirectFee.feeValue : '',
+                percentage: editingDirectFee.feePercentage || '',
+                date: new Date().toISOString().split('T')[0],
+                status: 'Previsto',
+                clientId: client.id,
+                processId: editingDirectFee.caseId,
+                sendToFinance: true,
+              }
+            : null
+        }
+        onSave={async (d: any) => {
+          if (!editingDirectFee) return
+          const targetCaseId = editingDirectFee.caseId
+          const newStatus = d.status || 'Previsto'
+          const parsedAmount = typeof d.amount === 'number' ? d.amount : parseFloat(d.amount) || 0
+
+          if (newStatus === 'Pago') {
+            // GATILHO: Douglas mudou para PAGO!
+            // 1. Gera lançamento financeiro automático (receita, Honorários de Êxito)
+            const txPayload = {
+              type: 'income' as const,
+              category: 'Honorários de Êxito',
+              description:
+                d.description || `Honorários de Êxito - Processo ${editingDirectFee.caseNumber}`,
+              amount: parsedAmount,
+              date: d.date || new Date().toISOString().split('T')[0],
+              status: 'Pago' as const,
+              clientId: client.id,
+              processId: targetCaseId,
+              bankAccount: d.bankAccount || 'ASAAS',
+              paymentMethod: d.paymentMethod || 'PIX',
+              sendToFinance: true,
+            }
+            await addTransaction(txPayload)
+
+            // 2. Atualiza o processo e limpa marcação de "não gera lançamento"
+            await updateItem('cases', targetCaseId, {
+              feeType: 'Honorários de Êxito',
+              feeValue: parsedAmount,
+              feePercentage: d.percentage ? parseFloat(d.percentage) : null,
+            })
+
+            toast({
+              title: 'Lançamento financeiro gerado!',
+              description: 'Honorário de êxito marcado como Pago e adicionado ao Financeiro.',
+            })
+          } else {
+            // Permanece sem lançamento financeiro, atualiza os dados no processo
+            await updateItem('cases', targetCaseId, {
+              feeValue: parsedAmount,
+              feePercentage: d.percentage ? parseFloat(d.percentage) : null,
+            })
+            toast({
+              title: 'Honorário atualizado',
+              description: 'Valores registrados diretamente no processo.',
+            })
+          }
+
+          setEditingDirectFee(null)
         }}
       />
 
@@ -1216,15 +1291,36 @@ export default function ClientDetail() {
                           size="icon"
                           className="h-8 w-8 text-slate-500 hover:text-slate-700"
                           onClick={() => {
-                            const targetCase = allCases.find((c) => c.id === df.caseId)
-                            if (targetCase) {
-                              setEditingCase(targetCase)
-                              setIsEditCaseOpen(true)
-                            }
+                            setEditingDirectFee(df)
                           }}
-                          title="Editar Processo / Honorário"
+                          title="Editar Honorário do Processo"
                         >
                           <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50"
+                          onClick={async () => {
+                            if (
+                              confirm(
+                                `Deseja remover os honorários de êxito do processo ${df.caseNumber}? (Caso a ação tenha sido perdida, nenhum lançamento será gerado)`,
+                              )
+                            ) {
+                              await updateItem('cases', df.caseId, {
+                                feeType: null,
+                                feeValue: 0,
+                                feePercentage: null,
+                              })
+                              toast({
+                                title: 'Honorário removido',
+                                description: 'Nenhum lançamento financeiro foi gerado.',
+                              })
+                            }
+                          }}
+                          title="Excluir Honorário (Perdeu a ação)"
+                        >
+                          <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
                     </div>

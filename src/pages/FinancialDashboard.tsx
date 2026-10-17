@@ -41,10 +41,32 @@ export default function FinancialDashboard() {
   }, [state.cases])
 
   const nonFinancialCases = useMemo(() => {
-    return state.cases.filter(
-      (c: any) => c.feeType === 'apenas quota littis' || c.feeType === 'pro bono',
-    )
+    return state.cases.filter((c: any) => {
+      const ft = (c.feeType || '').toLowerCase()
+      return ft === 'pro bono' || ft === 'dps'
+    })
   }, [state.cases])
+
+  // Honorários de êxito "A apurar" / sem lançamento financeiro
+  const successFeesToAssess = useMemo(() => {
+    const processIdsWithTx = new Set<string>()
+    for (const t of state.transactions || []) {
+      if (t.processId) processIdsWithTx.add(t.processId)
+    }
+    for (const tc of state.transactionCases || []) {
+      if (tc.case_id) processIdsWithTx.add(tc.case_id)
+    }
+
+    return (state.cases || []).filter((c: any) => {
+      const ft = (c.feeType || '').toLowerCase()
+      const isSuccess =
+        ft.includes('êxito') ||
+        ft.includes('exito') ||
+        ft.includes('quota') ||
+        ft.includes('littis')
+      return isSuccess && !processIdsWithTx.has(c.id)
+    })
+  }, [state.cases, state.transactions, state.transactionCases])
 
   const getClientName = (clientId: string) =>
     state.clients.find((c) => c.id === clientId)?.name || 'Cliente não encontrado'
@@ -172,6 +194,63 @@ export default function FinancialDashboard() {
                 processos para regularizar.
               </p>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Seção: Honorários de Êxito a Apurar */}
+      {successFeesToAssess.length > 0 && (
+        <Card className="bg-blue-50 border-blue-200">
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2 text-blue-900">
+              <span>🎯</span> Honorários de Êxito a Apurar ({successFeesToAssess.length})
+            </CardTitle>
+            <p className="text-xs text-blue-700">
+              Registrados no processo (&quot;Não gera lançamento financeiro&quot;). Ao ganhar a
+              ação, mude para &quot;Pago&quot; no Financeiro ou no Cliente para gerar a receita
+              correspondente.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="rounded-md border bg-white">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Processo</TableHead>
+                    <TableHead>Cliente</TableHead>
+                    <TableHead>Percentual / Valor</TableHead>
+                    <TableHead>Vencimento Padrão</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {successFeesToAssess.map((c: any) => (
+                    <TableRow key={c.id}>
+                      <TableCell className="font-medium text-primary">{c.number}</TableCell>
+                      <TableCell>{getClientName(c.clientId)}</TableCell>
+                      <TableCell className="font-semibold text-slate-700">
+                        {c.feeValue && Number(c.feeValue) > 0
+                          ? `R$ ${Number(c.feeValue).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+                          : c.feePercentage
+                            ? `${c.feePercentage}% (A apurar)`
+                            : 'A apurar'}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        31/12/{new Date().getFullYear()}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className="border-orange-200 text-orange-700 bg-orange-50 text-xs"
+                        >
+                          Previsto
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           </CardContent>
         </Card>
       )}

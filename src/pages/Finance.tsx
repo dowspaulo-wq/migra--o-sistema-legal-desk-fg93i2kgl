@@ -78,6 +78,7 @@ export default function Finance() {
   const [filterCase, setFilterCase] = useState('Todos')
   const [filterStartDate, setFilterStartDate] = useState(formatYYYYMMDD(firstDay))
   const [filterEndDate, setFilterEndDate] = useState(formatYYYYMMDD(lastDay))
+  const [searchQuery, setSearchQuery] = useState('')
 
   const monthShortcuts = useMemo(() => {
     const months = [
@@ -116,6 +117,8 @@ export default function Finance() {
 
   const [editingTransaction, setEditingTransaction] = useState<any>(null)
   const [creatingTransaction, setCreatingTransaction] = useState(false)
+  const [creatingExpenseTransaction, setCreatingExpenseTransaction] = useState(false)
+  const [convertingSuccessCase, setConvertingSuccessCase] = useState<any>(null)
 
   const [editingSupplier, setEditingSupplier] = useState<any>(null)
   const [creatingSupplier, setCreatingSupplier] = useState(false)
@@ -139,22 +142,81 @@ export default function Finance() {
     return state.transactions.filter((t) => t.sendToFinance !== false)
   }, [state.transactions])
 
+  // Honorários de êxito registrados no processo ("Não gera lançamento financeiro")
+  // visíveis no Financeiro na seção "Êxito a apurar"
+  const unbilledSuccessFees = useMemo(() => {
+    const processIdsWithTx = new Set<string>()
+    for (const t of state.transactions || []) {
+      if (t.processId) processIdsWithTx.add(t.processId)
+    }
+    for (const tc of state.transactionCases || []) {
+      if (tc.case_id) processIdsWithTx.add(tc.case_id)
+    }
+
+    return (state.cases || [])
+      .filter((c: any) => {
+        const feeType = (c.feeType || '').toLowerCase()
+        const isSuccess =
+          feeType.includes('êxito') ||
+          feeType.includes('exito') ||
+          feeType.includes('quota') ||
+          feeType.includes('littis')
+        if (!isSuccess) return false
+        // Exclui se já tiver transação financeira
+        return !processIdsWithTx.has(c.id)
+      })
+      .map((c: any) => {
+        const clientObj = state.clients?.find((cl: any) => cl.id === c.clientId)
+        const feeValue = typeof c.feeValue === 'number' ? c.feeValue : parseFloat(c.feeValue) || 0
+        const percentage = c.feePercentage ? parseFloat(c.feePercentage) : undefined
+        return {
+          caseId: c.id,
+          caseNumber: c.number,
+          clientName: clientObj?.name || 'Cliente não identificado',
+          clientId: c.clientId,
+          feeType: 'Honorários de Êxito',
+          feeValue,
+          feePercentage: percentage,
+          dueDate: `${new Date().getFullYear()}-12-31`,
+          status: 'Previsto',
+        }
+      })
+  }, [state.cases, state.transactions, state.transactionCases, state.clients])
+
   const filtered = useMemo(() => {
     let list = baseTransactions
 
     if (activeTab === 'honorarios') {
-      list = list.filter((t) => (t.category || '').toLowerCase().includes('honorário'))
+      list = list.filter((t) => (t.category || '').toLowerCase().includes('honor'))
+    } else if (activeTab === 'despesas-cliente') {
+      list = list.filter((t) => {
+        const cat = (t.category || '').toLowerCase()
+        return (
+          t.type === 'expense' &&
+          (cat.includes('custa') ||
+            cat.includes('dilig') ||
+            cat.includes('depósito') ||
+            cat.includes('deposito') ||
+            cat === 'despesa do cliente' ||
+            cat === 'outros')
+        )
+      })
     }
 
     return list.filter((t) => {
-      const matchStatus = filterStatus === 'Todos' || t.status === filterStatus
+      const matchStatus =
+        filterStatus === 'Todos'
+          ? true
+          : filterStatus === 'Pago'
+            ? t.status === 'Pago' || t.status === 'Realizado'
+            : t.status === filterStatus
       const matchBank = filterBank === 'Todos' || t.bankAccount === filterBank
       const matchCategory = filterCategory === 'Todas' || t.category === filterCategory
       const matchSupplier = filterSupplier === 'Todos' || t.supplierId === filterSupplier
 
       let matchClient = true
       let matchCase = true
-      if (activeTab === 'honorarios') {
+      if (activeTab === 'honorarios' || activeTab === 'despesas-cliente') {
         if (filterClient !== 'Todos') {
           // Verifica clientId direto ou clientId do processo vinculado (via processId ou transactionCases)
           let matchesThisClient = t.clientId === filterClient
@@ -182,6 +244,39 @@ export default function Finance() {
         }
       }
 
+      let matchSearch = true
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim()
+        const descMatch = (t.description || '').toLowerCase().includes(q)
+        const catMatch = (t.category || '').toLowerCase().includes(q)
+
+        // Busca por nome do cliente associado à transação
+        let clientMatch = false
+        if (t.clientId) {
+          const cObj = state.clients.find((cl: any) => cl.id === t.clientId)
+          if (cObj && cObj.name?.toLowerCase().includes(q)) {
+            clientMatch = true
+          }
+        }
+
+        // Busca por processo vinculado ou nome do cliente do processo
+        let caseMatch = false
+        const linkedCaseIds = (state.transactionCases || [])
+          .filter((tc: any) => tc.transaction_id === t.id)
+          .map((tc: any) => tc.case_id)
+        const allCaseIds = [...new Set([...linkedCaseIds, ...(t.processId ? [t.processId] : [])])]
+        for (const cid of allCaseIds) {
+          const cObj = state.cases.find((cs: any) => cs.id === cid)
+          if (cObj) {
+            if ((cObj.number || '').toLowerCase().includes(q)) caseMatch = true
+            const cClient = state.clients.find((cl: any) => cl.id === cObj.clientId)
+            if (cClient && cClient.name?.toLowerCase().includes(q)) caseMatch = true
+          }
+        }
+
+        matchSearch = descMatch || catMatch || clientMatch || caseMatch
+      }
+
       let matchStart = true
       let matchEnd = true
       if (filterStartDate) matchStart = t.date >= filterStartDate
@@ -194,6 +289,7 @@ export default function Finance() {
         matchSupplier &&
         matchClient &&
         matchCase &&
+        matchSearch &&
         matchStart &&
         matchEnd
       )
@@ -207,9 +303,11 @@ export default function Finance() {
     filterSupplier,
     filterClient,
     filterCase,
+    searchQuery,
     filterStartDate,
     filterEndDate,
     state.cases,
+    state.clients,
     state.transactionCases,
   ])
 
@@ -232,25 +330,40 @@ export default function Finance() {
 
   const sortedSuppliers = useMemo(() => {
     return [...(state.suppliers || [])].sort((a: any, b: any) =>
-      (a.name || '').localeCompare(b.name || '', 'pt-BR'),
+      (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' }),
     )
   }, [state.suppliers])
 
   const sortedClients = useMemo(() => {
     return [...(state.clients || [])].sort((a: any, b: any) =>
-      (a.name || '').localeCompare(b.name || '', 'pt-BR'),
+      (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' }),
     )
   }, [state.clients])
 
   const sortedCases = useMemo(() => {
-    return [...(state.cases || [])].sort((a: any, b: any) =>
-      (a.number || '').localeCompare(b.number || '', 'pt-BR'),
-    )
-  }, [state.cases])
+    return [...(state.cases || [])]
+      .map((cs: any) => {
+        const clientObj = state.clients.find((cl: any) => cl.id === cs.clientId)
+        const clientName = clientObj?.name || ''
+        const displayLabel = clientName ? `${cs.number} — ${clientName}` : cs.number
+        return {
+          ...cs,
+          clientName,
+          displayLabel,
+        }
+      })
+      .sort((a: any, b: any) =>
+        (a.displayLabel || '').localeCompare(b.displayLabel || '', 'pt-BR', {
+          sensitivity: 'base',
+        }),
+      )
+  }, [state.cases, state.clients])
 
   const categories = useMemo(() => {
     const cats = new Set(baseTransactions.map((t) => t.category).filter(Boolean))
-    return Array.from(cats).sort()
+    return Array.from(cats).sort((a: any, b: any) =>
+      String(a).localeCompare(String(b), 'pt-BR', { sensitivity: 'base' }),
+    )
   }, [baseTransactions])
 
   const bankOptions = useMemo(() => {
@@ -258,7 +371,7 @@ export default function Finance() {
       state.settings?.bankAccounts || ['ASAAS', 'SICOOB', 'CAIXA', 'PESSOAL'],
     )
     baseTransactions.forEach((t) => t.bankAccount && banks.add(t.bankAccount))
-    return Array.from(banks).sort()
+    return Array.from(banks).sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }))
   }, [baseTransactions, state.settings?.bankAccounts])
 
   const handleAsaasChargeSync = async (transactionId: string) => {
@@ -415,6 +528,88 @@ export default function Finance() {
           }
         }}
       />
+      <TransactionDialog
+        open={creatingExpenseTransaction}
+        onOpenChange={setCreatingExpenseTransaction}
+        data={{
+          type: 'expense',
+          category: 'Custas Iniciais',
+          description: '',
+          amount: '',
+          status: 'Previsto',
+          date: formatYYYYMMDD(new Date()),
+        }}
+        onSave={(d: any, isRecurring?: boolean, installments?: number) => {
+          if (isRecurring && installments && installments > 1) {
+            const recurringId = crypto.randomUUID()
+            const baseDateStr = d.date
+
+            const toInsert = []
+            for (let i = 0; i < installments; i++) {
+              const dateStr = calculateInstallmentDate(baseDateStr, i)
+              toInsert.push({
+                ...d,
+                type: 'expense',
+                date: dateStr,
+                description: `${d.description} (${i + 1}/${installments})`,
+                recurring_id: recurringId,
+              })
+            }
+            addTransaction(toInsert)
+          } else {
+            addTransaction({ ...d, type: 'expense' })
+          }
+        }}
+      />
+      <TransactionDialog
+        open={!!convertingSuccessCase}
+        onOpenChange={(v: boolean) => !v && setConvertingSuccessCase(null)}
+        data={
+          convertingSuccessCase
+            ? {
+                type: 'income',
+                category: 'Honorários de Êxito',
+                description: `Honorários de Êxito - Processo ${convertingSuccessCase.caseNumber}`,
+                amount: convertingSuccessCase.feeValue > 0 ? convertingSuccessCase.feeValue : '',
+                percentage: convertingSuccessCase.feePercentage || '',
+                date: new Date().toISOString().split('T')[0],
+                status: 'Pago',
+                clientId: convertingSuccessCase.clientId,
+                processId: convertingSuccessCase.caseId,
+                sendToFinance: true,
+              }
+            : null
+        }
+        onSave={async (d: any) => {
+          if (!convertingSuccessCase) return
+          const targetCaseId = convertingSuccessCase.caseId
+
+          // 1. Gera lançamento financeiro (receita, Honorários de Êxito)
+          const newTxPayload = {
+            ...d,
+            type: 'income',
+            category: 'Honorários de Êxito',
+            clientId: convertingSuccessCase.clientId,
+            processId: targetCaseId,
+            sendToFinance: true,
+            status: d.status || 'Pago',
+          }
+          await addTransaction(newTxPayload)
+
+          // 2. Atualiza o processo limpando o estado de "não gera lançamento"
+          await updateItem('cases', targetCaseId, {
+            feeType: 'Honorários de Êxito',
+            feeValue: d.amount || 0,
+            feePercentage: d.percentage || null,
+          })
+
+          toast({
+            title: 'Lançamento gerado com sucesso!',
+            description: 'Honorário de êxito agora possui lançamento financeiro ativo.',
+          })
+          setConvertingSuccessCase(null)
+        }}
+      />
       <SupplierDialog
         open={!!editingSupplier}
         onOpenChange={(v: boolean) => !v && setEditingSupplier(null)}
@@ -553,19 +748,65 @@ export default function Finance() {
           <Button
             variant="outline"
             onClick={() => {
-              const exportData = filtered.map((t) => ({
-                Data: t.date,
-                Descrição: t.description,
-                Categoria: t.category,
-                Banco: t.bankAccount || '-',
-                Status: t.status,
-                Tipo: t.type === 'income' ? 'Entrada' : 'Saída',
-                Valor: t.amount,
-              }))
+              const exportData = filtered.map((t) => {
+                const linkedIds = (state.transactionCases || [])
+                  .filter((tc: any) => tc.transaction_id === t.id)
+                  .map((tc: any) => tc.case_id)
+                const linkedCases = state.cases.filter((c) => linkedIds.includes(c.id))
+                const allDisplayCases =
+                  linkedCases.length > 0
+                    ? linkedCases
+                    : t.processId
+                      ? state.cases.filter((c) => c.id === t.processId)
+                      : []
+                const processInfo = allDisplayCases
+                  .map((c) => {
+                    const clientObj = state.clients.find(
+                      (cl: any) => cl.id === (c.clientId || t.clientId),
+                    )
+                    return clientObj?.name ? `${c.number} — ${clientObj.name}` : c.number
+                  })
+                  .join('; ')
+
+                return {
+                  Data: t.date,
+                  Descrição: t.description,
+                  Categoria: t.category,
+                  'Processo / Cliente': processInfo || '-',
+                  Banco: t.bankAccount || '-',
+                  Status: t.status,
+                  Tipo: t.type === 'income' ? 'Entrada' : 'Saída',
+                  Valor: t.amount,
+                }
+              })
+
+              // Se houver honorários de êxito a apurar, inclui no relatório de exportação
+              if (activeTab === 'honorarios' && unbilledSuccessFees.length > 0) {
+                unbilledSuccessFees.forEach((fee) => {
+                  exportData.push({
+                    Data: fee.dueDate,
+                    Descrição: `Honorários de Êxito (A apurar) - Processo ${fee.caseNumber}`,
+                    Categoria: 'Honorários de Êxito',
+                    'Processo / Cliente': `${fee.caseNumber} — ${fee.clientName}`,
+                    Banco: '-',
+                    Status: 'Previsto',
+                    Tipo: 'Entrada',
+                    Valor: fee.feeValue > 0 ? (fee.feeValue as any) : 'A apurar',
+                  })
+                })
+              }
+
               downloadCSV(exportData, 'financeiro.csv')
             }}
           >
             <Download className="mr-2 h-4 w-4" /> Exportar
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setCreatingExpenseTransaction(true)}
+            className="border-amber-300 text-amber-800 hover:bg-amber-50"
+          >
+            <Plus className="mr-2 h-4 w-4 text-amber-600" /> Despesa do Cliente
           </Button>
           <Button onClick={() => setCreatingTransaction(true)}>
             <Plus className="mr-2 h-4 w-4" /> Novo Lançamento
@@ -622,9 +863,10 @@ export default function Finance() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full max-w-3xl grid-cols-4">
+        <TabsList className="grid w-full max-w-4xl grid-cols-5">
           <TabsTrigger value="geral">Visão Geral</TabsTrigger>
           <TabsTrigger value="honorarios">Honorários</TabsTrigger>
+          <TabsTrigger value="despesas-cliente">Despesas do Cliente</TabsTrigger>
           <TabsTrigger value="fornecedores">Fornecedores</TabsTrigger>
           <TabsTrigger value="conciliacao" className="relative">
             Conciliação
@@ -671,6 +913,17 @@ export default function Finance() {
                     ))}
                   </div>
                 </div>
+
+                {/* Campo de busca textual por descrição, nº do processo ou cliente */}
+                <div className="max-w-md">
+                  <Input
+                    placeholder="Buscar por descrição, processo ou cliente..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="bg-white text-sm"
+                  />
+                </div>
+
                 <div
                   className={`grid grid-cols-1 md:grid-cols-3 ${
                     activeTab === 'honorarios' ? 'lg:grid-cols-8' : 'lg:grid-cols-6'
@@ -684,12 +937,11 @@ export default function Finance() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Todos">Todos</SelectItem>
-                        <SelectItem value="Previsto">Previsto</SelectItem>
-                        <SelectItem value="Realizado">Realizado / Pago</SelectItem>
+                        <SelectItem value="Atrasado">Atrasado</SelectItem>
+                        <SelectItem value="Cancelado">Cancelado</SelectItem>
                         <SelectItem value="Pago">Pago</SelectItem>
                         <SelectItem value="Pendente">Pendente</SelectItem>
-                        <SelectItem value="Atrasado">Atrasado</SelectItem>
-                        <SelectItem value="Êxito">Êxito</SelectItem>
+                        <SelectItem value="Previsto">Previsto</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -760,16 +1012,16 @@ export default function Finance() {
                         </Select>
                       </div>
                       <div className="space-y-1.5">
-                        <Label>Número do Processo</Label>
+                        <Label>Processo / Cliente</Label>
                         <Select value={filterCase} onValueChange={setFilterCase}>
                           <SelectTrigger className="bg-white">
-                            <SelectValue placeholder="Processo" />
+                            <SelectValue placeholder="Processo — Cliente" />
                           </SelectTrigger>
                           <SelectContent className="max-h-72">
                             <SelectItem value="Todos">Todos</SelectItem>
                             {sortedCases.map((cs: any) => (
                               <SelectItem key={cs.id} value={cs.id}>
-                                {cs.number}
+                                {cs.displayLabel}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -872,27 +1124,52 @@ export default function Finance() {
                               .filter((tc: any) => tc.transaction_id === t.id)
                               .map((tc: any) => tc.case_id)
                             const linkedCases = state.cases.filter((c) => linkedIds.includes(c.id))
-                            if (linkedCases.length > 0) {
+                            const allDisplayCases =
+                              linkedCases.length > 0
+                                ? linkedCases
+                                : t.processId
+                                  ? state.cases.filter((c) => c.id === t.processId)
+                                  : []
+
+                            if (allDisplayCases.length > 0) {
                               return (
-                                <div className="flex flex-wrap gap-1">
-                                  {linkedCases.map((c) => (
-                                    <Badge key={c.id} variant="secondary" className="text-[10px]">
-                                      {c.number}
-                                    </Badge>
-                                  ))}
+                                <div className="flex flex-col gap-1">
+                                  {allDisplayCases.map((c) => {
+                                    const clientObj = state.clients.find(
+                                      (cl: any) => cl.id === (c.clientId || t.clientId),
+                                    )
+                                    const clientName = clientObj?.name || ''
+                                    const label = clientName
+                                      ? `${c.number} — ${clientName}`
+                                      : c.number
+                                    return (
+                                      <Badge
+                                        key={c.id}
+                                        variant="secondary"
+                                        className="text-[11px] font-normal justify-start max-w-xs truncate"
+                                        title={label}
+                                      >
+                                        {label}
+                                      </Badge>
+                                    )
+                                  })}
                                 </div>
                               )
                             }
-                            if (t.processId) {
-                              const directCase = state.cases.find((c) => c.id === t.processId)
-                              return directCase ? (
-                                <Badge variant="secondary" className="text-[10px]">
-                                  {directCase.number}
-                                </Badge>
-                              ) : (
-                                '-'
+
+                            if (t.clientId) {
+                              const clientObj = state.clients.find(
+                                (cl: any) => cl.id === t.clientId,
                               )
+                              if (clientObj?.name) {
+                                return (
+                                  <span className="text-xs text-muted-foreground">
+                                    Cliente: {clientObj.name}
+                                  </span>
+                                )
+                              }
                             }
+
                             return '-'
                           })()}
                         </TableCell>
@@ -986,6 +1263,91 @@ export default function Finance() {
                   </TableBody>
                 </Table>
               </div>
+
+              {/* Seção Nova: Êxito a apurar (Honorários marcados apenas no processo sem lançamento financeiro) */}
+              {(activeTab === 'geral' || activeTab === 'honorarios') &&
+                unbilledSuccessFees.length > 0 && (
+                  <div className="mt-8 border-t pt-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                      <div>
+                        <h3 className="text-base font-semibold text-slate-800 flex items-center gap-2">
+                          <span>🎯</span> Honorários de Êxito a Apurar ({unbilledSuccessFees.length}
+                          )
+                        </h3>
+                        <p className="text-xs text-muted-foreground">
+                          Honorários registrados diretamente no processo (&quot;Não gera lançamento
+                          financeiro&quot;). Ao ganhar a ação, clique em &quot;Marcar como
+                          Pago&quot; para apurar o valor e gerar o lançamento financeiro automático.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-md border bg-slate-50/50">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Processo — Cliente</TableHead>
+                            <TableHead>Tipo</TableHead>
+                            <TableHead>Percentual / Valor</TableHead>
+                            <TableHead>Vencimento Padrão</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead className="w-[180px] text-right">Ação</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {unbilledSuccessFees.map((fee) => (
+                            <TableRow key={`unbilled-fee-${fee.caseId}`} className="hover:bg-white">
+                              <TableCell className="font-medium text-sm">
+                                <div>
+                                  <span className="font-semibold text-primary">
+                                    {fee.caseNumber}
+                                  </span>
+                                  <span className="text-muted-foreground"> — {fee.clientName}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant="outline"
+                                  className="bg-blue-50 text-blue-700 border-blue-200 text-xs"
+                                >
+                                  {fee.feeType}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="font-semibold text-slate-700">
+                                {fee.feeValue > 0
+                                  ? `R$ ${fee.feeValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+                                  : fee.feePercentage
+                                    ? `${fee.feePercentage}% (A apurar)`
+                                    : 'A apurar'}
+                              </TableCell>
+                              <TableCell className="text-sm text-muted-foreground">
+                                {formatSafeLocalDate(fee.dueDate)} (31/12)
+                              </TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant="outline"
+                                  className="border-orange-200 text-orange-700 bg-orange-50 text-xs"
+                                >
+                                  {fee.status}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 text-xs border-green-300 text-green-700 hover:bg-green-50"
+                                  onClick={() => setConvertingSuccessCase(fee)}
+                                >
+                                  Marcar como Pago →
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                )}
             </CardContent>
           </Card>
         )}

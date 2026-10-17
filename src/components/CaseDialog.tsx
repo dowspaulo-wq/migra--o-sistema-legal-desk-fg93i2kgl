@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { CaseSystemSelect } from '@/components/CaseSystemSelect'
 import {
   Dialog,
@@ -133,6 +133,10 @@ export function CaseDialog({
 
   const currentYear = new Date().getFullYear()
   const defaultSuccessDueDate = `${currentYear}-12-31`
+  const oldStatusRef = useRef(data?.status)
+  useEffect(() => {
+    oldStatusRef.current = data?.status
+  }, [data])
 
   const [feeConfig, setFeeConfig] = useState({
     hasFees: false,
@@ -191,6 +195,7 @@ export function CaseDialog({
       ...fd,
       classification: fd.classification || 'DPS',
       feeConfig: feeConfig.hasFees ? feeConfig : undefined,
+      _previousStatus: oldStatusRef.current,
     }
     const { isNew, ...finalPayload } = payload
     onSave(finalPayload)
