@@ -30,10 +30,16 @@ NC='\033[0m'
 
 echo -e "${BOLD}${BLUE}=== DPSjur - Atualização Módulo Financeiro VPS (v0.0.568) ===${NC}"
 
-# 1. Identificar contêiner Docker do PostgreSQL
+# 1. Identificar contêiner Docker do PostgreSQL e credenciais de acesso
 echo -e "\n${BOLD}[1/3] Procurando contêiner Docker do PostgreSQL no VPS...${NC}"
 
-DB_CONTAINER=$(docker ps --filter "name=db" --format "{{.Names}}" | head -n 1 || true)
+DB_CONTAINER="${DB_CONTAINER:-}"
+if [ -z "$DB_CONTAINER" ]; then
+    DB_CONTAINER=$(docker ps --format "{{.Names}}" | grep -E 'dpsjur.*db|supabase.*db|sbjur.*db' | head -n 1 || true)
+fi
+if [ -z "$DB_CONTAINER" ]; then
+    DB_CONTAINER=$(docker ps --filter "name=db" --format "{{.Names}}" | head -n 1 || true)
+fi
 if [ -z "$DB_CONTAINER" ]; then
     DB_CONTAINER=$(docker ps --filter "name=postgres" --format "{{.Names}}" | head -n 1 || true)
 fi
@@ -45,10 +51,73 @@ if [ -z "$DB_CONTAINER" ]; then
     exit 1
 fi
 
-# 2. Aplicar script SQL idempotente
-echo -e "\n${BOLD}[2/3] Aplicando migração SQL no PostgreSQL...${NC}"
+# Derivar variáveis de ambiente do contêiner via docker inspect (com fallback)
+INSPECT_USER=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$DB_CONTAINER" 2>/dev/null | grep -E '^POSTGRES_USER=' | head -n 1 | cut -d= -f2- || true)
+INSPECT_DB=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$DB_CONTAINER" 2>/dev/null | grep -E '^POSTGRES_DB=' | head -n 1 | cut -d= -f2- || true)
+INSPECT_PASS=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$DB_CONTAINER" 2>/dev/null | grep -E '^POSTGRES_PASSWORD=' | head -n 1 | cut -d= -f2- || true)
 
-docker exec -i "$DB_CONTAINER" psql -U postgres -d postgres << 'EOSQL'
+# Detectar usuário funcional com fallback (supabase_admin superuser Supabase, postgres, INSPECT_USER, etc.)
+CANDIDATE_USERS=()
+[ -n "${POSTGRES_USER:-}" ] && CANDIDATE_USERS+=("${POSTGRES_USER}")
+[ -n "$INSPECT_USER" ] && CANDIDATE_USERS+=("$INSPECT_USER")
+CANDIDATE_USERS+=("supabase_admin" "postgres" "Doug")
+
+# Deduplica usuários candidatos mantendo a ordem
+UNIQUE_USERS=()
+for u in "${CANDIDATE_USERS[@]}"; do
+    [[ " ${UNIQUE_USERS[*]} " =~ " ${u} " ]] || UNIQUE_USERS+=("$u")
+done
+
+DETECTED_USER=""
+DETECTED_DB=""
+
+echo -e "Detectando usuário e banco de dados disponíveis..."
+
+for test_u in "${UNIQUE_USERS[@]}"; do
+    # Tenta listar bancos para este usuário
+    DB_LIST=$(docker exec -i "$DB_CONTAINER" psql -U "$test_u" -At -c "SELECT datname FROM pg_database WHERE datistemplate = false;" 2>/dev/null || true)
+    if [ -n "$DB_LIST" ]; then
+        DETECTED_USER="$test_u"
+        # Escolhe o melhor banco: POSTGRES_DB informado, ou banco da aplicação existente, ou 'postgres'
+        for cand_db in "${POSTGRES_DB:-}" "$INSPECT_DB" "dpsjur" "postgres"; do
+            if [ -n "$cand_db" ] && echo "$DB_LIST" | grep -qx "$cand_db"; then
+                DETECTED_DB="$cand_db"
+                break
+            fi
+        done
+        # Se nenhum casou exatamente, pega o primeiro da lista que não seja template
+        if [ -z "$DETECTED_DB" ]; then
+            DETECTED_DB=$(echo "$DB_LIST" | head -n 1)
+        fi
+        break
+    fi
+done
+
+# Fallback seguro caso 'pg_database' precise de banco específico para conectar
+if [ -z "$DETECTED_USER" ]; then
+    for test_u in "${UNIQUE_USERS[@]}"; do
+        for test_d in "${POSTGRES_DB:-}" "$INSPECT_DB" "postgres" "dpsjur"; do
+            [ -z "$test_d" ] && continue
+            if docker exec -i "$DB_CONTAINER" psql -U "$test_u" -d "$test_d" -At -c "SELECT 1;" >/dev/null 2>&1; then
+                DETECTED_USER="$test_u"
+                DETECTED_DB="$test_d"
+                break 2
+            fi
+        done
+    done
+fi
+
+# Fallback final se nada respondeu
+DB_USER="${DETECTED_USER:-supabase_admin}"
+DB_NAME="${DETECTED_DB:-postgres}"
+
+echo -e "Usuário PostgreSQL detectado: ${GREEN}${DB_USER}${NC}"
+echo -e "Banco de Dados detectado:     ${GREEN}${DB_NAME}${NC}"
+
+# 2. Aplicar script SQL idempotente
+echo -e "\n${BOLD}[2/3] Aplicando migração SQL no PostgreSQL (usuário: ${DB_USER}, banco: ${DB_NAME})...${NC}"
+
+docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" << 'EOSQL'
 DO $$
 BEGIN
     -- 1. Garantir coluna feePercentage na tabela cases
@@ -160,8 +229,8 @@ EOSQL
 echo -e "${GREEN}✓ Migração SQL aplicada no banco com sucesso!${NC}"
 
 # 3. Conferência dos dados
-echo -e "\n${BOLD}[3/3] Conferência do banco pós-migração:${NC}"
-docker exec -i "$DB_CONTAINER" psql -U postgres -d postgres -c "SELECT status, count(*) FROM public.transactions GROUP BY status ORDER BY count(*) DESC;"
+echo -e "\n${BOLD}[3/3] Conferência do banco pós-migração (usuário: ${DB_USER}, banco: ${DB_NAME}):${NC}"
+docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -c "SELECT status, count(*) FROM public.transactions GROUP BY status ORDER BY count(*) DESC;"
 
 echo -e "\n${BOLD}${GREEN}=== ATUALIZAÇÃO DO BANCO CONCLUÍDA COM SUCESSO (v0.0.568) ===${NC}"
 echo -e "Próximos passos para o Douglas:"
