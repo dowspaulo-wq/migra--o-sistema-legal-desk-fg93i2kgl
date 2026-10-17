@@ -45,6 +45,7 @@ import {
   FileUp,
   RefreshCw,
   Lock,
+  Calculator,
 } from 'lucide-react'
 import { SectionErrorBoundary } from '@/components/SectionErrorBoundary'
 import useLegalStore from '@/stores/useLegalStore'
@@ -54,6 +55,7 @@ import { CaseDialog } from '@/components/CaseDialog'
 import { TaskDialog } from '@/components/TaskDialog'
 import { AppointmentDialog } from '@/components/AppointmentDialog'
 import { TransactionDialog } from '@/components/TransactionDialog'
+import { PaymentPlanDialog } from '@/components/PaymentPlanDialog'
 import {
   formatSafeLocalDate,
   formatSafeDateTime,
@@ -110,6 +112,7 @@ export default function CaseDetail() {
 
   const [editingTransaction, setEditingTransaction] = useState<any>(null)
   const [creatingTransaction, setCreatingTransaction] = useState(false)
+  const [creatingPlan, setCreatingPlan] = useState(false)
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false)
   const [templates, setTemplates] = useState<any[]>([])
   const [templateLoading, setTemplateLoading] = useState(false)
@@ -325,6 +328,13 @@ export default function CaseDetail() {
         lockedProcessId={c.id}
         lockedClientId={c.clientId}
         onSave={(d: any) => addTransaction(d)}
+      />
+
+      <PaymentPlanDialog
+        open={creatingPlan}
+        onOpenChange={setCreatingPlan}
+        defaultClientId={c.clientId}
+        defaultProcessId={c.id}
       />
 
       <Dialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen}>
@@ -1110,9 +1120,14 @@ export default function CaseDetail() {
                   <DollarSign className="h-5 w-5" /> Transações Financeiras (
                   {processTransactions.length})
                 </CardTitle>
-                <Button size="sm" onClick={() => setCreatingTransaction(true)}>
-                  <Plus className="h-4 w-4 mr-2" /> Novo Lançamento
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setCreatingPlan(true)}>
+                    <Calculator className="h-4 w-4 mr-2 text-blue-600" /> Novo Parcelamento
+                  </Button>
+                  <Button size="sm" onClick={() => setCreatingTransaction(true)}>
+                    <Plus className="h-4 w-4 mr-2" /> Novo Lançamento
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 {processTransactions.length === 0 ? (

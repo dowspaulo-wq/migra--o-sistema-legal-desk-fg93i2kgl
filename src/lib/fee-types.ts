@@ -25,6 +25,7 @@ export const CLIENT_EXPENSE_TYPES = [
   'Custas Finais',
   'Diligência',
   'Depósito Recursal',
+  'Repasse ao Cliente',
   'Outros',
 ]
 
@@ -85,7 +86,11 @@ export const getClientExpenseOptions = (transactionCategories?: string[] | null)
   const customExpenses = (transactionCategories || []).filter((c) => {
     const l = c.toLowerCase()
     return (
-      l.includes('custa') || l.includes('dilig') || l.includes('depósito') || l.includes('deposito')
+      l.includes('custa') ||
+      l.includes('dilig') ||
+      l.includes('depósito') ||
+      l.includes('deposito') ||
+      l.includes('repasse')
     )
   })
 

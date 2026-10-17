@@ -92,6 +92,30 @@ export interface Appointment {
   modality?: string
   status: string
 }
+export interface PaymentPlan {
+  id: string
+  clientId: string
+  processId?: string | null
+  title: string
+  installmentAmount: number
+  installmentsCount: number
+  periodicity: 'mensal' | 'semanal' | 'anual' | string
+  firstDueDate: string
+  feePercentage: number
+  clientPercentage: number
+  feeInstallmentAmount: number
+  clientInstallmentAmount: number
+  totalAmount: number
+  totalFeeAmount: number
+  totalClientAmount: number
+  bankAccount?: string
+  paymentMethod?: string
+  status: string
+  notes?: string | null
+  created_at?: string
+  updated_at?: string
+}
+
 export interface Transaction {
   id: string
   description: string
@@ -103,6 +127,18 @@ export interface Transaction {
   clientId?: string
   processId?: string
   asaas_id?: string
+  plan_id?: string | null
+  pair_id?: string | null
+  installment_number?: number | null
+  installment_total?: number | null
+  bankAccount?: string
+  payment_method?: string
+  percentage?: number
+  sendToFinance?: boolean
+  supplierId?: string
+  recurring_id?: string
+  pendente_vinculo?: boolean
+  origem?: string
 }
 export interface Log {
   id: string
@@ -168,6 +204,7 @@ export interface LegalState {
   petitions: Petition[]
   settings: Settings
   whatsappMessages: WhatsAppMessage[]
+  paymentPlans?: PaymentPlan[]
 }
 
 export const initialData: LegalState = {
@@ -188,6 +225,7 @@ export const initialData: LegalState = {
   logs: [],
   petitions: [],
   whatsappMessages: [],
+  paymentPlans: [],
   settings: {
     id: '',
     showFinanceDashboard: true,

@@ -57,10 +57,20 @@ import { RecurringTransactionEditDialog } from '@/components/RecurringTransactio
 import { ConciliationTab } from '@/components/ConciliationTab'
 import { AsaasExtractImportDialog } from '@/components/AsaasExtractImportDialog'
 import { BankPdfImportDialog } from '@/components/BankPdfImportDialog'
+import { PaymentPlanDialog } from '@/components/PaymentPlanDialog'
+import { Calculator, CheckCircle2 } from 'lucide-react'
 
 export default function Finance() {
-  const { state, updateItem, deleteItem, addTransaction, addSupplier, reloadTransactions } =
-    useLegalStore() as any
+  const {
+    state,
+    updateItem,
+    deleteItem,
+    addTransaction,
+    addSupplier,
+    reloadTransactions,
+    markRepasseAsDone,
+    deletePaymentPlan,
+  } = useLegalStore() as any
 
   const now = new Date()
   const firstDay = new Date(now.getFullYear(), now.getMonth(), 1)
@@ -118,6 +128,7 @@ export default function Finance() {
   const [editingTransaction, setEditingTransaction] = useState<any>(null)
   const [creatingTransaction, setCreatingTransaction] = useState(false)
   const [creatingExpenseTransaction, setCreatingExpenseTransaction] = useState(false)
+  const [creatingPaymentPlan, setCreatingPaymentPlan] = useState(false)
   const [convertingSuccessCase, setConvertingSuccessCase] = useState<any>(null)
 
   const [editingSupplier, setEditingSupplier] = useState<any>(null)
@@ -197,10 +208,13 @@ export default function Finance() {
             cat.includes('dilig') ||
             cat.includes('depósito') ||
             cat.includes('deposito') ||
+            cat.includes('repasse') ||
             cat === 'despesa do cliente' ||
             cat === 'outros')
         )
       })
+    } else if (activeTab === 'parcelamentos') {
+      list = list.filter((t) => Boolean(t.plan_id))
     }
 
     return list.filter((t) => {
@@ -320,7 +334,8 @@ export default function Finance() {
       }
       if (t.type === 'income') {
         dataByDate[t.date].income += t.amount
-      } else if (t.category !== 'Repasse ao cliente') {
+      } else if (t.type === 'expense') {
+        // Todas as despesas (inclusive Repasse ao Cliente) afetam a saída real do caixa
         dataByDate[t.date].expense += t.amount
       }
     })
@@ -461,12 +476,12 @@ export default function Finance() {
 
   if (!state.currentUser.canViewFinance) return <Navigate to="/" replace />
 
+  // DECISÃO 1 DO DOUGLAS: O repasse ao cliente DEVE afetar o saldo do caixa no Financeiro — é despesa real.
+  // A receita conta SOMENTE o honorário.
   const income = filtered.filter((t) => t.type === 'income').reduce((a, b) => a + b.amount, 0)
-  const expense = filtered
-    .filter((t) => t.type === 'expense' && t.category !== 'Repasse ao cliente')
-    .reduce((a, b) => a + b.amount, 0)
+  const expense = filtered.filter((t) => t.type === 'expense').reduce((a, b) => a + b.amount, 0)
   const clientRepassTotal = filtered
-    .filter((t) => t.type === 'expense' && t.category === 'Repasse ao cliente')
+    .filter((t) => t.type === 'expense' && (t.category?.toLowerCase() || '').includes('repasse'))
     .reduce((a, b) => a + b.amount, 0)
   const balance = income - expense
 
@@ -803,6 +818,13 @@ export default function Finance() {
           </Button>
           <Button
             variant="outline"
+            onClick={() => setCreatingPaymentPlan(true)}
+            className="border-blue-300 text-blue-800 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-950/40"
+          >
+            <Calculator className="mr-2 h-4 w-4 text-blue-600" /> Novo Parcelamento
+          </Button>
+          <Button
+            variant="outline"
             onClick={() => setCreatingExpenseTransaction(true)}
             className="border-amber-300 text-amber-800 hover:bg-amber-50"
           >
@@ -849,23 +871,24 @@ export default function Finance() {
         </Card>
         <Card className="bg-blue-50 border-blue-200">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-blue-800">
-              Repasses a clientes (neutro)
-            </CardTitle>
+            <CardTitle className="text-sm font-medium text-blue-800">Repasses a clientes</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-blue-700">
               R$ {clientRepassTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
             </div>
-            <p className="text-[11px] text-blue-600 mt-1">Fora do total de saídas</p>
+            <p className="text-[11px] text-blue-600 mt-1">Despesa real inclusa nas saídas</p>
           </CardContent>
         </Card>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full max-w-4xl grid-cols-5">
+        <TabsList className="grid w-full max-w-5xl grid-cols-6">
           <TabsTrigger value="geral">Visão Geral</TabsTrigger>
           <TabsTrigger value="honorarios">Honorários</TabsTrigger>
+          <TabsTrigger value="parcelamentos">
+            Parcelamentos ({state.paymentPlans?.length || 0})
+          </TabsTrigger>
           <TabsTrigger value="despesas-cliente">Despesas do Cliente</TabsTrigger>
           <TabsTrigger value="fornecedores">Fornecedores</TabsTrigger>
           <TabsTrigger value="conciliacao" className="relative">
@@ -1195,6 +1218,43 @@ export default function Finance() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center justify-end gap-1">
+                            {/* Botão próprio "Repasse efetuado" para lançamentos de Repasse ao Cliente */}
+                            {t.type === 'expense' &&
+                              (t.category?.toLowerCase() || '').includes('repasse') &&
+                              t.status !== 'Pago' && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 text-xs bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    markRepasseAsDone(t.id)
+                                  }}
+                                  title="Marcar repasse como Pago (dinheiro repassado ao cliente)"
+                                >
+                                  <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                                  Repasse efetuado
+                                </Button>
+                              )}
+                            {/* Botão rápido Marcar Pago para honorários ou outras receitas previstas */}
+                            {t.type === 'income' && t.status !== 'Pago' && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs border-green-300 text-green-700 hover:bg-green-50"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  updateItem('transactions', t.id, {
+                                    status: 'Pago',
+                                    date: new Date().toISOString().split('T')[0],
+                                  })
+                                  toast({ title: 'Honorário marcado como Pago!' })
+                                }}
+                                title="Marcar honorário como Pago"
+                              >
+                                Marcar Pago
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="icon"
@@ -1368,6 +1428,342 @@ export default function Finance() {
           </div>
         )}
 
+        {/* SUB-ABA PARCELAMENTOS: Agrupamento detalhado por plano de parcelamento com repasse */}
+        {activeTab === 'parcelamentos' && (
+          <div className="mt-4 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <Calculator className="w-5 h-5 text-blue-600" />
+                  Planos de Parcelamento com Repasse ao Cliente
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  Visão consolidada por plano: cobrança integral (Asaas), receita de honorários
+                  apurada e repasses efetuados.
+                </p>
+              </div>
+              <Button
+                onClick={() => setCreatingPaymentPlan(true)}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                <Plus className="mr-2 h-4 w-4" /> Novo Parcelamento
+              </Button>
+            </div>
+
+            {!state.paymentPlans || state.paymentPlans.length === 0 ? (
+              <Card className="p-8 text-center border-dashed">
+                <Calculator className="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
+                <h3 className="text-base font-semibold">Nenhum parcelamento cadastrado ainda</h3>
+                <p className="text-sm text-muted-foreground max-w-md mx-auto mt-1 mb-4">
+                  Crie parcelamentos longos (ex: 18x de R$ 500) com divisão automática entre seus
+                  honorários (30%) e o repasse ao cliente (70%).
+                </p>
+                <Button onClick={() => setCreatingPaymentPlan(true)}>
+                  <Plus className="mr-2 h-4 w-4" /> Criar Primeiro Parcelamento
+                </Button>
+              </Card>
+            ) : (
+              state.paymentPlans.map((plan: any) => {
+                const clientObj = state.clients.find((c: any) => c.id === plan.clientId)
+                const caseObj = state.cases.find((cs: any) => cs.id === plan.processId)
+
+                // Transações deste plano
+                const planTxns = state.transactions.filter((t: any) => t.plan_id === plan.id)
+                const feeTxns = planTxns.filter((t: any) => t.type === 'income')
+                const repasseTxns = planTxns.filter((t: any) => t.type === 'expense')
+
+                // Agregados
+                const feeReceived = feeTxns
+                  .filter((t: any) => t.status === 'Pago' || t.status === 'Realizado')
+                  .reduce((acc: number, t: any) => acc + (t.amount || 0), 0)
+                const feePending = feeTxns
+                  .filter((t: any) => t.status !== 'Pago' && t.status !== 'Realizado')
+                  .reduce((acc: number, t: any) => acc + (t.amount || 0), 0)
+
+                const repasseDone = repasseTxns
+                  .filter((t: any) => t.status === 'Pago' || t.status === 'Realizado')
+                  .reduce((acc: number, t: any) => acc + (t.amount || 0), 0)
+                const repassePending = repasseTxns
+                  .filter((t: any) => t.status !== 'Pago' && t.status !== 'Realizado')
+                  .reduce((acc: number, t: any) => acc + (t.amount || 0), 0)
+
+                return (
+                  <Card key={plan.id} className="overflow-hidden border-blue-200/60 shadow-sm">
+                    {/* Header do Plano */}
+                    <CardHeader className="bg-slate-50/70 dark:bg-slate-900/40 border-b pb-4">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-lg text-slate-800 dark:text-slate-100">
+                              {plan.title}
+                            </span>
+                            <Badge
+                              variant="outline"
+                              className="bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/50 dark:text-blue-200"
+                            >
+                              {plan.installmentsCount} parcelas {plan.periodicity || 'mensais'}
+                            </Badge>
+                            <Badge
+                              variant="secondary"
+                              className="bg-emerald-50 text-emerald-700 border-emerald-300"
+                            >
+                              Honorário: {plan.feePercentage}%
+                            </Badge>
+                            <Badge
+                              variant="secondary"
+                              className="bg-amber-50 text-amber-700 border-amber-300"
+                            >
+                              Repasse: {plan.clientPercentage}%
+                            </Badge>
+                          </div>
+                          <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-3">
+                            <span>
+                              Cliente:{' '}
+                              <strong className="text-foreground">
+                                {clientObj?.name || 'Não identificado'}
+                              </strong>
+                            </span>
+                            {caseObj && (
+                              <span>
+                                Processo:{' '}
+                                <strong className="text-foreground">{caseObj.number}</strong>
+                              </span>
+                            )}
+                            <span>1ª Parcela: {formatSafeLocalDate(plan.firstDueDate)}</span>
+                            <span>Conta: {plan.bankAccount || 'ASAAS'}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => {
+                              if (
+                                confirm(
+                                  `Deseja excluir o parcelamento "${plan.title}" e todos os seus ${planTxns.length} lançamentos vinculados?`,
+                                )
+                              ) {
+                                deletePaymentPlan(plan.id)
+                              }
+                            }}
+                          >
+                            <Trash className="h-4 w-4 mr-1.5" /> Excluir Plano
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Resumo de Indicadores por Plano */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3">
+                        <div className="bg-white dark:bg-slate-950 p-2.5 rounded-lg border">
+                          <div className="text-[11px] text-muted-foreground uppercase font-medium">
+                            Contrato Total
+                          </div>
+                          <div className="text-base font-bold text-foreground">
+                            R${' '}
+                            {Number(plan.totalAmount || 0).toLocaleString('pt-BR', {
+                              minimumFractionDigits: 2,
+                            })}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">
+                            {plan.installmentsCount}x de R${' '}
+                            {Number(plan.installmentAmount || 0).toLocaleString('pt-BR', {
+                              minimumFractionDigits: 2,
+                            })}{' '}
+                            (Cobrança cheia Asaas)
+                          </div>
+                        </div>
+
+                        <div className="bg-white dark:bg-slate-950 p-2.5 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                          <div className="text-[11px] text-emerald-700 dark:text-emerald-400 uppercase font-medium">
+                            Honorários Recebidos
+                          </div>
+                          <div className="text-base font-bold text-emerald-600 dark:text-emerald-400">
+                            R$ {feeReceived.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">
+                            Pendente: R${' '}
+                            {feePending.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}{' '}
+                            (Total R${' '}
+                            {Number(plan.totalFeeAmount || 0).toLocaleString('pt-BR', {
+                              minimumFractionDigits: 2,
+                            })}
+                            )
+                          </div>
+                        </div>
+
+                        <div className="bg-white dark:bg-slate-950 p-2.5 rounded-lg border border-amber-200 dark:border-amber-800">
+                          <div className="text-[11px] text-amber-700 dark:text-amber-400 uppercase font-medium">
+                            Repasses Efetuados
+                          </div>
+                          <div className="text-base font-bold text-amber-600 dark:text-amber-400">
+                            R$ {repasseDone.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">
+                            Pendente: R${' '}
+                            {repassePending.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}{' '}
+                            (Total R${' '}
+                            {Number(plan.totalClientAmount || 0).toLocaleString('pt-BR', {
+                              minimumFractionDigits: 2,
+                            })}
+                            )
+                          </div>
+                        </div>
+
+                        <div className="bg-white dark:bg-slate-950 p-2.5 rounded-lg border">
+                          <div className="text-[11px] text-muted-foreground uppercase font-medium">
+                            Status do Caixa
+                          </div>
+                          <div className="text-base font-bold text-slate-700 dark:text-slate-300">
+                            R${' '}
+                            {(feeReceived - repasseDone).toLocaleString('pt-BR', {
+                              minimumFractionDigits: 2,
+                            })}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">
+                            Honorário recebido (-) Repasse pago
+                          </div>
+                        </div>
+                      </div>
+                    </CardHeader>
+
+                    {/* Tabela de Pares de Lançamento por Parcela */}
+                    <CardContent className="p-0">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-muted/40">
+                            <TableHead className="w-[80px]">Parcela</TableHead>
+                            <TableHead>Vencimento</TableHead>
+                            <TableHead>Cobrança Integral</TableHead>
+                            <TableHead>Honorário ({plan.feePercentage}%)</TableHead>
+                            <TableHead>Status Honorário</TableHead>
+                            <TableHead>Repasse ({plan.clientPercentage}%)</TableHead>
+                            <TableHead>Status Repasse</TableHead>
+                            <TableHead className="w-[180px] text-right">Ação</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {Array.from({ length: plan.installmentsCount }).map((_, idx) => {
+                            const instNum = idx + 1
+                            const feeTx = feeTxns.find((t: any) => t.installment_number === instNum)
+                            const repasseTx = repasseTxns.find(
+                              (t: any) => t.installment_number === instNum,
+                            )
+                            const dueDate = feeTx?.date || repasseTx?.date || '-'
+
+                            const isFeePaid =
+                              feeTx?.status === 'Pago' || feeTx?.status === 'Realizado'
+                            const isRepassePaid =
+                              repasseTx?.status === 'Pago' || repasseTx?.status === 'Realizado'
+
+                            return (
+                              <TableRow key={`plan-${plan.id}-inst-${instNum}`}>
+                                <TableCell className="font-semibold">
+                                  {instNum}/{plan.installmentsCount}
+                                </TableCell>
+                                <TableCell>{formatSafeLocalDate(dueDate)}</TableCell>
+                                <TableCell className="font-medium text-slate-800 dark:text-slate-200">
+                                  R${' '}
+                                  {Number(plan.installmentAmount || 0).toLocaleString('pt-BR', {
+                                    minimumFractionDigits: 2,
+                                  })}
+                                </TableCell>
+
+                                {/* Honorário */}
+                                <TableCell className="font-semibold text-emerald-600 dark:text-emerald-400">
+                                  R${' '}
+                                  {Number(
+                                    feeTx?.amount || plan.feeInstallmentAmount || 0,
+                                  ).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge
+                                    variant="outline"
+                                    className={
+                                      isFeePaid
+                                        ? 'border-green-200 text-green-700 bg-green-50'
+                                        : 'border-orange-200 text-orange-700 bg-orange-50'
+                                    }
+                                  >
+                                    {feeTx?.status || 'Previsto'}
+                                  </Badge>
+                                </TableCell>
+
+                                {/* Repasse */}
+                                <TableCell className="font-semibold text-amber-600 dark:text-amber-400">
+                                  R${' '}
+                                  {Number(
+                                    repasseTx?.amount || plan.clientInstallmentAmount || 0,
+                                  ).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge
+                                    variant="outline"
+                                    className={
+                                      isRepassePaid
+                                        ? 'border-green-200 text-green-700 bg-green-50'
+                                        : 'border-amber-200 text-amber-700 bg-amber-50'
+                                    }
+                                  >
+                                    {repasseTx?.status || 'Previsto'}
+                                  </Badge>
+                                </TableCell>
+
+                                {/* Ações */}
+                                <TableCell className="text-right">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    {!isFeePaid && feeTx && (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-7 text-xs border-green-300 text-green-700 hover:bg-green-50"
+                                        onClick={() => {
+                                          updateItem('transactions', feeTx.id, {
+                                            status: 'Pago',
+                                            date: new Date().toISOString().split('T')[0],
+                                          })
+                                          toast({
+                                            title: `Honorário da parcela ${instNum} recebido!`,
+                                          })
+                                        }}
+                                        title="Marcar honorário como Pago"
+                                      >
+                                        Pago
+                                      </Button>
+                                    )}
+
+                                    {!isRepassePaid && repasseTx && (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-7 text-xs bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300"
+                                        onClick={() => markRepasseAsDone(repasseTx.id)}
+                                        title="Registrar que o repasse foi passado ao cliente"
+                                      >
+                                        Repasse efetuado
+                                      </Button>
+                                    )}
+
+                                    {isFeePaid && isRepassePaid && (
+                                      <span className="text-xs text-emerald-600 font-medium flex items-center justify-end gap-1">
+                                        <CheckCircle2 className="w-3.5 h-3.5" /> Concluído
+                                      </span>
+                                    )}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            )
+                          })}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                )
+              })
+            )}
+          </div>
+        )}
+
         {/* Dialogs de importação de extrato */}
         <AsaasExtractImportDialog
           open={asaasExtractDialogOpen}
@@ -1468,6 +1864,9 @@ export default function Finance() {
           </Card>
         )}
       </Tabs>
+
+      {/* Modal de criação de parcelamento com repasse */}
+      <PaymentPlanDialog open={creatingPaymentPlan} onOpenChange={setCreatingPaymentPlan} />
     </div>
   )
 }

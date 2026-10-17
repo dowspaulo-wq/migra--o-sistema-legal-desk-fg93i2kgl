@@ -15,6 +15,7 @@ import {
   Appointment,
   User,
   Transaction,
+  PaymentPlan,
 } from '../lib/mockData'
 
 export interface Supplier {
@@ -45,6 +46,7 @@ export interface LegalState extends BaseLegalState {
   suppliers: Supplier[]
   caseSystems: CaseSystem[]
   transactionCases: TransactionCase[]
+  paymentPlans: PaymentPlan[]
 }
 import { toast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase/client'
@@ -69,6 +71,7 @@ interface LegalContextType {
   addPetition: (p: Omit<any, 'id' | 'created_at'>) => void
   reloadTransactions: () => Promise<void>
   reloadAppointments: () => Promise<void>
+  reloadPaymentPlans: () => Promise<void>
   addClientFee: (fee: {
     amount: number
     description: string
@@ -82,6 +85,21 @@ interface LegalContextType {
     feeType?: string
     percentage?: number
   }) => Promise<void>
+  addPaymentPlan: (plan: {
+    clientId: string
+    processId?: string | null
+    title: string
+    installmentAmount: number
+    installmentsCount: number
+    periodicity?: string
+    firstDueDate: string
+    feePercentage: number
+    bankAccount?: string
+    paymentMethod?: string
+    notes?: string
+  }) => Promise<{ plan: PaymentPlan; transactions: Transaction[] } | null>
+  markRepasseAsDone: (transactionId: string) => Promise<void>
+  deletePaymentPlan: (id: string) => Promise<void>
   updateUser: (id: string, changes: Partial<User>) => void
   addUser: (user: any) => void
   renameType: (table: string, column: string, oldVal: string, newVal: string) => void
@@ -96,6 +114,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     suppliers: [],
     caseSystems: [],
     transactionCases: [],
+    paymentPlans: [],
   })
 
   const loadingInitialDataRef = React.useRef(false)
@@ -326,7 +345,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       }
 
       // GRUPO 2: Tabelas auxiliares / secundárias
-      // (settings, transaction_cases, suppliers, case_systems, petitions, logs, whatsapp_messages)
+      // (settings, transaction_cases, suppliers, case_systems, petitions, logs, whatsapp_messages, payment_plans)
       const [
         settingsRes,
         txCasesRes,
@@ -335,6 +354,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         petitionsRes,
         logsRes,
         whatsappRes,
+        paymentPlansRes,
       ] = await Promise.all([
         queryWithTimeout('settings'),
         queryWithTimeout('transaction_cases'),
@@ -343,6 +363,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         queryWithTimeout('petitions'),
         queryWithTimeout('logs'),
         queryWithTimeout('whatsapp_messages'),
+        queryWithTimeout('payment_plans'),
       ])
 
       const dbSettings = settingsRes?.data?.[0]
@@ -400,6 +421,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       const loadedPetitions = petitionsRes?.data || []
       const loadedLogs = safeSortDateDesc(logsRes?.data || [], 'created_at')
       const loadedWhatsapp = safeSortDateDesc(whatsappRes?.data || [], 'created_at')
+      const loadedPaymentPlans = safeSortDateDesc(paymentPlansRes?.data || [], 'created_at')
 
       // APLICAÇÃO PROGRESSIVA DO GRUPO AUXILIAR NO ESTADO
       setState((prev) => ({
@@ -436,6 +458,12 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
             : prev.whatsappMessages.length > 0
               ? prev.whatsappMessages
               : loadedWhatsapp,
+        paymentPlans:
+          loadedPaymentPlans.length > 0
+            ? loadedPaymentPlans
+            : prev.paymentPlans.length > 0
+              ? prev.paymentPlans
+              : loadedPaymentPlans,
       }))
     } catch (err) {
       console.error('Failed to load initial data', err)
@@ -891,6 +919,237 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const addPaymentPlan = useCallback(
+    async (planData: {
+      clientId: string
+      processId?: string | null
+      title: string
+      installmentAmount: number
+      installmentsCount: number
+      periodicity?: string
+      firstDueDate: string
+      feePercentage: number
+      bankAccount?: string
+      paymentMethod?: string
+      notes?: string
+    }) => {
+      const inst = Math.max(1, planData.installmentsCount || 1)
+      const installmentAmount = Math.max(0, planData.installmentAmount || 0)
+      const feePct = Math.max(0, Math.min(100, planData.feePercentage || 0))
+      const clientPct = 100 - feePct
+
+      const feeInstallmentAmount = Math.round(installmentAmount * (feePct / 100) * 100) / 100
+      const clientInstallmentAmount =
+        Math.round((installmentAmount - feeInstallmentAmount) * 100) / 100
+
+      const totalAmount = Math.round(installmentAmount * inst * 100) / 100
+      const totalFeeAmount = Math.round(feeInstallmentAmount * inst * 100) / 100
+      const totalClientAmount = Math.round(clientInstallmentAmount * inst * 100) / 100
+
+      const planTitle = planData.title.trim() || `Parcelamento com Repasse (${inst}x)`
+      const planPayload = {
+        clientId: planData.clientId,
+        processId: planData.processId || null,
+        title: planTitle,
+        installmentAmount,
+        installmentsCount: inst,
+        periodicity: planData.periodicity || 'mensal',
+        firstDueDate: planData.firstDueDate,
+        feePercentage: feePct,
+        clientPercentage: clientPct,
+        feeInstallmentAmount,
+        clientInstallmentAmount,
+        totalAmount,
+        totalFeeAmount,
+        totalClientAmount,
+        bankAccount: planData.bankAccount || 'ASAAS',
+        paymentMethod: planData.paymentMethod || 'PIX',
+        status: 'Ativo',
+        notes: planData.notes || null,
+      }
+
+      // 1. Inserir plano na tabela payment_plans
+      const { data: createdPlan, error: planError } = await (supabase as any)
+        .from('payment_plans')
+        .insert(planPayload as any)
+        .select()
+        .single()
+
+      if (planError || !createdPlan) {
+        toast({
+          title: 'Erro ao criar plano de parcelamento',
+          description: planError?.message || 'Falha ao gravar registro.',
+          variant: 'destructive',
+        })
+        return null
+      }
+
+      const safePlan = createdPlan as PaymentPlan
+
+      // 2. Gerar pares de lançamentos com pair_id mútuo
+      // Precisamos gerar UUIDs para vincular pair_id antes do insert
+      const feeTransactions: any[] = []
+      const repasseTransactions: any[] = []
+
+      for (let i = 0; i < inst; i++) {
+        const dueDate = calculateInstallmentDate(planData.firstDueDate, i)
+        const feeId = crypto.randomUUID()
+        const repasseId = crypto.randomUUID()
+
+        // Lançamento de Honorários (Receita)
+        feeTransactions.push({
+          id: feeId,
+          plan_id: safePlan.id,
+          pair_id: repasseId,
+          installment_number: i + 1,
+          installment_total: inst,
+          description: `Honorários (${feePct}%) - Parcela ${i + 1}/${inst} - ${safePlan.title}`,
+          amount: feeInstallmentAmount,
+          type: 'income',
+          category: 'Honorários Contratuais',
+          status: 'Previsto',
+          date: dueDate,
+          clientId: planData.clientId,
+          processId: planData.processId || null,
+          percentage: feePct,
+          sendToFinance: true,
+          bankAccount: planData.bankAccount || 'ASAAS',
+          payment_method: planData.paymentMethod || 'PIX',
+        })
+
+        // Lançamento de Repasse ao Cliente (Despesa real que afeta o caixa)
+        repasseTransactions.push({
+          id: repasseId,
+          plan_id: safePlan.id,
+          pair_id: feeId,
+          installment_number: i + 1,
+          installment_total: inst,
+          description: `Repasse ao Cliente (${clientPct}%) - Parcela ${i + 1}/${inst} - ${safePlan.title}`,
+          amount: clientInstallmentAmount,
+          type: 'expense',
+          category: 'Repasse ao Cliente',
+          status: 'Previsto',
+          date: dueDate,
+          clientId: planData.clientId,
+          processId: planData.processId || null,
+          percentage: clientPct,
+          sendToFinance: true,
+          bankAccount: planData.bankAccount || 'ASAAS',
+          payment_method: planData.paymentMethod || 'PIX',
+        })
+      }
+
+      const allNewTransactions = [...feeTransactions, ...repasseTransactions]
+
+      const { data: insertedTxns, error: txnsError } = await supabase
+        .from('transactions')
+        .insert(allNewTransactions as any)
+        .select()
+
+      if (txnsError) {
+        // Rollback do plano para consistência
+        await (supabase as any).from('payment_plans').delete().eq('id', safePlan.id)
+        toast({
+          title: 'Erro ao gerar lançamentos do parcelamento',
+          description: txnsError.message,
+          variant: 'destructive',
+        })
+        return null
+      }
+
+      // 3. Se houver processo vinculado, criar transaction_cases
+      if (planData.processId && insertedTxns) {
+        const caseLinks = insertedTxns.map((tx: any) => ({
+          transaction_id: tx.id,
+          case_id: planData.processId,
+        }))
+        const { data: linkData } = await supabase
+          .from('transaction_cases')
+          .insert(caseLinks as any)
+          .select()
+
+        if (linkData) {
+          setState((prev) => ({
+            ...prev,
+            transactionCases: [...(prev.transactionCases || []), ...linkData],
+          }))
+        }
+      }
+
+      // 4. Atualizar estado local
+      setState((prev) => ({
+        ...prev,
+        paymentPlans: [createdPlan, ...(prev.paymentPlans || [])],
+        transactions: (
+          [...(insertedTxns || allNewTransactions), ...prev.transactions] as any[]
+        ).sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()),
+      }))
+
+      toast({
+        title: 'Parcelamento criado com sucesso!',
+        description: `${inst} parcelas (${inst * 2} lançamentos vinculados) geradas com repasse ao cliente.`,
+      })
+
+      return { plan: createdPlan, transactions: insertedTxns || allNewTransactions }
+    },
+    [],
+  )
+
+  const markRepasseAsDone = useCallback(async (transactionId: string) => {
+    const today = new Date().toISOString().split('T')[0]
+    const { data, error } = await supabase
+      .from('transactions')
+      .update({
+        status: 'Pago',
+        date: today,
+      } as any)
+      .eq('id', transactionId)
+      .select()
+      .single()
+
+    if (error) {
+      toast({
+        title: 'Erro ao marcar repasse como efetuado',
+        description: error.message,
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setState((prev) => ({
+      ...prev,
+      transactions: prev.transactions.map((t) =>
+        t.id === transactionId ? { ...t, status: 'Pago', date: today } : t,
+      ),
+    }))
+
+    toast({
+      title: 'Repasse registrado com sucesso!',
+      description: 'O valor foi registrado como despesa paga no caixa do escritório.',
+    })
+  }, [])
+
+  const deletePaymentPlan = useCallback(async (id: string) => {
+    // Ao deletar o plano, o banco com ON DELETE CASCADE remove as transactions associadas
+    const { error } = await (supabase as any).from('payment_plans').delete().eq('id', id)
+    if (error) {
+      toast({
+        title: 'Erro ao excluir parcelamento',
+        description: error.message,
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setState((prev) => ({
+      ...prev,
+      paymentPlans: (prev.paymentPlans || []).filter((p) => p.id !== id),
+      transactions: prev.transactions.filter((t) => t.plan_id !== id),
+    }))
+
+    toast({ title: 'Parcelamento e lançamentos vinculados excluídos.' })
+  }, [])
+
   const addClientFee = useCallback(
     async (fee: {
       amount: number
@@ -1147,6 +1406,31 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
             console.warn('Erro ao recarregar appointments:', err)
           }
         },
+        reloadPaymentPlans: async () => {
+          try {
+            const { data, error } = await (supabase as any)
+              .from('payment_plans')
+              .select('*')
+              .order('created_at', { ascending: false })
+
+            if (error) {
+              console.warn('Erro ao recarregar payment_plans:', error)
+              return
+            }
+
+            if (data) {
+              setState((prev) => ({
+                ...prev,
+                paymentPlans: data as any[],
+              }))
+            }
+          } catch (err) {
+            console.warn('Erro ao recarregar payment_plans:', err)
+          }
+        },
+        addPaymentPlan,
+        markRepasseAsDone,
+        deletePaymentPlan,
       }}
     >
       {children}

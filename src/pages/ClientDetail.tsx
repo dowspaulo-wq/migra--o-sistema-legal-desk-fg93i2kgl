@@ -48,6 +48,7 @@ import { toast } from '@/hooks/use-toast'
 import { ClientFeesDialog } from '@/components/ClientFeesDialog'
 import { TransactionDialog } from '@/components/TransactionDialog'
 import { LinkTransactionToCaseDialog } from '@/components/LinkTransactionToCaseDialog'
+import { PaymentPlanDialog } from '@/components/PaymentPlanDialog'
 import { formatSafeLocalDate, formatPhone, getWhatsAppPhone } from '@/lib/utils'
 import { supabase } from '@/lib/supabase/client'
 import {
@@ -91,6 +92,7 @@ export default function ClientDetail() {
   const [isEditCaseOpen, setIsEditCaseOpen] = useState(false)
   const [editingDirectFee, setEditingDirectFee] = useState<any>(null)
   const [linkingTx, setLinkingTx] = useState<any>(null)
+  const [isPlanDialogOpen, setIsPlanDialogOpen] = useState(false)
 
   const client = state.clients.find((c) => c.id === id)
   const allCases = state.cases.filter((c) => c.clientId === id)
@@ -1222,6 +1224,14 @@ export default function ClientDetail() {
               <Button variant="outline" size="sm" onClick={() => openCreateFee(client.id)}>
                 <Plus className="h-4 w-4 mr-2" /> Novo Honorário
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-blue-600/30 text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/30"
+                onClick={() => setIsPlanDialogOpen(true)}
+              >
+                <Plus className="h-4 w-4 mr-2 text-blue-600" /> Novo Parcelamento
+              </Button>
             </div>
           </CardHeader>
           <CardContent>
@@ -1552,6 +1562,12 @@ export default function ClientDetail() {
           </CardContent>
         </Card>
       </div>
+
+      <PaymentPlanDialog
+        open={isPlanDialogOpen}
+        onOpenChange={setIsPlanDialogOpen}
+        defaultClientId={client.id}
+      />
     </div>
   )
 }
