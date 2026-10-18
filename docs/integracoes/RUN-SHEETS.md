@@ -93,6 +93,25 @@ curl -sSf -L https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-leg
 
 ---
 
+### Passo 5 (Alternativo): Diagnóstico Avançado e Fix Multi-Contêiner (Script 03)
+
+> **Quando usar este passo:** se você já executou o Script 02, o script reportou `[OK]`, mas ao tentar salvar a Service Account em `https://sistema.advdouglaspsantos.com.br/configuracoes` o frontend **continua apresentando o erro**:
+> _"Could not find the 'googleServiceAccount' column of 'settings' in the schema cache"_.
+
+**Causas cobertas pelo Script 03:**
+
+1. **Múltiplos contêineres/bancos Postgres no VPS:** o EasyPanel pode ter outros bancos rodando (ex.: `postgres` genérico vs `sbjur-local_supabase-db-1`). O script examina TODOS, conta os registros de `public.clients` e identifica com 100% de precisão qual é o banco **REAL** com os dados do escritório.
+2. **Contêiner PostgREST não reiniciado:** se o PostgREST ativo atender por outro nome (ex.: `sbjur-local_supabase-rest-1`), o script reinicia todos os contêineres REST encontrados e envia o sinal `NOTIFY pgrst`.
+3. **Validação ponta a ponta:** faz teste SQL direto e teste HTTP real com curl na API REST local do Supabase via Kong interno, comprovando se a coluna `googleServiceAccount` é retornada no JSON.
+
+Execute no terminal do VPS (como root):
+
+```bash
+curl -sSL "https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/integracoes/03-diagnostico-coluna-service-account.sh" -o /root/03-diagnostico-coluna-service-account.sh && bash /root/03-diagnostico-coluna-service-account.sh
+```
+
+---
+
 ### Passo 6: Salvar o JSON em Configurações no DPSjur/SBJur
 
 1. Acesse o sistema no navegador:
