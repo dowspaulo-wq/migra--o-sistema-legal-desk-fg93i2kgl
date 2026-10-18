@@ -5,6 +5,7 @@ import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Download,
@@ -25,6 +26,7 @@ import {
   Calendar,
   RefreshCw,
   LogOut,
+  FileSpreadsheet,
 } from 'lucide-react'
 import { FinancialEntitiesTab } from '@/components/FinancialEntitiesTab'
 import { SystemManagement } from '@/components/SystemManagement'
@@ -296,6 +298,15 @@ export default function Settings() {
   const [isSavingGoogle, setIsSavingGoogle] = useState(false)
   const [isConnectingGoogle, setIsConnectingGoogle] = useState(false)
 
+  // Google Sheets Mirror states
+  const [googleServiceAccountInput, setGoogleServiceAccountInput] = useState(
+    s.googleServiceAccount || '',
+  )
+  const [showServiceAccountJson, setShowServiceAccountJson] = useState(false)
+  const [isSavingServiceAccount, setIsSavingServiceAccount] = useState(false)
+  const [isSyncingSheets, setIsSyncingSheets] = useState(false)
+  const [sheetsSyncResult, setSheetsSyncResult] = useState<any | null>(null)
+
   // Sincroniza se os settings carregarem depois
   const currentApiKeyInStore = s.asaasApiKey || ''
   const currentApiUrlInStore = s.asaasApiUrl || 'https://api.asaas.com/v3'
@@ -316,6 +327,11 @@ export default function Settings() {
   }
   if (googleClientSecretInput === '' && currentGoogleClientSecret !== '') {
     setGoogleClientSecretInput(currentGoogleClientSecret)
+  }
+
+  const currentGoogleServiceAccount = s.googleServiceAccount || ''
+  if (googleServiceAccountInput === '' && currentGoogleServiceAccount !== '') {
+    setGoogleServiceAccountInput(currentGoogleServiceAccount)
   }
 
   const handleSaveAsaas = async () => {
@@ -504,6 +520,99 @@ export default function Settings() {
       })
     } finally {
       setIsConnectingGoogle(false)
+    }
+  }
+
+  const handleSaveGoogleServiceAccount = async () => {
+    setIsSavingServiceAccount(true)
+    try {
+      const cleanJson = googleServiceAccountInput.trim()
+
+      if (cleanJson) {
+        try {
+          const parsed = JSON.parse(cleanJson)
+          if (!parsed.client_email || !parsed.private_key) {
+            toast({
+              title: 'Aviso sobre o JSON',
+              description:
+                'O JSON informado parece não conter os campos client_email e private_key típicos de uma Service Account do Google.',
+              variant: 'destructive',
+            })
+          }
+        } catch {
+          toast({
+            title: 'Formato inválido',
+            description: 'O texto colado não é um JSON válido. Verifique se copiou todo o arquivo.',
+            variant: 'destructive',
+          })
+          setIsSavingServiceAccount(false)
+          return
+        }
+      }
+
+      await updateItem('settings', s.id, {
+        googleServiceAccount: cleanJson || null,
+      })
+
+      addLog('Atualizar', 'Configurações', 'Google Service Account (JSON) atualizada.')
+
+      toast({
+        title: 'Service Account salva',
+        description: cleanJson
+          ? 'JSON da Service Account salvo com sucesso!'
+          : 'Service Account removida das configurações.',
+      })
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao salvar Service Account',
+        description: err.message || 'Erro ao salvar credenciais',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsSavingServiceAccount(false)
+    }
+  }
+
+  const handleTestSyncSheets = async () => {
+    setIsSyncingSheets(true)
+    setSheetsSyncResult(null)
+    try {
+      const { data, error } = await supabase.functions.invoke('sync-clients-sheets', {
+        body: {},
+      })
+
+      if (error) {
+        let msg = error.message || 'Falha ao acionar sincronização'
+        try {
+          const ctx = (error as any).context
+          if (ctx && typeof ctx.json === 'function') {
+            const body = await ctx.json().catch(() => null)
+            if (body?.error || body?.message) msg = body.error || body.message
+          }
+        } catch {
+          // ignore
+        }
+        throw new Error(msg)
+      }
+
+      if (!data?.success) {
+        throw new Error(data?.message || data?.error || 'Erro na sincronização')
+      }
+
+      setSheetsSyncResult(data)
+      toast({
+        title: 'Sincronização concluída com sucesso!',
+        description: `${data.totalProcessed ?? 0} clientes na base: +${data.inserted ?? 0} inseridos, ~${data.updated ?? 0} atualizados, -${data.removed ?? 0} removidos.`,
+      })
+    } catch (err: any) {
+      toast({
+        title: 'Erro no espelhamento do Sheets',
+        description:
+          err.message || 'Verifique as configurações da Service Account e permissões da planilha.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsSyncingSheets(false)
     }
   }
 
@@ -1035,6 +1144,208 @@ export default function Settings() {
 
                       <Button onClick={handleSaveGoogle} disabled={!isAdmin || isSavingGoogle}>
                         {isSavingGoogle ? 'Salvando...' : 'Salvar Credenciais do Google'}
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* CARD GOOGLE SHEETS - ESPELHAMENTO DE CLIENTES */}
+              <Card className="shadow-sm border">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-xl flex items-center gap-2">
+                        <FileSpreadsheet className="h-5 w-5 text-emerald-600" />
+                        Espelhamento de Clientes (Google Sheets)
+                      </CardTitle>
+                      <CardDescription className="mt-1">
+                        Sincronização diária (espelho completo) de todos os clientes com a planilha{' '}
+                        <strong>Clientes DPS — lista Google Ads (Customer Match)</strong>.
+                      </CardDescription>
+                    </div>
+                    {s.googleServiceAccount ? (
+                      <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white font-normal text-xs">
+                        Service Account salva
+                      </Badge>
+                    ) : (
+                      <Badge
+                        variant="outline"
+                        className="border-amber-400 text-amber-700 bg-amber-50 font-normal text-xs"
+                      >
+                        Service Account ausente
+                      </Badge>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="rounded-lg bg-emerald-50/70 p-4 border border-emerald-200 text-xs text-emerald-950 space-y-2">
+                    <p className="font-semibold text-sm text-emerald-950">
+                      Como configurar o espelhamento automático:
+                    </p>
+                    <ol className="list-decimal list-inside space-y-1 text-emerald-900">
+                      <li>
+                        Acesse o <strong>Google Cloud Console</strong> e crie uma{' '}
+                        <strong>Service Account</strong> no seu projeto.
+                      </li>
+                      <li>
+                        Ative a <strong>Google Sheets API</strong> no Google Cloud.
+                      </li>
+                      <li>
+                        Gere uma chave JSON para a Service Account (formato{' '}
+                        <code>service_account.json</code>) e copie todo o conteúdo.
+                      </li>
+                      <li>
+                        Abra a planilha Google Ads Customer Match no Google Sheets (ID:{' '}
+                        <code className="bg-white/80 px-1 py-0.5 rounded font-mono text-xs border">
+                          181rftkYO4nVnAVsc-mKuYjBqDsm-_YnoiGWtEqf2Ahw
+                        </code>
+                        ) e{' '}
+                        <strong>
+                          compartilhe com o e-mail da Service Account com permissão de Editor
+                        </strong>
+                        .
+                      </li>
+                      <li>
+                        Cole o JSON completo abaixo e clique em{' '}
+                        <strong>"Salvar Service Account"</strong>.
+                      </li>
+                    </ol>
+                    <div className="pt-1 text-emerald-800">
+                      <p>
+                        <strong>Rotina diária:</strong> executada automaticamente todo dia às{' '}
+                        <strong>06:00 (Brasília)</strong> via cron no VPS.
+                      </p>
+                      <p className="mt-0.5">
+                        <strong>Regras de espelho:</strong> lê todos os clientes, normaliza e-mail
+                        (minúsculo), aniversário (YYYY-MM-DD, vazio se inválido), telefone intacto e
+                        realiza upsert por ID na aba <code>Página1</code>.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="google-service-account" className="text-sm font-semibold">
+                          Google Service Account (JSON)
+                        </Label>
+                        <button
+                          type="button"
+                          onClick={() => setShowServiceAccountJson((prev) => !prev)}
+                          className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                        >
+                          {showServiceAccountJson ? (
+                            <>
+                              <EyeOff className="h-3.5 w-3.5" /> Ocultar JSON
+                            </>
+                          ) : (
+                            <>
+                              <Eye className="h-3.5 w-3.5" /> Exibir JSON
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      <Textarea
+                        id="google-service-account"
+                        value={googleServiceAccountInput}
+                        onChange={(e) => setGoogleServiceAccountInput(e.target.value)}
+                        placeholder={`{\n  "type": "service_account",\n  "project_id": "...",\n  "private_key_id": "...",\n  "private_key": "-----BEGIN PRIVATE KEY-----\\n...",\n  "client_email": "dpsjur-sheets@...iam.gserviceaccount.com",\n  ...\n}`}
+                        rows={showServiceAccountJson ? 10 : 4}
+                        className={`font-mono text-xs ${!showServiceAccountJson && googleServiceAccountInput ? 'blur-sm select-none' : ''}`}
+                        disabled={!isAdmin || isSavingServiceAccount}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        O JSON é armazenado de forma segura no banco de dados e usado exclusivamente
+                        pela função de sincronização.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2 pt-2 border-t">
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                        Planilha Destino Vinculada
+                      </Label>
+                      <div className="flex items-center gap-2 p-2 rounded bg-muted/40 border text-xs font-mono break-all">
+                        <span className="text-muted-foreground select-none">ID:</span>
+                        <span>181rftkYO4nVnAVsc-mKuYjBqDsm-_YnoiGWtEqf2Ahw</span>
+                        <a
+                          href="https://docs.google.com/spreadsheets/d/181rftkYO4nVnAVsc-mKuYjBqDsm-_YnoiGWtEqf2Ahw"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="ml-auto underline text-emerald-700 hover:text-emerald-900 inline-flex items-center gap-1 shrink-0 font-sans font-medium"
+                        >
+                          Abrir Planilha <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
+                    </div>
+
+                    {sheetsSyncResult && (
+                      <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-950 space-y-1">
+                        <p className="font-semibold text-emerald-900">
+                          Última sincronização manual executada com sucesso:
+                        </p>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 font-mono text-center">
+                          <div className="bg-white/80 p-1.5 rounded border">
+                            <div className="text-muted-foreground text-[10px]">TOTAL BASE</div>
+                            <div className="font-bold text-sm">
+                              {sheetsSyncResult.totalProcessed ?? 0}
+                            </div>
+                          </div>
+                          <div className="bg-white/80 p-1.5 rounded border text-emerald-700">
+                            <div className="text-muted-foreground text-[10px]">INSERIDOS</div>
+                            <div className="font-bold text-sm">
+                              +{sheetsSyncResult.inserted ?? 0}
+                            </div>
+                          </div>
+                          <div className="bg-white/80 p-1.5 rounded border text-blue-700">
+                            <div className="text-muted-foreground text-[10px]">ATUALIZADOS</div>
+                            <div className="font-bold text-sm">
+                              ~{sheetsSyncResult.updated ?? 0}
+                            </div>
+                          </div>
+                          <div className="bg-white/80 p-1.5 rounded border text-amber-700">
+                            <div className="text-muted-foreground text-[10px]">REMOVIDOS</div>
+                            <div className="font-bold text-sm">
+                              -{sheetsSyncResult.removed ?? 0}
+                            </div>
+                          </div>
+                        </div>
+                        {sheetsSyncResult.timestamp && (
+                          <p className="text-[11px] text-emerald-800 text-right pt-1">
+                            Executado em:{' '}
+                            {new Date(sheetsSyncResult.timestamp).toLocaleString('pt-BR')}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="pt-2 flex flex-wrap items-center justify-between gap-2 border-t">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleTestSyncSheets}
+                        disabled={!isAdmin || isSyncingSheets || !googleServiceAccountInput.trim()}
+                        className="border-emerald-600 text-emerald-700 hover:bg-emerald-50"
+                      >
+                        {isSyncingSheets ? (
+                          <>
+                            <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                            Sincronizando agora...
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="h-4 w-4 mr-2" />
+                            Sincronizar Planilha Agora
+                          </>
+                        )}
+                      </Button>
+
+                      <Button
+                        onClick={handleSaveGoogleServiceAccount}
+                        disabled={!isAdmin || isSavingServiceAccount}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                      >
+                        {isSavingServiceAccount ? 'Salvando...' : 'Salvar Service Account'}
                       </Button>
                     </div>
                   </div>

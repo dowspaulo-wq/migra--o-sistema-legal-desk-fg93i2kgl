@@ -182,6 +182,7 @@ export interface Settings {
   googleCalendarTokens?: any | null
   googleClientId?: string | null
   googleClientSecret?: string | null
+  googleServiceAccount?: string | null
 }
 export interface WhatsAppMessage {
   id: string
@@ -259,5 +260,6 @@ export const initialData: LegalState = {
     captacaoOptions: ['Douglas', 'Eduardo', 'Luisito', 'MB', 'Zeno'],
     asaasApiKey: null,
     asaasApiUrl: 'https://api.asaas.com/v3',
+    googleServiceAccount: null,
   },
 }
