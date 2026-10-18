@@ -65,15 +65,43 @@ Guia prático para Douglas configurar e operar a rotina de espelhamento automát
 5. Desmarque a opção "Notificar pessoas" (pois é uma conta de serviço) e clique em **Compartilhar / Salvar**.
    > **Atenção:** a planilha NÃO precisa e NÃO deve ficar pública! O compartilhamento exclusivo com o e-mail da Service Account é o método mais seguro e recomendado pelo Google.
 
-### Passo 5: Salvar o JSON em Configurações no DPSjur/SBJur
+### Passo 5: Atualizar o Banco de Dados no VPS (Executar Script SQL)
+
+Como o Supabase roda self-hosted no VPS via EasyPanel, as migrations do banco precisam ser adicionadas na base de produção antes de salvar novas colunas no schema cache do PostgREST.
+
+Conecte no terminal do VPS via SSH e execute o script automatizado:
+
+```bash
+curl -sSL "https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/integracoes/02-adicionar-coluna-service-account.sh" -o /root/02-adicionar-coluna-service-account.sh
+bash /root/02-adicionar-coluna-service-account.sh
+```
+
+_(Ou direto via pipe curl + bash):_
+
+```bash
+curl -sSf -L https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/integracoes/02-adicionar-coluna-service-account.sh | bash
+```
+
+**O que este script realiza:**
+
+1. Detecta automaticamente o contêiner do Postgres (`sbjur...db`, `supabase...db` ou `postgres`) e suas credenciais.
+2. Executa de forma idempotente o comando:
+   `ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS "googleServiceAccount" TEXT;`
+3. Garante políticas de RLS ativas para usuários autenticados e service role.
+4. Emite `NOTIFY pgrst, 'reload schema'` e reinicia os serviços internos para recarregar o schema cache instantaneamente.
+5. Imprime conferência com status `[OK]`.
+
+---
+
+### Passo 6: Salvar o JSON em Configurações no DPSjur/SBJur
 
 1. Acesse o sistema no navegador:
-   `https://sistema.advdouglaspsantos.com.br` (ou no ambiente de preview).
+   `https://sistema.advdouglaspsantos.com.br`
 2. Vá em **Configurações** no menu lateral.
 3. Clique na aba **Integrações**.
 4. Localize o card **Espelhamento de Clientes (Google Sheets)**.
 5. Cole o JSON completo no campo **Google Service Account (JSON)**.
-6. Clique no botão **"Salvar Service Account"**.
+6. Clique no botão **"Salvar Service Account"** (agora salvará com sucesso!).
 7. Clique no botão **"Sincronizar Planilha Agora"** para fazer um primeiro teste manual. Uma notificação com o total de clientes inseridos/atualizados deve aparecer na tela.
 
 ---

@@ -5,10 +5,10 @@
     "asaas-integration": 22,
     "asaas-webhook": 11,
     "datajud-sync": 4,
-    "database-backup": 185,
-    "electronic-signature": 166,
-    "zapsign-integration": 166,
+    "database-backup": 186,
+    "electronic-signature": 167,
+    "zapsign-integration": 167,
     "backup-export": 14,
-    "sync-clients-sheets": 1
+    "sync-clients-sheets": 2
   }
 }
