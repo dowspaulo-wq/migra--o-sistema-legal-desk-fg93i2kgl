@@ -52,6 +52,9 @@ export interface AsaasPreviewItem {
   matchedTransactionId?: string | null
   matchedTransactionDesc?: string | null
   paymentMethod?: string
+  isConsolidatedFee?: boolean
+  consolidatedFeeGroup?: string
+  feeCount?: number
 }
 
 interface AsaasExtractImportDialogProps {
@@ -87,6 +90,7 @@ export function AsaasExtractImportDialog({
 
   const [loadingPreview, setLoadingPreview] = useState(false)
   const [loadingImport, setLoadingImport] = useState(false)
+  const [consolidateFees, setConsolidateFees] = useState(true)
   const [previewItems, setPreviewItems] = useState<AsaasPreviewItem[] | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -121,7 +125,7 @@ export function AsaasExtractImportDialog({
     setImportResult(null)
 
     try {
-      const { data, error } = await fetchAsaasExtractPreview(startDate, finishDate)
+      const { data, error } = await fetchAsaasExtractPreview(startDate, finishDate, consolidateFees)
 
       if (error) throw error
       if (data?.error) throw new Error(data.error)
@@ -199,6 +203,8 @@ export function AsaasExtractImportDialog({
         supplierId: i.suggestedSupplierId || null,
         matchedTransactionId: i.matchedTransactionId || null,
         paymentMethod: i.paymentMethod || 'PIX',
+        isConsolidatedFee: i.isConsolidatedFee || false,
+        consolidatedFeeGroup: i.consolidatedFeeGroup || null,
       }))
 
     setLoadingImport(true)
@@ -352,6 +358,25 @@ export function AsaasExtractImportDialog({
                 </Button>
               </div>
             </div>
+
+            {/* Opção de Consolidação de Taxas do Asaas */}
+            <div className="flex items-center space-x-2 pt-1 border-t border-slate-200">
+              <Checkbox
+                id="consolidate-fees"
+                checked={consolidateFees}
+                onCheckedChange={(v) => setConsolidateFees(Boolean(v))}
+              />
+              <Label
+                htmlFor="consolidate-fees"
+                className="text-xs font-normal text-slate-700 cursor-pointer"
+              >
+                <span className="font-semibold text-slate-900">
+                  Consolidar mini lançamentos de taxas do Asaas por grupo
+                </span>{' '}
+                (soma taxas de NF, cobrança, notificação, Pix etc. em lançamentos únicos do
+                fornecedor Asaas)
+              </Label>
+            </div>
           </div>
 
           {/* Alertas de erro */}
@@ -462,13 +487,35 @@ export function AsaasExtractImportDialog({
                             {formatSafeLocalDate(item.date)}
                           </TableCell>
                           <TableCell>
-                            <div className="font-medium text-slate-900">{item.description}</div>
+                            <div className="font-medium text-slate-900 flex items-center gap-1.5">
+                              {item.description}
+                              {item.isConsolidatedFee && (
+                                <Badge
+                                  variant="secondary"
+                                  className="bg-amber-100 text-amber-900 border-amber-300 text-[10px] px-1.5 py-0"
+                                >
+                                  Consolidado ({item.feeCount || 1})
+                                </Badge>
+                              )}
+                            </div>
                             <div className="text-[10px] text-slate-500 font-mono">
                               ID: {item.id} {item.rawType ? `• ${item.rawType}` : ''}
                             </div>
                           </TableCell>
                           <TableCell>
-                            {item.matchedTransactionId ? (
+                            {item.isConsolidatedFee ? (
+                              <div className="flex flex-col">
+                                <Badge
+                                  variant="outline"
+                                  className="border-amber-300 bg-amber-50 text-amber-900 text-[10px] w-fit"
+                                >
+                                  Fornecedor ASAAS ({item.consolidatedFeeGroup})
+                                </Badge>
+                                <span className="text-[10px] text-slate-600 truncate max-w-[200px] mt-0.5">
+                                  {item.feeCount} mini taxas agrupadas
+                                </span>
+                              </div>
+                            ) : item.matchedTransactionId ? (
                               <div className="flex flex-col">
                                 <Badge
                                   variant="outline"

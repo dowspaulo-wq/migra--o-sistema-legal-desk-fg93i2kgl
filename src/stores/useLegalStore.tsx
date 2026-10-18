@@ -25,6 +25,7 @@ export interface Supplier {
   email?: string
   phone?: string
   status: string
+  group_name?: string | null
   created_at?: string
 }
 

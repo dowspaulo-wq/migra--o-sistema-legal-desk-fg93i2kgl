@@ -105,6 +105,7 @@ export function FinancialEntitiesTab() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Nome</TableHead>
+                  <TableHead>Grupo</TableHead>
                   <TableHead>Documento</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Telefone</TableHead>
@@ -116,6 +117,18 @@ export function FinancialEntitiesTab() {
                 {(state.suppliers || []).map((s: any) => (
                   <TableRow key={s.id}>
                     <TableCell className="font-medium">{s.name}</TableCell>
+                    <TableCell>
+                      {s.group_name ? (
+                        <Badge
+                          variant="secondary"
+                          className="bg-blue-50 text-blue-700 border border-blue-200 font-normal text-xs"
+                        >
+                          {s.group_name}
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">—</span>
+                      )}
+                    </TableCell>
                     <TableCell>{s.document || '-'}</TableCell>
                     <TableCell>{s.email || '-'}</TableCell>
                     <TableCell>{s.phone || '-'}</TableCell>
@@ -158,7 +171,7 @@ export function FinancialEntitiesTab() {
                 ))}
                 {(!state.suppliers || state.suppliers.length === 0) && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                       Nenhum fornecedor encontrado.
                     </TableCell>
                   </TableRow>
@@ -246,11 +259,17 @@ export function FinancialEntitiesTab() {
         open={!!editingSupplier}
         onOpenChange={(v: boolean) => !v && setEditingSupplier(null)}
         data={editingSupplier}
+        existingGroups={Array.from(
+          new Set((state.suppliers || []).map((s: any) => s.group_name).filter(Boolean)),
+        )}
         onSave={(d: any) => updateItem('suppliers', editingSupplier.id, d)}
       />
       <SupplierDialog
         open={creatingSupplier}
         onOpenChange={setCreatingSupplier}
+        existingGroups={Array.from(
+          new Set((state.suppliers || []).map((s: any) => s.group_name).filter(Boolean)),
+        )}
         onSave={(d: any) => addSupplier(d)}
       />
     </div>

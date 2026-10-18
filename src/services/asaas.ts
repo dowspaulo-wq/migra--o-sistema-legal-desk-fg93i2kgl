@@ -136,11 +136,16 @@ export async function syncHistoryWithAsaas() {
   return invokeAsaasFunction({ action: 'sync-history' })
 }
 
-export async function fetchAsaasExtractPreview(startDate: string, finishDate: string) {
+export async function fetchAsaasExtractPreview(
+  startDate: string,
+  finishDate: string,
+  consolidateFees = true,
+) {
   return invokeAsaasFunction({
     action: 'fetch-extract-preview',
     startDate,
     finishDate,
+    consolidateFees,
   })
 }
 

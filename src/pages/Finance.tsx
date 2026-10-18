@@ -84,6 +84,7 @@ export default function Finance() {
   const [filterBank, setFilterBank] = useState('Todos')
   const [filterCategory, setFilterCategory] = useState('Todas')
   const [filterSupplier, setFilterSupplier] = useState('Todos')
+  const [filterSupplierGroup, setFilterSupplierGroup] = useState('Todos')
   const [filterClient, setFilterClient] = useState('Todos')
   const [filterCase, setFilterCase] = useState('Todos')
   const [filterStartDate, setFilterStartDate] = useState(formatYYYYMMDD(firstDay))
@@ -123,6 +124,25 @@ export default function Finance() {
     const last = new Date(target.getFullYear(), target.getMonth() + 1, 0)
     setFilterStartDate(formatYYYYMMDD(first))
     setFilterEndDate(formatYYYYMMDD(last))
+  }
+
+  const setYearRange = (year: number) => {
+    setFilterStartDate(`${year}-01-01`)
+    setFilterEndDate(`${year}-12-31`)
+  }
+
+  const setLast12MonthsRange = () => {
+    const now = new Date()
+    const past = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate())
+    setFilterStartDate(formatYYYYMMDD(past))
+    setFilterEndDate(formatYYYYMMDD(now))
+  }
+
+  const setNext12MonthsRange = () => {
+    const now = new Date()
+    const future = new Date(now.getFullYear() + 1, now.getMonth(), now.getDate())
+    setFilterStartDate(formatYYYYMMDD(now))
+    setFilterEndDate(formatYYYYMMDD(future))
   }
 
   const [editingTransaction, setEditingTransaction] = useState<any>(null)
@@ -198,20 +218,38 @@ export default function Finance() {
     let list = baseTransactions
 
     if (activeTab === 'honorarios') {
-      list = list.filter((t) => (t.category || '').toLowerCase().includes('honor'))
-    } else if (activeTab === 'despesas-cliente') {
       list = list.filter((t) => {
+        if (t.type === 'expense') return false
         const cat = (t.category || '').toLowerCase()
         return (
-          t.type === 'expense' &&
-          (cat.includes('custa') ||
-            cat.includes('dilig') ||
-            cat.includes('depósito') ||
-            cat.includes('deposito') ||
-            cat.includes('repasse') ||
-            cat === 'despesa do cliente' ||
-            cat === 'outros')
+          cat.includes('honor') ||
+          cat.includes('êxito') ||
+          cat.includes('exito') ||
+          cat.includes('acordo') ||
+          cat.includes('alvará') ||
+          cat.includes('alvara') ||
+          cat === 'outros'
         )
+      })
+    } else if (activeTab === 'despesas-cliente') {
+      list = list.filter((t) => {
+        if (t.type !== 'expense') return false
+        // Se a despesa estiver explicitamente vinculada a um fornecedor (ex: Estagiário, Contabilidade, Telefonia),
+        // trata-se de despesa do escritório / fornecedores, NÃO despesa do cliente!
+        if (t.supplierId) return false
+
+        const cat = (t.category || '').toLowerCase()
+        // Regra: despesas vinculadas a cliente ou que representem custas/diligências/repasse
+        const isClientRelatedCategory =
+          cat.includes('custa') ||
+          cat.includes('dilig') ||
+          cat.includes('depósito') ||
+          cat.includes('deposito') ||
+          cat.includes('repasse') ||
+          cat === 'despesa do cliente'
+
+        // Se tem clientId explicitamente vinculado ou é categoria típica de cliente sem fornecedor
+        return Boolean(t.clientId) || isClientRelatedCategory
       })
     } else if (activeTab === 'parcelamentos') {
       list = list.filter((t) => Boolean(t.plan_id))
@@ -227,6 +265,12 @@ export default function Finance() {
       const matchBank = filterBank === 'Todos' || t.bankAccount === filterBank
       const matchCategory = filterCategory === 'Todas' || t.category === filterCategory
       const matchSupplier = filterSupplier === 'Todos' || t.supplierId === filterSupplier
+      const matchSupplierGroup = (() => {
+        if (filterSupplierGroup === 'Todos') return true
+        if (!t.supplierId) return false
+        const s = (state.suppliers || []).find((sup: any) => sup.id === t.supplierId)
+        return s?.group_name === filterSupplierGroup
+      })()
 
       let matchClient = true
       let matchCase = true
@@ -301,6 +345,7 @@ export default function Finance() {
         matchBank &&
         matchCategory &&
         matchSupplier &&
+        matchSupplierGroup &&
         matchClient &&
         matchCase &&
         matchSearch &&
@@ -375,11 +420,26 @@ export default function Finance() {
   }, [state.cases, state.clients])
 
   const categories = useMemo(() => {
-    const cats = new Set(baseTransactions.map((t) => t.category).filter(Boolean))
+    let source = baseTransactions
+    if (activeTab === 'honorarios') {
+      // Dropdown de categoria na aba Honorários deve listar apenas categorias de RECEITA / Honorários
+      source = baseTransactions.filter((t) => t.type === 'income')
+    } else if (activeTab === 'despesas-cliente') {
+      source = baseTransactions.filter((t) => t.type === 'expense')
+    }
+    const cats = new Set(source.map((t) => t.category).filter(Boolean))
     return Array.from(cats).sort((a: any, b: any) =>
       String(a).localeCompare(String(b), 'pt-BR', { sensitivity: 'base' }),
     )
-  }, [baseTransactions])
+  }, [baseTransactions, activeTab])
+
+  const supplierGroups = useMemo(() => {
+    const groups = new Set<string>()
+    ;(state.suppliers || []).forEach((s: any) => {
+      if (s.group_name && s.group_name.trim()) groups.add(s.group_name.trim())
+    })
+    return Array.from(groups).sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }))
+  }, [state.suppliers])
 
   const bankOptions = useMemo(() => {
     const banks = new Set<string>(
@@ -629,11 +689,13 @@ export default function Finance() {
         open={!!editingSupplier}
         onOpenChange={(v: boolean) => !v && setEditingSupplier(null)}
         data={editingSupplier}
+        existingGroups={supplierGroups}
         onSave={(d: any) => updateItem('suppliers', editingSupplier.id, d)}
       />
       <SupplierDialog
         open={creatingSupplier}
         onOpenChange={setCreatingSupplier}
+        existingGroups={supplierGroups}
         onSave={(d: any) => addSupplier(d)}
       />
 
@@ -935,6 +997,50 @@ export default function Finance() {
                       </Button>
                     ))}
                   </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Atalhos por Ano:</span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs font-medium bg-slate-50 hover:bg-slate-100"
+                      onClick={() => setYearRange(2026)}
+                    >
+                      2026
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs font-medium bg-slate-50 hover:bg-slate-100"
+                      onClick={() => setYearRange(2027)}
+                    >
+                      2027
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs font-medium bg-slate-50 hover:bg-slate-100"
+                      onClick={() => setYearRange(2028)}
+                    >
+                      2028
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs text-blue-700 border-blue-200 bg-blue-50/50 hover:bg-blue-100"
+                      onClick={setLast12MonthsRange}
+                    >
+                      Últimos 12 meses
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs text-blue-700 border-blue-200 bg-blue-50/50 hover:bg-blue-100"
+                      onClick={setNext12MonthsRange}
+                    >
+                      Próximos 12 meses
+                    </Button>
+                  </div>
                 </div>
 
                 {/* Campo de busca textual por descrição, nº do processo ou cliente */}
@@ -1000,22 +1106,42 @@ export default function Finance() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label>Fornecedor</Label>
-                    <Select value={filterSupplier} onValueChange={setFilterSupplier}>
-                      <SelectTrigger className="bg-white">
-                        <SelectValue placeholder="Fornecedor" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Todos">Todos</SelectItem>
-                        {sortedSuppliers.map((s: any) => (
-                          <SelectItem key={s.id} value={s.id}>
-                            {s.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  {activeTab !== 'honorarios' && (
+                    <>
+                      <div className="space-y-1.5">
+                        <Label>Fornecedor</Label>
+                        <Select value={filterSupplier} onValueChange={setFilterSupplier}>
+                          <SelectTrigger className="bg-white">
+                            <SelectValue placeholder="Fornecedor" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            <SelectItem value="Todos">Todos</SelectItem>
+                            {sortedSuppliers.map((s: any) => (
+                              <SelectItem key={s.id} value={s.id}>
+                                {s.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Grupo Fornecedor</Label>
+                        <Select value={filterSupplierGroup} onValueChange={setFilterSupplierGroup}>
+                          <SelectTrigger className="bg-white">
+                            <SelectValue placeholder="Grupo" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            <SelectItem value="Todos">Todos</SelectItem>
+                            {supplierGroups.map((g) => (
+                              <SelectItem key={g} value={g}>
+                                {g}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </>
+                  )}
                   {activeTab === 'honorarios' && (
                     <>
                       <div className="space-y-1.5">
@@ -1798,6 +1924,7 @@ export default function Finance() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Nome</TableHead>
+                      <TableHead>Grupo</TableHead>
                       <TableHead>Documento</TableHead>
                       <TableHead>Email</TableHead>
                       <TableHead>Telefone</TableHead>
@@ -1809,6 +1936,18 @@ export default function Finance() {
                     {sortedSuppliers.map((s: any) => (
                       <TableRow key={s.id}>
                         <TableCell className="font-medium">{s.name}</TableCell>
+                        <TableCell>
+                          {s.group_name ? (
+                            <Badge
+                              variant="secondary"
+                              className="bg-blue-50 text-blue-700 border border-blue-200 font-normal text-xs"
+                            >
+                              {s.group_name}
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
+                        </TableCell>
                         <TableCell>{s.document || '-'}</TableCell>
                         <TableCell>{s.email || '-'}</TableCell>
                         <TableCell>{s.phone || '-'}</TableCell>
@@ -1852,7 +1991,7 @@ export default function Finance() {
                     ))}
                     {(!state.suppliers || state.suppliers.length === 0) && (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                           Nenhum fornecedor encontrado.
                         </TableCell>
                       </TableRow>

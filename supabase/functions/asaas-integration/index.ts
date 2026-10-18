@@ -609,11 +609,82 @@ Deno.serve(async (req: Request) => {
       )
     }
 
+    // Função auxiliar para categorizar mini taxas do Asaas
+    const classifyAsaasFeeGroup = (item: any): string | null => {
+      const rawType = String(item.type || '').toUpperCase()
+      const desc = String(item.description || '').toLowerCase()
+
+      // NF / Nota Fiscal
+      if (
+        rawType.includes('INVOICE') ||
+        rawType.includes('NF') ||
+        desc.includes('nota fiscal') ||
+        desc.includes('emissão de nf') ||
+        desc.includes('emissao de nf')
+      ) {
+        return 'Taxas de NF'
+      }
+
+      // Cobrança / Liquidação / Boleto
+      if (
+        rawType.includes('PAYMENT_FEE') ||
+        rawType.includes('BILL_FEE') ||
+        rawType.includes('CHARGE') ||
+        desc.includes('taxa de cobrança') ||
+        desc.includes('taxa de cobranca') ||
+        desc.includes('taxa boleto') ||
+        desc.includes('taxa de liquidação') ||
+        desc.includes('taxa de liquidacao')
+      ) {
+        return 'Taxas de Cobrança'
+      }
+
+      // Notificação / Mensagens / SMS / WhatsApp
+      if (
+        rawType.includes('NOTIFICATION') ||
+        rawType.includes('SMS') ||
+        rawType.includes('WHATSAPP') ||
+        desc.includes('notificação') ||
+        desc.includes('notificacao') ||
+        desc.includes('mensagem') ||
+        desc.includes('sms')
+      ) {
+        return 'Taxas de Notificação'
+      }
+
+      // Pix (taxa de envio / recebimento)
+      if (
+        (rawType.includes('PIX') && rawType.includes('FEE')) ||
+        desc.includes('taxa pix') ||
+        desc.includes('taxa de pix')
+      ) {
+        return 'Taxas de Pix'
+      }
+
+      // Transferência / TED / Saque
+      if (
+        rawType.includes('TRANSFER_FEE') ||
+        desc.includes('taxa de transferência') ||
+        desc.includes('taxa de transferencia') ||
+        desc.includes('taxa de ted') ||
+        desc.includes('taxa de saque')
+      ) {
+        return 'Taxas de Transferência'
+      }
+
+      // Qualquer outra taxa ou débito interno Asaas (FEE genérico ou valor negativo sem cliente e com FEE)
+      if (rawType.includes('FEE') || desc.includes('taxa')) {
+        return 'Taxas Gerais Asaas'
+      }
+
+      return null
+    }
+
     // -------------------------------------------------------------
-    // ACTION: fetch-extract-preview (NOVO: Pré-visualização sem gravar no banco)
+    // ACTION: fetch-extract-preview (Pré-visualização com consolidação de taxas)
     // -------------------------------------------------------------
     if (action === 'fetch-extract-preview' || action === 'fetchExtractPreview') {
-      const { startDate, finishDate } = requestData
+      const { startDate, finishDate, consolidateFees = true } = requestData
       if (!startDate || !finishDate) {
         throw new Error('Data inicial (startDate) e final (finishDate) são obrigatórias.')
       }
@@ -638,13 +709,20 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      // 2. Fornecedores
-      const { data: suppliers } = await supabase.from('suppliers').select('id, name, document')
+      // 2. Fornecedores (identificar fornecedor Asaas específico)
+      const { data: suppliers } = await supabase
+        .from('suppliers')
+        .select('id, name, document, group_name')
       const supplierByName = new Map<string, any>()
+      let asaasSupplier: any = null
+
       for (const s of suppliers || []) {
         if (s.name) {
           const normName = normalizeName(s.name)
           if (normName) supplierByName.set(normName, s)
+          if (normName.includes('asaas')) {
+            asaasSupplier = s
+          }
         }
       }
 
@@ -664,7 +742,7 @@ Deno.serve(async (req: Request) => {
       let offset = 0
       const limit = 100
       let hasMore = true
-      const previewItems: any[] = []
+      const rawExtractedItems: any[] = []
 
       while (hasMore) {
         const url = `${asaasBaseUrl}/financialTransactions?startDate=${encodeURIComponent(startDate)}&finishDate=${encodeURIComponent(finishDate)}&offset=${offset}&limit=${limit}&order=desc`
@@ -681,96 +759,166 @@ Deno.serve(async (req: Request) => {
 
         const result = await res.json()
         const items: any[] = result.data || []
-
-        for (const item of items) {
-          const ftId = item.id ? String(item.id) : ''
-          const rawValue = Number(item.value ?? 0)
-          const absAmount = Math.abs(rawValue)
-          const isIncome = rawValue >= 0
-          const txDate = item.date || item.paymentDate || startDate
-
-          const description =
-            item.description ||
-            item.transfer?.description ||
-            item.bill?.description ||
-            `Extrato Asaas: ${item.type || 'Movimentação'}`
-
-          const alreadyImported = ftId ? existingAsaasIds.has(ftId) : false
-
-          // Sugestão de cliente
-          let suggestedClientId: string | null = null
-          let suggestedClientName: string | null = null
-          if (item.customer && clientByAsaasId.has(item.customer)) {
-            const cl = clientByAsaasId.get(item.customer)
-            suggestedClientId = cl.id
-            suggestedClientName = cl.name
-          }
-
-          // Sugestão de fornecedor se for despesa
-          let suggestedSupplierId: string | null = null
-          let suggestedSupplierName: string | null = null
-          if (!isIncome) {
-            const descNorm = normalizeName(description)
-            for (const [normSName, sup] of supplierByName.entries()) {
-              if (descNorm.includes(normSName) && normSName.length >= 3) {
-                suggestedSupplierId = sup.id
-                suggestedSupplierName = sup.name
-                break
-              }
-            }
-          }
-
-          // Sugestão de casamento com lançamento do sistema (mesmo valor e data próxima +/- 3 dias)
-          let matchedTransactionId: string | null = null
-          let matchedTransactionDesc: string | null = null
-          const itemTime = new Date(txDate).getTime()
-          const matchedTx = (existingTxs || []).find((tx: any) => {
-            if (tx.asaas_id && tx.asaas_id !== ftId) return false
-            if (tx.type !== (isIncome ? 'income' : 'expense')) return false
-            const diffAmount = Math.abs(Number(tx.amount || 0) - absAmount)
-            if (diffAmount > 0.01) return false
-            if (!tx.date) return false
-            const txTime = new Date(tx.date).getTime()
-            const diffDays = Math.abs(itemTime - txTime) / (1000 * 60 * 60 * 24)
-            return diffDays <= 3
-          })
-
-          if (matchedTx) {
-            matchedTransactionId = matchedTx.id
-            matchedTransactionDesc = matchedTx.description
-            if (!suggestedClientId && matchedTx.clientId) {
-              suggestedClientId = matchedTx.clientId
-              const foundC = (clients || []).find((c: any) => c.id === matchedTx.clientId)
-              if (foundC) suggestedClientName = foundC.name
-            }
-          }
-
-          previewItems.push({
-            id: ftId,
-            date: txDate,
-            description,
-            amount: absAmount,
-            type: isIncome ? 'income' : 'expense',
-            rawType: item.type,
-            status: 'Pago',
-            alreadyImported,
-            suggestedClientId,
-            suggestedClientName,
-            suggestedSupplierId,
-            suggestedSupplierName,
-            matchedTransactionId,
-            matchedTransactionDesc,
-            paymentMethod: (item.type || '').includes('PIX')
-              ? 'PIX'
-              : (item.type || '').includes('BOLETO')
-                ? 'BOLETO'
-                : 'TRANSFERÊNCIA',
-          })
-        }
+        rawExtractedItems.push(...items)
 
         hasMore = Boolean(result.hasMore)
         offset += limit
         if (offset > 1000) break
+      }
+
+      const previewItems: any[] = []
+      // Agrupador para mini taxas consolidadas: groupKey -> { totalAmount, count, ids: [], lastDate, groupLabel }
+      const feeGroupsMap = new Map<
+        string,
+        {
+          groupLabel: string
+          totalAmount: number
+          count: number
+          ids: string[]
+          dates: string[]
+        }
+      >()
+
+      for (const item of rawExtractedItems) {
+        const ftId = item.id ? String(item.id) : ''
+        const rawValue = Number(item.value ?? 0)
+        const absAmount = Math.abs(rawValue)
+        const isIncome = rawValue >= 0
+        const txDate = item.date || item.paymentDate || startDate
+
+        // Se for despesa e o modo consolidação estiver ativo, verificar se é mini taxa do Asaas
+        const feeGroup = !isIncome ? classifyAsaasFeeGroup(item) : null
+
+        if (consolidateFees && feeGroup) {
+          const existingGroup = feeGroupsMap.get(feeGroup)
+          if (existingGroup) {
+            existingGroup.totalAmount += absAmount
+            existingGroup.count += 1
+            if (ftId) existingGroup.ids.push(ftId)
+            existingGroup.dates.push(txDate)
+          } else {
+            feeGroupsMap.set(feeGroup, {
+              groupLabel: feeGroup,
+              totalAmount: absAmount,
+              count: 1,
+              ids: ftId ? [ftId] : [],
+              dates: [txDate],
+            })
+          }
+          continue // não inclui como lançamento avulso
+        }
+
+        const description =
+          item.description ||
+          item.transfer?.description ||
+          item.bill?.description ||
+          `Extrato Asaas: ${item.type || 'Movimentação'}`
+
+        const alreadyImported = ftId ? existingAsaasIds.has(ftId) : false
+
+        // Sugestão de cliente
+        let suggestedClientId: string | null = null
+        let suggestedClientName: string | null = null
+        if (item.customer && clientByAsaasId.has(item.customer)) {
+          const cl = clientByAsaasId.get(item.customer)
+          suggestedClientId = cl.id
+          suggestedClientName = cl.name
+        }
+
+        // Sugestão de fornecedor se for despesa
+        let suggestedSupplierId: string | null = null
+        let suggestedSupplierName: string | null = null
+        if (!isIncome) {
+          const descNorm = normalizeName(description)
+          for (const [normSName, sup] of supplierByName.entries()) {
+            if (descNorm.includes(normSName) && normSName.length >= 3) {
+              suggestedSupplierId = sup.id
+              suggestedSupplierName = sup.name
+              break
+            }
+          }
+          if (!suggestedSupplierId && asaasSupplier) {
+            suggestedSupplierId = asaasSupplier.id
+            suggestedSupplierName = asaasSupplier.name
+          }
+        }
+
+        // Sugestão de casamento com lançamento do sistema
+        let matchedTransactionId: string | null = null
+        let matchedTransactionDesc: string | null = null
+        const itemTime = new Date(txDate).getTime()
+        const matchedTx = (existingTxs || []).find((tx: any) => {
+          if (tx.asaas_id && tx.asaas_id !== ftId) return false
+          if (tx.type !== (isIncome ? 'income' : 'expense')) return false
+          const diffAmount = Math.abs(Number(tx.amount || 0) - absAmount)
+          if (diffAmount > 0.01) return false
+          if (!tx.date) return false
+          const txTime = new Date(tx.date).getTime()
+          const diffDays = Math.abs(itemTime - txTime) / (1000 * 60 * 60 * 24)
+          return diffDays <= 3
+        })
+
+        if (matchedTx) {
+          matchedTransactionId = matchedTx.id
+          matchedTransactionDesc = matchedTx.description
+          if (!suggestedClientId && matchedTx.clientId) {
+            suggestedClientId = matchedTx.clientId
+            const foundC = (clients || []).find((c: any) => c.id === matchedTx.clientId)
+            if (foundC) suggestedClientName = foundC.name
+          }
+        }
+
+        previewItems.push({
+          id: ftId,
+          date: txDate,
+          description,
+          amount: absAmount,
+          type: isIncome ? 'income' : 'expense',
+          rawType: item.type,
+          status: 'Pago',
+          alreadyImported,
+          suggestedClientId,
+          suggestedClientName,
+          suggestedSupplierId,
+          suggestedSupplierName,
+          matchedTransactionId,
+          matchedTransactionDesc,
+          paymentMethod: (item.type || '').includes('PIX')
+            ? 'PIX'
+            : (item.type || '').includes('BOLETO')
+              ? 'BOLETO'
+              : 'TRANSFERÊNCIA',
+          isConsolidatedFee: false,
+        })
+      }
+
+      // Adicionar lançamentos consolidados no preview
+      for (const [groupName, groupData] of feeGroupsMap.entries()) {
+        const roundedAmount = Math.round(groupData.totalAmount * 100) / 100
+        const compositeId = `CONSOLIDATED_FEE_${groupName.replace(/\s+/g, '_')}_${startDate}_${finishDate}`
+        const alreadyImported = existingAsaasIds.has(compositeId)
+        const representativeDate = groupData.dates.sort().reverse()[0] || finishDate
+
+        previewItems.push({
+          id: compositeId,
+          date: representativeDate,
+          description: `Asaas — ${groupName} (${startDate} a ${finishDate})`,
+          amount: roundedAmount,
+          type: 'expense',
+          rawType: 'CONSOLIDATED_FEE',
+          status: 'Pago',
+          alreadyImported,
+          suggestedClientId: null,
+          suggestedClientName: null,
+          suggestedSupplierId: asaasSupplier?.id || null,
+          suggestedSupplierName: asaasSupplier?.name || 'Asaas Gestão Financeira',
+          matchedTransactionId: null,
+          matchedTransactionDesc: null,
+          paymentMethod: 'DÉBITO EM CONTA',
+          isConsolidatedFee: true,
+          consolidatedFeeGroup: groupName,
+          feeCount: groupData.count,
+        })
       }
 
       return new Response(
@@ -833,17 +981,20 @@ Deno.serve(async (req: Request) => {
 
         // Criar novo lançamento
         const isPreReconciled = Boolean(item.clientId || item.supplierId)
+        const isFee =
+          item.isConsolidatedFee || (item.rawType || '').includes('FEE') || item.type === 'expense'
+
+        const calculatedCategory =
+          item.category ||
+          (item.type === 'expense'
+            ? item.consolidatedFeeGroup || 'Taxas Bancárias'
+            : 'Honorários Contratuais')
+
         const newTx = {
           description: item.description || `Extrato Asaas: ${item.id}`,
           amount: Number(item.amount) || 0,
           type: item.type === 'expense' ? 'expense' : 'income',
-          category:
-            item.category ||
-            (item.type === 'expense'
-              ? (item.rawType || '').includes('FEE')
-                ? 'Taxas Bancárias'
-                : 'Despesas Gerais'
-              : 'Honorários Contratuais'),
+          category: calculatedCategory,
           status: 'Pago',
           date: item.date || new Date().toISOString().split('T')[0],
           clientId: item.clientId || null,
@@ -931,6 +1082,7 @@ Deno.serve(async (req: Request) => {
       let skippedExistingCount = 0
 
       const processedAsaasIds = new Set<string>()
+      const rawItemsList: any[] = []
 
       while (hasMore) {
         const url = `${asaasBaseUrl}/financialTransactions?startDate=${encodeURIComponent(startDate)}&finishDate=${encodeURIComponent(finishDate)}&offset=${offset}&limit=${limit}&order=asc`
@@ -1065,6 +1217,11 @@ Deno.serve(async (req: Request) => {
         offset += limit
         if (offset > 10000) break
       }
+
+      // Se houver fornecedor Asaas, consolida mini taxas restantes não consolidadas
+      const asaasSup = (suppliers || []).find((s: any) =>
+        normalizeName(s.name || '').includes('asaas'),
+      )
 
       return new Response(
         JSON.stringify({
