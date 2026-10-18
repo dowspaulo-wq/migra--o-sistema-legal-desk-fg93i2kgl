@@ -112,7 +112,26 @@ curl -sSL "https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal
 
 ---
 
-### Passo 6: Salvar o JSON em Configurações no DPSjur/SBJur
+### Passo 6: Implantar / Atualizar a Edge Function no VPS (Script 04)
+
+Se a função apresentar erro 500 no boot (`worker boot error: failed to bootstrap runtime: could not find an appropriate entrypoint`), implante o pacote atualizado da função no contêiner `sbjur-local_supabase-functions-1` executando no terminal do VPS:
+
+```bash
+curl -sSL "https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/integracoes/04-implantar-sync-clients-sheets-vps.sh" -o /root/04-implantar-sync-clients-sheets-vps.sh
+bash /root/04-implantar-sync-clients-sheets-vps.sh
+```
+
+**O que o script 04 realiza:**
+
+1. Detecta o contêiner de Edge Functions (`sbjur-local_supabase-functions-1`).
+2. Baixa o código atualizado e alinhado (`supabase/functions/sync-clients-sheets/index.ts` e `deno.json`).
+3. Instala em `/home/deno/functions/sync-clients-sheets` e volumes do EasyPanel com permissões ajustadas.
+4. Reinicia o contêiner via `docker restart`.
+5. Valida via `curl` se o endpoint responde com status 200 (healthcheck GET) ou 400 amigável ("Service Account não configurada", pronto para receber credenciais).
+
+---
+
+### Passo 7: Salvar o JSON em Configurações no DPSjur/SBJur
 
 1. Acesse o sistema no navegador:
    `https://sistema.advdouglaspsantos.com.br`
@@ -193,10 +212,11 @@ curl -X POST https://sbjur.advdouglaspsantos.com.br/functions/v1/sync-clients-sh
 
 ## 5. Resolução de Problemas Comuns
 
-| Sintoma                                              | Causa Mais Provável                                                                              | Solução                                                                                                                          |
-| :--------------------------------------------------- | :----------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------- |
-| **HTTP 400: Service Account não configurada**        | O JSON ainda não foi salvo nas configurações                                                     | Abra Configurações → Integrações e salve o JSON da Service Account                                                               |
-| **HTTP 403: The caller does not have permission**    | A planilha não foi compartilhada com a Service Account                                           | Abra a planilha e compartilhe com o e-mail da Service Account (`client_email`) como **Editor**                                   |
-| **HTTP 403: Google Sheets API has not been used...** | A API não foi ativada no projeto do Google Cloud                                                 | Acesse APIs & Serviços → Biblioteca → busque por Google Sheets API → Ativar                                                      |
-| **HTTP 404: Requested entity was not found**         | ID da planilha incorreto ou inexistente                                                          | Verifique se o ID `181rftkYO4nVnAVsc-mKuYjBqDsm-_YnoiGWtEqf2Ahw` está acessível pela conta                                       |
-| **405 Not Allowed assinado por Nginx**               | A chamada foi feita em `sistema...` (frontend) em vez de `sbjur...` (gateway das Edge Functions) | O script já tenta automaticamente a porta 8000 interna e a URL `sbjur...`. Nunca aponte para `sistema...` pois é apenas frontend |
+| Sintoma                                                | Causa Mais Provável                                                                              | Solução                                                                                                                          |
+| :----------------------------------------------------- | :----------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------- |
+| **HTTP 400: Service Account não configurada**          | O JSON ainda não foi salvo nas configurações                                                     | Abra Configurações → Integrações e salve o JSON da Service Account                                                               |
+| **HTTP 403: The caller does not have permission**      | A planilha não foi compartilhada com a Service Account                                           | Abra a planilha e compartilhe com o e-mail da Service Account (`client_email`) como **Editor**                                   |
+| **HTTP 403: Google Sheets API has not been used...**   | A API não foi ativada no projeto do Google Cloud                                                 | Acesse APIs & Serviços → Biblioteca → busque por Google Sheets API → Ativar                                                      |
+| **HTTP 404: Requested entity was not found**           | ID da planilha incorreto ou inexistente                                                          | Verifique se o ID `181rftkYO4nVnAVsc-mKuYjBqDsm-_YnoiGWtEqf2Ahw` está acessível pela conta                                       |
+| **HTTP 500: could not find an appropriate entrypoint** | Arquivo não implantado ou sem permissão de leitura no edge-runtime                               | Execute o Script 04 (`bash /root/04-implantar-sync-clients-sheets-vps.sh`) para copiar o arquivo e reiniciar o contêiner         |
+| **405 Not Allowed assinado por Nginx**                 | A chamada foi feita em `sistema...` (frontend) em vez de `sbjur...` (gateway das Edge Functions) | O script já tenta automaticamente a porta 8000 interna e a URL `sbjur...`. Nunca aponte para `sistema...` pois é apenas frontend |

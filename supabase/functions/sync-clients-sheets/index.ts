@@ -1,6 +1,12 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
-import { createClient } from 'npm:@supabase/supabase-js@2'
-import { corsHeaders } from '../_shared/cors.ts'
+import { createClient } from 'jsr:@supabase/supabase-js@2'
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, x-supabase-client-platform, apikey, content-type',
+}
 
 // ID padrão da planilha indicado pelo usuário
 const SPREADSHEET_ID = '181rftkYO4nVnAVsc-mKuYjBqDsm-_YnoiGWtEqf2Ahw'
@@ -178,6 +184,17 @@ function getBrasiliaIsoDateString(): string {
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
+  }
+
+  if (req.method === 'GET') {
+    return new Response(
+      JSON.stringify({
+        status: 'online',
+        service: 'sync-clients-sheets',
+        message: 'Endpoint de espelhamento de clientes com Google Sheets ativo.',
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 },
+    )
   }
 
   const syncStartTime = new Date()
