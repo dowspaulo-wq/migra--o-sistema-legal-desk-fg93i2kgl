@@ -1025,6 +1025,14 @@ export default function ClientDetail() {
                                   <Badge variant="secondary" className="text-[10px]">
                                     Subprocesso
                                   </Badge>
+                                  {sub.noFees && (
+                                    <span
+                                      className="text-sm leading-none"
+                                      title="Não gera honorários"
+                                    >
+                                      🚫
+                                    </span>
+                                  )}
                                 </div>
                                 <p className="text-xs font-medium mt-1">
                                   <span className="text-muted-foreground">

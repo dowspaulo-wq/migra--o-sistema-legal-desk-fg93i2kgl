@@ -653,9 +653,19 @@ export default function Cases() {
                               {c.type}
                             </Badge>
                             {c.parentId && (
-                              <Badge variant="secondary" className="text-[10px]">
-                                Subprocesso
-                              </Badge>
+                              <>
+                                <Badge variant="secondary" className="text-[10px]">
+                                  Subprocesso
+                                </Badge>
+                                {c.noFees && (
+                                  <span
+                                    className="text-base leading-none"
+                                    title="Não gera honorários"
+                                  >
+                                    🚫
+                                  </span>
+                                )}
+                              </>
                             )}
                           </div>
                           <p className="text-sm font-medium mt-1">
@@ -827,9 +837,19 @@ export default function Cases() {
                               {c.type}
                             </Badge>
                             {c.parentId && (
-                              <Badge variant="secondary" className="text-[10px]">
-                                Subprocesso
-                              </Badge>
+                              <>
+                                <Badge variant="secondary" className="text-[10px]">
+                                  Subprocesso
+                                </Badge>
+                                {c.noFees && (
+                                  <span
+                                    className="text-base leading-none"
+                                    title="Não gera honorários"
+                                  >
+                                    🚫
+                                  </span>
+                                )}
+                              </>
                             )}
                           </div>
                           <div className="text-sm space-y-1">

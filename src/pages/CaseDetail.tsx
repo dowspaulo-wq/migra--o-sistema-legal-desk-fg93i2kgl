@@ -751,9 +751,16 @@ export default function CaseDetail() {
                             {sc.number}
                           </Link>
                         </div>
-                        <Badge variant="outline" className="bg-slate-50">
-                          {sc.status}
-                        </Badge>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {sc.noFees && (
+                            <span className="text-base leading-none" title="Não gera honorários">
+                              🚫
+                            </span>
+                          )}
+                          <Badge variant="outline" className="bg-slate-50">
+                            {sc.status}
+                          </Badge>
+                        </div>
                       </div>
                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 text-xs text-slate-700">
                         <div>
