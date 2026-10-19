@@ -775,7 +775,12 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       .single()
     if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
     setState((prev) => ({ ...prev, cases: [data, ...prev.cases] }))
-    toast({ title: 'Processo adicionado' })
+    toast({ title: fullCase.parentId ? 'Subprocesso adicionado' : 'Processo adicionado' })
+
+    // Se estiver marcado para não gerar honorários, não gera lançamentos no financeiro
+    if (fullCase.noFees) {
+      return
+    }
 
     if (feeConfig && feeConfig.hasFees) {
       const isNonFinancial = isNonFinancialFeeType(feeConfig.feeType || '')

@@ -56,6 +56,7 @@ export interface Case {
   isSpecial: boolean
   isProblematic?: boolean
   isRestricted?: boolean
+  noFees?: boolean
   description: string
   internalNotes: string
   alerts: string

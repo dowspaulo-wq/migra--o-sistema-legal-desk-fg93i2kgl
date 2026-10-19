@@ -194,6 +194,7 @@ export type Database = {
           isSpecial: boolean
           last_movement: string | null
           last_sync_at: string | null
+          noFees: boolean
           number: string
           parentId: string | null
           position: string | null
@@ -228,6 +229,7 @@ export type Database = {
           isSpecial?: boolean
           last_movement?: string | null
           last_sync_at?: string | null
+          noFees?: boolean
           number: string
           parentId?: string | null
           position?: string | null
@@ -262,6 +264,7 @@ export type Database = {
           isSpecial?: boolean
           last_movement?: string | null
           last_sync_at?: string | null
+          noFees?: boolean
           number?: string
           parentId?: string | null
           position?: string | null

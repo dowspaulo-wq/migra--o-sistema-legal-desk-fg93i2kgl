@@ -106,6 +106,7 @@ export function CaseDialog({
       alerts: '',
       parentId: data?.parentId || null,
       classification: 'DPS',
+      noFees: false,
     }
 
     if (!data || data.isNew) {
@@ -128,7 +129,9 @@ export function CaseDialog({
   }
 
   const [fd, setFd] = useState(() =>
-    data && !data.isNew ? { ...data, classification: data.classification || 'DPS' } : getInitial(),
+    data && !data.isNew
+      ? { ...data, classification: data.classification || 'DPS', noFees: !!data.noFees }
+      : getInitial(),
   )
 
   const currentYear = new Date().getFullYear()
@@ -156,7 +159,7 @@ export function CaseDialog({
     if (open) {
       setFd(
         data && !data.isNew
-          ? { ...data, classification: data.classification || 'DPS' }
+          ? { ...data, classification: data.classification || 'DPS', noFees: !!data.noFees }
           : getInitial(),
       )
     }
@@ -273,6 +276,34 @@ export function CaseDialog({
                 </Toggle>
               </div>
             </div>
+
+            {isSubprocess && (
+              <div className="col-span-full border border-slate-200 rounded-lg p-3 bg-slate-50 flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label
+                    htmlFor="noFees"
+                    className="font-semibold text-sm cursor-pointer flex items-center gap-2"
+                  >
+                    <span>🚫</span> Não gera honorários
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Quando marcado, este subprocesso não gera lançamentos de honorários no
+                    financeiro.
+                  </p>
+                </div>
+                <Checkbox
+                  id="noFees"
+                  checked={!!fd.noFees}
+                  onCheckedChange={(v) => {
+                    const checked = !!v
+                    setFd({ ...fd, noFees: checked })
+                    if (checked) {
+                      setFeeConfig((prev) => ({ ...prev, hasFees: false }))
+                    }
+                  }}
+                />
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label>Cliente *</Label>
@@ -495,7 +526,7 @@ export function CaseDialog({
               </>
             )}
 
-            {(!data || data.isNew) && (
+            {(!data || data.isNew) && !fd.noFees && (
               <div className="col-span-full border border-blue-200 rounded-lg p-5 bg-blue-50/50 space-y-4 mt-2">
                 <div className="flex items-center justify-between">
                   <Label className="text-base font-bold text-blue-800 flex items-center gap-2">
