@@ -24,6 +24,7 @@ import {
   capitalizeFirstLetter,
   getFeeTypeOptions,
   getClientExpenseOptions,
+  getOfficeExpenseOptions,
 } from '@/lib/fee-types'
 import { syncChargeWithAsaas } from '@/services/asaas'
 
@@ -56,6 +57,7 @@ export function TransactionDialog({
   const rawCategories = (state?.settings?.transactionCategories as string[]) || DEFAULT_CATEGORIES
   const feeCategories = getFeeTypeOptions(rawCategories, false)
   const expenseCategories = getClientExpenseOptions(rawCategories)
+  const officeExpenseCategories = getOfficeExpenseOptions(state?.settings?.expenseTypes)
 
   const bankOptions = Array.from(
     new Set([
@@ -80,6 +82,19 @@ export function TransactionDialog({
   const currentYear = new Date().getFullYear()
   const defaultSuccessDueDate = `${currentYear}-12-31`
 
+  const detectIsOffice = (item: any) => {
+    if (!item) return false
+    if (item.origem === 'OFFICE' || item.type === 'office_expense') return true
+    if (
+      (item.type === 'expense' || !item.type) &&
+      !item.clientId &&
+      (Boolean(item.supplierId) || officeExpenseCategories.includes(item.category))
+    ) {
+      return true
+    }
+    return false
+  }
+
   const getInitial = () => ({
     description: '',
     amount: '',
@@ -95,23 +110,37 @@ export function TransactionDialog({
     supplier_group: '',
     percentage: '',
     payment_method: 'PIX',
+    origem: 'MANUAL',
   })
 
-  const [fd, setFd] = useState(() =>
-    data
-      ? {
-          ...data,
-          amount: data.amount != null ? data.amount.toString() : '',
-          date: data.date ?? '',
-          sendToFinance: data.sendToFinance !== false,
-          bankAccount: data.bankAccount || state?.settings?.bankAccounts?.[0] || 'ASAAS',
-          supplierId: data.supplierId || '',
-          supplier_group: (data as any).supplier_group || '',
-          percentage: data.percentage != null ? data.percentage.toString() : '',
-          payment_method: data.payment_method || 'PIX',
-        }
-      : getInitial(),
-  )
+  const [fd, setFd] = useState(() => {
+    if (!data) return getInitial()
+    const isOffice = detectIsOffice(data)
+    const initialType = isOffice ? 'office_expense' : data.type || 'expense'
+    const initialCategory =
+      data.category && isSuccessFeeType(data.category)
+        ? 'Honorários de Êxito'
+        : data.category ||
+          (initialType === 'income'
+            ? 'Honorários Contratuais'
+            : initialType === 'office_expense'
+              ? officeExpenseCategories[0] || 'Aluguel'
+              : 'Custas Iniciais')
+    return {
+      ...data,
+      type: initialType,
+      category: initialCategory,
+      amount: data.amount != null ? data.amount.toString() : '',
+      date: data.date ?? '',
+      sendToFinance: data.sendToFinance !== false,
+      bankAccount: data.bankAccount || state?.settings?.bankAccounts?.[0] || 'ASAAS',
+      supplierId: data.supplierId || '',
+      supplier_group: (data as any).supplier_group || '',
+      percentage: data.percentage != null ? data.percentage.toString() : '',
+      payment_method: data.payment_method || 'PIX',
+      origem: isOffice ? 'OFFICE' : (data as any).origem || 'MANUAL',
+    }
+  })
 
   const [isRecurring, setIsRecurring] = useState(false)
   const [installments, setInstallments] = useState('2')
@@ -124,6 +153,8 @@ export function TransactionDialog({
       // Só sobrescreve os dados se o item mudou (ex: abriu outro registro) ou se ainda não foi inicializado
       if (lastInitializedIdRef.id !== dataId) {
         lastInitializedIdRef.id = dataId
+        const isOffice = detectIsOffice(data)
+        const initialType = isOffice ? 'office_expense' : data?.type || 'expense'
         const initialStatus =
           data?.status === 'Realizado' || data?.status === 'Êxito'
             ? data?.amount > 0
@@ -135,12 +166,17 @@ export function TransactionDialog({
           data?.category && isSuccessFeeType(data.category)
             ? 'Honorários de Êxito'
             : data?.category ||
-              (data?.type === 'income' ? 'Honorários Contratuais' : 'Custas Iniciais')
+              (initialType === 'income'
+                ? 'Honorários Contratuais'
+                : initialType === 'office_expense'
+                  ? officeExpenseCategories[0] || 'Aluguel'
+                  : 'Custas Iniciais')
 
         setFd(
           data
             ? {
                 ...data,
+                type: initialType,
                 status: initialStatus,
                 category: initialCategory,
                 amount: data.amount != null ? data.amount.toString() : '',
@@ -151,6 +187,7 @@ export function TransactionDialog({
                 supplier_group: (data as any).supplier_group || '',
                 percentage: data.percentage != null ? data.percentage.toString() : '',
                 payment_method: data.payment_method || 'PIX',
+                origem: isOffice ? 'OFFICE' : (data as any).origem || 'MANUAL',
               }
             : getInitial(),
         )
@@ -163,10 +200,24 @@ export function TransactionDialog({
   }, [data, open, lockedProcessId, lockedClientId])
 
   const isSuccessFee = isCategorySuccessFee(fd.category)
-  const currentCategoryList = fd.type === 'income' ? feeCategories : expenseCategories
+  const currentCategoryList =
+    fd.type === 'income'
+      ? feeCategories
+      : fd.type === 'office_expense'
+        ? officeExpenseCategories
+        : expenseCategories
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (fd.type === 'office_expense' && (!fd.category || !fd.category.trim())) {
+      toast({
+        title: 'Campo Obrigatório',
+        description: 'O Tipo de Despesa é obrigatório para despesas do escritório.',
+        variant: 'destructive',
+      })
+      return
+    }
 
     if (
       !fd.description ||
@@ -185,8 +236,11 @@ export function TransactionDialog({
     }
 
     const finalDescription = capitalizeFirstLetter(fd.description)
+    const isOffice = fd.type === 'office_expense'
     const payload: any = {
       ...fd,
+      type: isOffice ? 'expense' : fd.type,
+      origem: isOffice ? 'OFFICE' : fd.origem || 'MANUAL',
       description: finalDescription,
       amount: fd.amount ? parseFloat(fd.amount.toString().replace(',', '.')) : 0,
       date: fd.date && fd.date.trim() !== '' ? fd.date : null,
@@ -210,11 +264,16 @@ export function TransactionDialog({
         }
       }
     }
-    if (!payload.clientId || payload.clientId === 'none') {
+    if (isOffice) {
       payload.clientId = null
-    }
-    if (!payload.processId || payload.processId === 'none') {
       payload.processId = null
+    } else {
+      if (!payload.clientId || payload.clientId === 'none') {
+        payload.clientId = null
+      }
+      if (!payload.processId || payload.processId === 'none') {
+        payload.processId = null
+      }
     }
 
     onSave(payload, isRecurring, parseInt(installments, 10))
@@ -235,8 +294,12 @@ export function TransactionDialog({
                 <Select
                   value={fd.type}
                   onValueChange={(v) => {
-                    const newDefaultCat =
-                      v === 'income' ? 'Honorários Contratuais' : 'Custas Iniciais'
+                    let newDefaultCat = 'Custas Iniciais'
+                    if (v === 'income') {
+                      newDefaultCat = 'Honorários Contratuais'
+                    } else if (v === 'office_expense') {
+                      newDefaultCat = officeExpenseCategories[0] || 'Aluguel'
+                    }
                     setFd({ ...fd, type: v, category: newDefaultCat })
                   }}
                 >
@@ -245,6 +308,7 @@ export function TransactionDialog({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="expense">Despesa do Cliente / Custa</SelectItem>
+                    <SelectItem value="office_expense">Despesas do escritório</SelectItem>
                     <SelectItem value="income">Honorário / Receita</SelectItem>
                   </SelectContent>
                 </Select>

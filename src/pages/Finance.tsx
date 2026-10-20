@@ -234,6 +234,8 @@ export default function Finance() {
     } else if (activeTab === 'despesas-cliente') {
       list = list.filter((t) => {
         if (t.type !== 'expense') return false
+        // Despesas do escritório (origem === 'OFFICE') nunca entram na aba Despesas do Cliente
+        if (t.origem === 'OFFICE') return false
         // Se a despesa estiver explicitamente vinculada a um fornecedor (ex: Estagiário, Contabilidade, Telefonia),
         // trata-se de despesa do escritório / fornecedores, NÃO despesa do cliente!
         if (t.supplierId) return false
@@ -250,6 +252,13 @@ export default function Finance() {
 
         // Se tem clientId explicitamente vinculado ou é categoria típica de cliente sem fornecedor
         return Boolean(t.clientId) || isClientRelatedCategory
+      })
+    } else if (activeTab === 'fornecedores') {
+      list = list.filter((t) => {
+        if (t.type !== 'expense') return false
+        // Aba Fornecedores inclui todas as despesas do escritório / fornecedor:
+        // vinculadas a fornecedor OU marcadas como despesa do escritório (origem === 'OFFICE')
+        return Boolean(t.supplierId) || t.origem === 'OFFICE'
       })
     } else if (activeTab === 'parcelamentos') {
       list = list.filter((t) => Boolean(t.plan_id))
@@ -428,6 +437,10 @@ export default function Finance() {
     } else if (activeTab === 'despesas-cliente') {
       source = baseTransactions.filter(
         (t) => t.type === 'expense' && !t.supplierId && t.origem !== 'OFFICE',
+      )
+    } else if (activeTab === 'fornecedores') {
+      source = baseTransactions.filter(
+        (t) => t.type === 'expense' && (Boolean(t.supplierId) || t.origem === 'OFFICE'),
       )
     }
     const cats = new Set(source.map((t) => t.category).filter(Boolean))
@@ -977,7 +990,7 @@ export default function Finance() {
           </TabsTrigger>
         </TabsList>
 
-        {activeTab !== 'fornecedores' && activeTab !== 'conciliacao' && (
+        {activeTab !== 'conciliacao' && (
           <Card className="mt-4">
             <CardHeader className="pb-4">
               <div className="flex flex-col gap-4">
