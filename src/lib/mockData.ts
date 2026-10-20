@@ -137,6 +137,7 @@ export interface Transaction {
   percentage?: number
   sendToFinance?: boolean
   supplierId?: string
+  supplier_group?: string | null
   recurring_id?: string
   pendente_vinculo?: boolean
   origem?: string
@@ -176,6 +177,7 @@ export interface Settings {
   captacaoOptions: string[]
   transactionCategories?: string[]
   bankAccounts?: any[]
+  expenseTypes?: string[]
   clientPositions?: string[]
   subprocessTypes?: string[]
   asaasApiKey?: string | null

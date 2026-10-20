@@ -865,11 +865,6 @@ export default function Settings() {
                 onSave={(items) => updateItem('settings', s.id, { captacaoOptions: items })}
               />
               <EditableList
-                title="Contas Bancárias"
-                items={s.bankAccounts || ['ASAAS', 'SICOOB', 'CAIXA', 'PESSOAL']}
-                onSave={(items) => updateItem('settings', s.id, { bankAccounts: items })}
-              />
-              <EditableList
                 title="Posições do Cliente"
                 items={s.clientPositions || []}
                 onSave={(items) => updateItem('settings', s.id, { clientPositions: items })}

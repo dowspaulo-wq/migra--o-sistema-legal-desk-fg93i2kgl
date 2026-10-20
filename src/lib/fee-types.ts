@@ -29,6 +29,25 @@ export const CLIENT_EXPENSE_TYPES = [
   'Outros',
 ]
 
+// Tipos padrão de despesas do escritório (Item 4: onde ~99% das despesas do escritório serão lançadas)
+export const DEFAULT_OFFICE_EXPENSE_TYPES = [
+  'Aluguel',
+  'Bolsa de Estágio',
+  'Contabilidade',
+  'Custas e Emolumentos',
+  'Energia Elétrica',
+  'Impostos e Tributos',
+  'Internet e Telefonia',
+  'Marketing e Publicidade',
+  'Material de Escritório',
+  'Pró-labore',
+  'Retirada de Lucros',
+  'Seguros',
+  'Software e Tecnologia',
+  'Tarifas Bancárias',
+  'Outros',
+]
+
 // Modalidades que não geram lançamento financeiro automático (apenas no processo)
 export const NON_FINANCIAL_FEE_TYPES = ['Não gera honorários', 'pro bono']
 
@@ -96,6 +115,15 @@ export const getClientExpenseOptions = (transactionCategories?: string[] | null)
 
   const combined = Array.from(new Set([...CLIENT_EXPENSE_TYPES, ...customExpenses]))
   return combined.sort((a, b) => a.localeCompare(b, 'pt-BR'))
+}
+
+// Retorna tipos de despesa do escritório (configuradas no editor de tipos de despesa)
+export const getOfficeExpenseOptions = (customExpenseTypes?: string[] | null): string[] => {
+  const base =
+    customExpenseTypes && customExpenseTypes.length > 0
+      ? customExpenseTypes
+      : DEFAULT_OFFICE_EXPENSE_TYPES
+  return Array.from(new Set(base)).sort((a, b) => a.localeCompare(b, 'pt-BR'))
 }
 
 // Normaliza primeira letra em maiúscula

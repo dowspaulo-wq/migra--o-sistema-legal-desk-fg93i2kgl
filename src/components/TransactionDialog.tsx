@@ -92,6 +92,7 @@ export function TransactionDialog({
     sendToFinance: true,
     bankAccount: state?.settings?.bankAccounts?.[0] || 'ASAAS',
     supplierId: '',
+    supplier_group: '',
     percentage: '',
     payment_method: 'PIX',
   })
@@ -105,6 +106,7 @@ export function TransactionDialog({
           sendToFinance: data.sendToFinance !== false,
           bankAccount: data.bankAccount || state?.settings?.bankAccounts?.[0] || 'ASAAS',
           supplierId: data.supplierId || '',
+          supplier_group: (data as any).supplier_group || '',
           percentage: data.percentage != null ? data.percentage.toString() : '',
           payment_method: data.payment_method || 'PIX',
         }
@@ -146,6 +148,7 @@ export function TransactionDialog({
                 sendToFinance: data.sendToFinance !== false,
                 bankAccount: data.bankAccount || 'ASAAS',
                 supplierId: data.supplierId || '',
+                supplier_group: (data as any).supplier_group || '',
                 percentage: data.percentage != null ? data.percentage.toString() : '',
                 payment_method: data.payment_method || 'PIX',
               }
@@ -197,6 +200,15 @@ export function TransactionDialog({
 
     if (!payload.supplierId || payload.supplierId === 'none') {
       payload.supplierId = null
+      payload.supplier_group = null
+    } else {
+      // Se tiver fornecedor selecionado, garante que o supplier_group esteja populado
+      if (!payload.supplier_group) {
+        const foundSup = state.suppliers.find((s) => s.id === payload.supplierId)
+        if (foundSup?.group_name) {
+          payload.supplier_group = foundSup.group_name
+        }
+      }
     }
     if (!payload.clientId || payload.clientId === 'none') {
       payload.clientId = null
@@ -318,7 +330,18 @@ export function TransactionDialog({
               <Label>Fornecedor (Opcional)</Label>
               <Select
                 value={fd.supplierId || 'none'}
-                onValueChange={(v) => setFd({ ...fd, supplierId: v === 'none' ? null : v })}
+                onValueChange={(v) => {
+                  if (v === 'none') {
+                    setFd({ ...fd, supplierId: null, supplier_group: null })
+                  } else {
+                    const sup = state.suppliers.find((s) => s.id === v)
+                    setFd({
+                      ...fd,
+                      supplierId: v,
+                      supplier_group: sup?.group_name || null,
+                    })
+                  }
+                }}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione um fornecedor" />
@@ -330,7 +353,7 @@ export function TransactionDialog({
                     .sort((a: any, b: any) => (a.name || '').localeCompare(b.name || '', 'pt-BR'))
                     .map((s: any) => (
                       <SelectItem key={s.id} value={s.id}>
-                        {s.name}
+                        {s.name} {s.group_name ? `(${s.group_name})` : ''}
                       </SelectItem>
                     ))}
                 </SelectContent>

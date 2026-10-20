@@ -624,6 +624,13 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       } else {
         let finalChanges = { ...changes }
 
+        if (table === 'transactions' && finalChanges.supplierId && !finalChanges.supplier_group) {
+          const sup = state.suppliers.find((s) => s.id === finalChanges.supplierId)
+          if (sup?.group_name) {
+            finalChanges.supplier_group = sup.group_name
+          }
+        }
+
         setState((prev) => {
           const arr = prev[table as keyof LegalState] as any[]
           originalItem = arr?.find((item) => item.id === id)
@@ -873,7 +880,17 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
 
   const addTransaction = useCallback(
     async (t: Omit<Transaction, 'id'> | Omit<Transaction, 'id'>[]) => {
-      const items = Array.isArray(t) ? t : [t]
+      const rawItems = Array.isArray(t) ? t : [t]
+      // Preencher supplier_group automaticamente caso venha com supplierId mas sem supplier_group
+      const items = rawItems.map((item) => {
+        if ((item as any).supplierId && !(item as any).supplier_group) {
+          const sup = state.suppliers.find((s) => s.id === (item as any).supplierId)
+          if (sup?.group_name) {
+            return { ...item, supplier_group: sup.group_name }
+          }
+        }
+        return item
+      })
       const { data, error } = await supabase
         .from('transactions')
         .insert(items as any)

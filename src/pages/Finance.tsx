@@ -263,6 +263,7 @@ export default function Finance() {
             ? t.status === 'Pago' || t.status === 'Realizado'
             : t.status === filterStatus
       const matchBank = filterBank === 'Todos' || t.bankAccount === filterBank
+      // Se estamos na aba de Honorários e o filtro de categoria for de despesa, não deve afetar os honorários
       const matchCategory = filterCategory === 'Todas' || t.category === filterCategory
       const matchSupplier = filterSupplier === 'Todos' || t.supplierId === filterSupplier
       const matchSupplierGroup = (() => {
@@ -425,7 +426,9 @@ export default function Finance() {
       // Dropdown de categoria na aba Honorários deve listar apenas categorias de RECEITA / Honorários
       source = baseTransactions.filter((t) => t.type === 'income')
     } else if (activeTab === 'despesas-cliente') {
-      source = baseTransactions.filter((t) => t.type === 'expense')
+      source = baseTransactions.filter(
+        (t) => t.type === 'expense' && !t.supplierId && t.origem !== 'OFFICE',
+      )
     }
     const cats = new Set(source.map((t) => t.category).filter(Boolean))
     return Array.from(cats).sort((a: any, b: any) =>
@@ -1450,90 +1453,135 @@ export default function Finance() {
                 </Table>
               </div>
 
-              {/* Seção Nova: Êxito a apurar (Honorários marcados apenas no processo sem lançamento financeiro) */}
+              {/* Seção: Êxito a apurar (Honorários marcados apenas no processo sem lançamento financeiro) */}
+              {/* Regra do Douglas: filtros de categorias de despesa NÃO ocultam os honorários de êxito a apurar */}
               {(activeTab === 'geral' || activeTab === 'honorarios') &&
-                unbilledSuccessFees.length > 0 && (
-                  <div className="mt-8 border-t pt-6">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-                      <div>
-                        <h3 className="text-base font-semibold text-slate-800 flex items-center gap-2">
-                          <span>🎯</span> Honorários de Êxito a Apurar ({unbilledSuccessFees.length}
-                          )
-                        </h3>
-                        <p className="text-xs text-muted-foreground">
-                          Honorários registrados diretamente no processo (&quot;Não gera lançamento
-                          financeiro&quot;). Ao ganhar a ação, clique em &quot;Marcar como
-                          Pago&quot; para apurar o valor e gerar o lançamento financeiro automático.
-                        </p>
+                (() => {
+                  const filteredUnbilledFees = unbilledSuccessFees.filter((fee) => {
+                    if (filterClient !== 'Todos' && fee.clientId !== filterClient) return false
+                    if (filterCase !== 'Todos' && fee.caseId !== filterCase) return false
+                    if (searchQuery.trim()) {
+                      const q = searchQuery.toLowerCase().trim()
+                      const matchNumber = (fee.caseNumber || '').toLowerCase().includes(q)
+                      const matchClientName = (fee.clientName || '').toLowerCase().includes(q)
+                      if (!matchNumber && !matchClientName) return false
+                    }
+                    // Se o usuário filtrou por uma categoria específica e NÃO é "Todas":
+                    // Honorários de Êxito só são filtrados se a categoria selecionada for explicitamente compatível com êxito/honorários.
+                    // Se for categoria de despesa (ex: Impostos e Tributos, Aluguel, etc), NÃO filtra/oculta os êxitos.
+                    if (filterCategory !== 'Todas') {
+                      const catLower = filterCategory.toLowerCase()
+                      const isFeeCategoryFilter =
+                        catLower.includes('honor') ||
+                        catLower.includes('êxito') ||
+                        catLower.includes('exito') ||
+                        catLower.includes('acordo') ||
+                        catLower.includes('alvará') ||
+                        catLower.includes('alvara')
+                      if (isFeeCategoryFilter) {
+                        return (
+                          catLower.includes('êxito') ||
+                          catLower.includes('exito') ||
+                          filterCategory === 'Honorários de Êxito'
+                        )
+                      }
+                      // Se o filtro selecionado foi uma categoria de despesa, os honorários permanecem visíveis
+                    }
+                    return true
+                  })
+
+                  if (filteredUnbilledFees.length === 0) return null
+
+                  return (
+                    <div className="mt-8 border-t pt-6">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                        <div>
+                          <h3 className="text-base font-semibold text-slate-800 flex items-center gap-2">
+                            <span>🎯</span> Honorários de Êxito a Apurar (
+                            {filteredUnbilledFees.length})
+                          </h3>
+                          <p className="text-xs text-muted-foreground">
+                            Honorários registrados diretamente no processo (&quot;Não gera
+                            lançamento financeiro&quot;). Ao ganhar a ação, clique em &quot;Marcar
+                            como Pago&quot; para apurar o valor e gerar o lançamento financeiro
+                            automático.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="rounded-md border bg-slate-50/50">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Processo — Cliente</TableHead>
+                              <TableHead>Tipo</TableHead>
+                              <TableHead>Percentual / Valor</TableHead>
+                              <TableHead>Vencimento Padrão</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead className="w-[180px] text-right">Ação</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {filteredUnbilledFees.map((fee) => (
+                              <TableRow
+                                key={`unbilled-fee-${fee.caseId}`}
+                                className="hover:bg-white"
+                              >
+                                <TableCell className="font-medium text-sm">
+                                  <div>
+                                    <span className="font-semibold text-primary">
+                                      {fee.caseNumber}
+                                    </span>
+                                    <span className="text-muted-foreground">
+                                      {' '}
+                                      — {fee.clientName}
+                                    </span>
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <Badge
+                                    variant="outline"
+                                    className="bg-blue-50 text-blue-700 border-blue-200 text-xs"
+                                  >
+                                    {fee.feeType}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="font-semibold text-slate-700">
+                                  {fee.feeValue > 0
+                                    ? `R$ ${fee.feeValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+                                    : fee.feePercentage
+                                      ? `${fee.feePercentage}% (A apurar)`
+                                      : 'A apurar'}
+                                </TableCell>
+                                <TableCell className="text-sm text-muted-foreground">
+                                  {formatSafeLocalDate(fee.dueDate)} (31/12)
+                                </TableCell>
+                                <TableCell>
+                                  <Badge
+                                    variant="outline"
+                                    className="border-orange-200 text-orange-700 bg-orange-50 text-xs"
+                                  >
+                                    {fee.status}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 text-xs border-green-300 text-green-700 hover:bg-green-50"
+                                    onClick={() => setConvertingSuccessCase(fee)}
+                                  >
+                                    Marcar como Pago →
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
                       </div>
                     </div>
-
-                    <div className="rounded-md border bg-slate-50/50">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Processo — Cliente</TableHead>
-                            <TableHead>Tipo</TableHead>
-                            <TableHead>Percentual / Valor</TableHead>
-                            <TableHead>Vencimento Padrão</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead className="w-[180px] text-right">Ação</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {unbilledSuccessFees.map((fee) => (
-                            <TableRow key={`unbilled-fee-${fee.caseId}`} className="hover:bg-white">
-                              <TableCell className="font-medium text-sm">
-                                <div>
-                                  <span className="font-semibold text-primary">
-                                    {fee.caseNumber}
-                                  </span>
-                                  <span className="text-muted-foreground"> — {fee.clientName}</span>
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                <Badge
-                                  variant="outline"
-                                  className="bg-blue-50 text-blue-700 border-blue-200 text-xs"
-                                >
-                                  {fee.feeType}
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="font-semibold text-slate-700">
-                                {fee.feeValue > 0
-                                  ? `R$ ${fee.feeValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-                                  : fee.feePercentage
-                                    ? `${fee.feePercentage}% (A apurar)`
-                                    : 'A apurar'}
-                              </TableCell>
-                              <TableCell className="text-sm text-muted-foreground">
-                                {formatSafeLocalDate(fee.dueDate)} (31/12)
-                              </TableCell>
-                              <TableCell>
-                                <Badge
-                                  variant="outline"
-                                  className="border-orange-200 text-orange-700 bg-orange-50 text-xs"
-                                >
-                                  {fee.status}
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-8 text-xs border-green-300 text-green-700 hover:bg-green-50"
-                                  onClick={() => setConvertingSuccessCase(fee)}
-                                >
-                                  Marcar como Pago →
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </div>
-                )}
+                  )
+                })()}
             </CardContent>
           </Card>
         )}
