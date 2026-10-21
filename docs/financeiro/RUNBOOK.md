@@ -1,4 +1,36 @@
-# DPSjur / SBJur — Runbook: Correção de Status 'Realizado' -> 'Pago' & Webhook Asaas no VPS
+                      RESUMO DA CORREÇÃO
+
+=====================================================================
+
+1. Banco Real Identificado:
+   - Contêiner: dpsjur_dpsjur-db.1...
+   - Usuário: postgres (ou usuário configurado no EasyPanel)
+   - Banco: postgres
+2. Status 'Realizado':
+   - Registros restantes: 0 [OK] (100% extinto e unificado como 'Pago')
+3. Webhook Asaas & Edge Runtime:
+   - Gravação de status: 'Pago' (padrão único)
+   - Casamento resiliente: Ativo (une cobrança à parcela existente)
+   - # Edge containers: atualizado(s) e reiniciado(s)
+
+# ✅ OPERAÇÃO CONCLUÍDA COM SUCESSO! [OK]
+
+=====================================================================
+RESUMO DA CORREÇÃO
+=====================================================================
+
+1. Banco Real Identificado:
+   - Contêiner: sbjur-local_supabase-db-1
+   - Usuário: postgres (ou usuário configurado no EasyPanel)
+   - Banco: postgres
+2. Status 'Realizado':
+   - Registros restantes: 0 [OK] (100% extinto e unificado como 'Pago')
+3. Webhook Asaas & Edge Runtime:
+   - Gravação de status: 'Pago' (padrão único)
+   - Casamento resiliente: Ativo (une cobrança à parcela existente)
+   - # Edge containers: 1 atualizado(s) e reiniciado(s)
+
+✅ OPERAÇÃO CONCLUÍDA COM SUCESSO! [OK]# DPSjur / SBJur — Runbook: Correção de Status 'Realizado' -> 'Pago' & Webhook Asaas no VPS
 
 Guia prático para o Douglas executar no VPS Hostinger (EasyPanel / Docker) para corrigir o status do módulo financeiro e o webhook do Asaas.
 
