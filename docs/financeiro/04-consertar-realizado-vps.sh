@@ -2,7 +2,7 @@
 # ==============================================================================
 # SCRIPT VPS: CONSERTAR "REALIZADO" -> "PAGO", UNIFICAR DUPLICATAS E WEBHOOK ASAAS
 # DPSjur - Sistema Jurídico SBJur no VPS Hostinger (EasyPanel / Docker)
-# Versão: v1.2.2
+# Versão: v1.2.3
 # Data: 2026-10-21
 #
 # O QUE ESTE SCRIPT FAZ (Totalmente Idempotente e Confiável):
@@ -38,7 +38,7 @@
 
 set -uo pipefail
 
-SCRIPT_VERSION="v1.2.2"
+SCRIPT_VERSION="v1.2.3"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -287,11 +287,18 @@ echo -e "   - Total Tx:  ${GREEN}${MAX_TX} registros em public.transactions${NC}
 # ------------------------------------------------------------------------------
 echo -e "${BOLD}${CYAN}[Etapa 2/5] Aplicando correções SQL no PostgreSQL...${NC}"
 
-# Script SQL com transação explícita (BEGIN/COMMIT) e updates incondicionais
+# Script SQL estruturado em DUAS transações independentes:
+# Transação 1 (Essencial e incondicional): conversão de 'Realizado'/'Paga'/'Êxito' -> 'Pago',
+# garantindo que o objetivo principal (358+ registros) sempre comite com sucesso absoluto.
+# Transação 2 (Acessória e protegida): unificação de duplicatas de parcelamento com bloco
+# BEGIN/EXCEPTION WHEN OTHERS que NUNCA aborta nem impacta a conversão de status.
 SQL_MIGRATION_FILE="
+-- ==============================================================================
+-- TRANSAÇÃO 1: ESSENCIAL (STATUS 'REALIZADO' -> 'PAGO' E TIMESTAMPS)
+-- ==============================================================================
 BEGIN;
 
--- 1. Garantir colunas de timestamps em settings
+-- 1.1 Garantir colunas de timestamps em settings
 DO \$\$
 BEGIN
     IF NOT EXISTS (
@@ -315,18 +322,18 @@ BEGIN
     END IF;
 END \$\$;
 
--- 2. Consertar lançamentos com status 'Realizado' -> 'Pago' (Incondicional e Abrangente)
+-- 1.2 Consertar lançamentos com status 'Realizado' -> 'Pago' (Incondicional e Abrangente)
 -- Cobre variações com espaços em branco, maiúsculas/minúsculas e acentuação
 UPDATE public.transactions
 SET status = 'Pago'
 WHERE trim(status) ILIKE 'realizado';
 
--- 3. Consertar status 'Paga' -> 'Pago' para unificar o gênero no banco
+-- 1.3 Consertar status 'Paga' -> 'Pago' para unificar o gênero no banco
 UPDATE public.transactions
 SET status = 'Pago'
 WHERE trim(status) ILIKE 'paga';
 
--- 4. Extinção de status 'Êxito' se ainda remanescente
+-- 1.4 Extinção de status 'Êxito' se ainda remanescente
 UPDATE public.transactions
 SET 
     category = 'Honorários de Êxito',
@@ -337,10 +344,14 @@ SET
     END
 WHERE trim(status) ILIKE 'êxito' OR trim(status) ILIKE 'exito';
 
--- 5. Unificar duplicatas criadas pelo webhook Asaas casando com parcelas de parcelamento
--- Executa em bloco anônimo protegido com resolução dinâmica de colunas
--- Funciona tanto em bancos snake_case (plan_id, installment_number, created_at)
--- quanto em bancos camelCase ("planId", "installmentNumber", "createdAt").
+COMMIT;
+
+-- ==============================================================================
+-- TRANSAÇÃO 2: ACESSÓRIA E PROTEGIDA (UNIFICAÇÃO DE DUPLICATAS DO ASAAS)
+-- Nunca aborta o script se encontrar incompatibilidade de colunas ou erro de cursor.
+-- ==============================================================================
+BEGIN;
+
 DO \$\$
 DECLARE
     v_col_plan text := NULL;
@@ -348,11 +359,12 @@ DECLARE
     v_col_bank text := NULL;
     v_col_inst text := NULL;
     v_col_created text := NULL;
+    v_has_pendente boolean := false;
     v_sql text;
     v_duplicates_merged integer := 0;
     r_dup RECORD;
 BEGIN
-    -- 5.1 Resolver coluna de vínculo com o plano ('plan_id' ou 'planId')
+    -- 2.1 Resolver coluna de vínculo com o plano ('plan_id' ou 'planId')
     SELECT column_name INTO v_col_plan
     FROM information_schema.columns
     WHERE table_schema = 'public'
@@ -361,13 +373,12 @@ BEGIN
     ORDER BY CASE WHEN column_name = 'plan_id' THEN 1 ELSE 2 END
     LIMIT 1;
 
-    -- Se a coluna de plano não existe, não há como vincular a parcelas de plano
     IF v_col_plan IS NULL THEN
-        RAISE NOTICE 'Coluna de plano (plan_id / planId) não encontrada em public.transactions. Etapa de unificação pulada.';
+        RAISE NOTICE 'Etapa de unificação de duplicatas pulada: coluna de plano (plan_id / planId) não encontrada em public.transactions.';
         RETURN;
     END IF;
 
-    -- 5.2 Resolver coluna de cliente ('clientId' ou 'client_id')
+    -- 2.2 Resolver coluna de cliente ('clientId' ou 'client_id')
     SELECT column_name INTO v_col_client
     FROM information_schema.columns
     WHERE table_schema = 'public'
@@ -376,7 +387,7 @@ BEGIN
     ORDER BY CASE WHEN column_name = 'clientId' THEN 1 ELSE 2 END
     LIMIT 1;
 
-    -- 5.3 Resolver coluna de conta bancária ('bankAccount' ou 'bank_account')
+    -- 2.3 Resolver coluna de conta bancária ('bankAccount' ou 'bank_account')
     SELECT column_name INTO v_col_bank
     FROM information_schema.columns
     WHERE table_schema = 'public'
@@ -385,7 +396,7 @@ BEGIN
     ORDER BY CASE WHEN column_name = 'bankAccount' THEN 1 ELSE 2 END
     LIMIT 1;
 
-    -- 5.4 Resolver coluna de número de parcela ('installment_number' ou 'installmentNumber')
+    -- 2.4 Resolver coluna de número de parcela ('installment_number' ou 'installmentNumber')
     SELECT column_name INTO v_col_inst
     FROM information_schema.columns
     WHERE table_schema = 'public'
@@ -394,7 +405,7 @@ BEGIN
     ORDER BY CASE WHEN column_name = 'installment_number' THEN 1 ELSE 2 END
     LIMIT 1;
 
-    -- 5.5 Resolver coluna de data de criação ('created_at' ou 'createdAt')
+    -- 2.5 Resolver coluna de data de criação ('created_at' ou 'createdAt')
     SELECT column_name INTO v_col_created
     FROM information_schema.columns
     WHERE table_schema = 'public'
@@ -403,77 +414,107 @@ BEGIN
     ORDER BY CASE WHEN column_name = 'created_at' THEN 1 ELSE 2 END
     LIMIT 1;
 
-    -- Montar query dinâmica usando quote_ident para escapar identificadores com segurança
-    v_sql := format('
-        SELECT 
-            t_dup.id AS dup_id,
-            t_dup.asaas_id AS dup_asaas_id,
-            t_dup.date AS dup_date,
-            %s AS dup_bank,
-            t_plan.id AS plan_tx_id
-        FROM public.transactions t_dup
-        JOIN public.transactions t_plan ON (
-            t_dup.id <> t_plan.id
-            %s
-            AND t_dup.%I IS NULL
-            AND t_plan.%I IS NOT NULL
-            AND t_dup.asaas_id IS NOT NULL
-            AND (t_plan.asaas_id IS NULL OR t_plan.asaas_id = t_dup.asaas_id)
-            AND ABS(COALESCE(t_dup.amount, 0) - COALESCE(t_plan.amount, 0)) < 0.05
-            AND (
-                t_dup.date = t_plan.date
-                OR substring(t_dup.date from 1 for 7) = substring(t_plan.date from 1 for 7)
+    -- 2.6 Checar se coluna pendente_vinculo existe
+    SELECT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'transactions'
+          AND column_name = 'pendente_vinculo'
+    ) INTO v_has_pendente;
+
+    -- 2.7 Bloco protegido com tratamento integral de exceções
+    BEGIN
+        v_sql := format('
+            SELECT 
+                t_dup.id AS dup_id,
+                t_dup.asaas_id AS dup_asaas_id,
+                t_dup.date AS dup_date,
+                %s AS dup_bank,
+                t_plan.id AS plan_tx_id
+            FROM public.transactions t_dup
+            JOIN public.transactions t_plan ON (
+                t_dup.id <> t_plan.id
                 %s
+                AND t_dup.%I IS NULL
+                AND t_plan.%I IS NOT NULL
+                AND t_dup.asaas_id IS NOT NULL
+                AND (t_plan.asaas_id IS NULL OR t_plan.asaas_id = t_dup.asaas_id)
+                AND ABS(COALESCE(t_dup.amount, 0) - COALESCE(t_plan.amount, 0)) < 0.05
+                AND (
+                    t_dup.date = t_plan.date
+                    OR substring(t_dup.date from 1 for 7) = substring(t_plan.date from 1 for 7)
+                    %s
+                )
             )
-        )
-        %s',
-        -- %s: select dup_bank
-        CASE WHEN v_col_bank IS NOT NULL THEN format('t_dup.%I', v_col_bank) ELSE 'NULL::text' END,
-        -- %s: filtro de client
-        CASE WHEN v_col_client IS NOT NULL THEN format('AND t_dup.%I IS NOT NULL AND t_dup.%I = t_plan.%I', v_col_client, v_col_client, v_col_client) ELSE '' END,
-        -- %I, %I: plan column em t_dup e t_plan
-        v_col_plan,
-        v_col_plan,
-        -- %s: filtro de parcela
-        CASE WHEN v_col_inst IS NOT NULL THEN format('OR (t_plan.%I IS NOT NULL AND t_dup.description ILIKE ''%%'' || t_plan.%I || ''%%'')', v_col_inst, v_col_inst) ELSE '' END,
-        -- %s: ordenação
-        CASE WHEN v_col_created IS NOT NULL THEN format('ORDER BY t_dup.%I ASC', v_col_created) ELSE 'ORDER BY t_dup.id ASC' END
-    );
+            %s',
+            CASE WHEN v_col_bank IS NOT NULL THEN format('t_dup.%I', v_col_bank) ELSE 'NULL::text' END,
+            CASE WHEN v_col_client IS NOT NULL THEN format('AND t_dup.%I IS NOT NULL AND t_dup.%I = t_plan.%I', v_col_client, v_col_client, v_col_client) ELSE '' END,
+            v_col_plan,
+            v_col_plan,
+            CASE WHEN v_col_inst IS NOT NULL THEN format('OR (t_plan.%I IS NOT NULL AND t_dup.description ILIKE ''%%%%'' || t_plan.%I || ''%%%%'')', v_col_inst, v_col_inst) ELSE '' END,
+            CASE WHEN v_col_created IS NOT NULL THEN format('ORDER BY t_dup.%I ASC', v_col_created) ELSE 'ORDER BY t_dup.id ASC' END
+        );
 
-    FOR r_dup IN EXECUTE v_sql LOOP
-        IF v_col_bank IS NOT NULL THEN
-            EXECUTE format('
-                UPDATE public.transactions
-                SET 
-                    status = ''Pago'',
-                    asaas_id = COALESCE($1, asaas_id),
-                    date = COALESCE($2, date),
-                    %I = COALESCE($3, %I, ''ASAAS''),
-                    pendente_vinculo = false
-                WHERE id = $4', v_col_bank, v_col_bank)
-            USING r_dup.dup_asaas_id, r_dup.dup_date, r_dup.dup_bank, r_dup.plan_tx_id;
+        FOR r_dup IN EXECUTE v_sql LOOP
+            IF v_col_bank IS NOT NULL THEN
+                IF v_has_pendente THEN
+                    EXECUTE format('
+                        UPDATE public.transactions
+                        SET 
+                            status = ''Pago'',
+                            asaas_id = COALESCE(\$1, asaas_id),
+                            date = COALESCE(\$2, date),
+                            %I = COALESCE(\$3, %I, ''ASAAS''),
+                            pendente_vinculo = false
+                        WHERE id = \$4', v_col_bank, v_col_bank)
+                    USING r_dup.dup_asaas_id, r_dup.dup_date, r_dup.dup_bank, r_dup.plan_tx_id;
+                ELSE
+                    EXECUTE format('
+                        UPDATE public.transactions
+                        SET 
+                            status = ''Pago'',
+                            asaas_id = COALESCE(\$1, asaas_id),
+                            date = COALESCE(\$2, date),
+                            %I = COALESCE(\$3, %I, ''ASAAS'')
+                        WHERE id = \$4', v_col_bank, v_col_bank)
+                    USING r_dup.dup_asaas_id, r_dup.dup_date, r_dup.dup_bank, r_dup.plan_tx_id;
+                END IF;
+            ELSE
+                IF v_has_pendente THEN
+                    UPDATE public.transactions
+                    SET 
+                        status = 'Pago',
+                        asaas_id = COALESCE(r_dup.dup_asaas_id, asaas_id),
+                        date = COALESCE(r_dup.dup_date, date),
+                        pendente_vinculo = false
+                    WHERE id = r_dup.plan_tx_id;
+                ELSE
+                    UPDATE public.transactions
+                    SET 
+                        status = 'Pago',
+                        asaas_id = COALESCE(r_dup.dup_asaas_id, asaas_id),
+                        date = COALESCE(r_dup.dup_date, date)
+                    WHERE id = r_dup.plan_tx_id;
+                END IF;
+            END IF;
+
+            DELETE FROM public.transactions WHERE id = r_dup.dup_id;
+            v_duplicates_merged := v_duplicates_merged + 1;
+        END LOOP;
+
+        IF v_duplicates_merged > 0 THEN
+            RAISE NOTICE 'Duplicatas do webhook Asaas unificadas com parcelas: %', v_duplicates_merged;
         ELSE
-            UPDATE public.transactions
-            SET 
-                status = 'Pago',
-                asaas_id = COALESCE(r_dup.dup_asaas_id, asaas_id),
-                date = COALESCE(r_dup.dup_date, date),
-                pendente_vinculo = false
-            WHERE id = r_dup.plan_tx_id;
+            RAISE NOTICE 'Nenhuma duplicata pendente para unificação com parcelas de plano.';
         END IF;
-
-        DELETE FROM public.transactions WHERE id = r_dup.dup_id;
-        v_duplicates_merged := v_duplicates_merged + 1;
-    END LOOP;
-
-    IF v_duplicates_merged > 0 THEN
-        RAISE NOTICE 'Duplicatas do webhook Asaas unificadas com parcelas: %', v_duplicates_merged;
-    END IF;
+    EXCEPTION WHEN OTHERS THEN
+        RAISE NOTICE 'Etapa de unificação de duplicatas pulada (erro tratado sem abortar transação): %', SQLERRM;
+    END;
 END \$\$;
 
 COMMIT;
 
--- 6. Notificar PostgREST após commit
+-- Notificar PostgREST após commit
 SELECT pg_notify('pgrst', 'reload schema');
 "
 

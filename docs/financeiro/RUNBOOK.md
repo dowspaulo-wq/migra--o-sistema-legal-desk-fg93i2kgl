@@ -1,4 +1,4 @@
-# DPSjur / SBJur — Runbook: Correção de Status 'Realizado' -> 'Pago' & Webhook Asaas no VPS (v1.2.2)
+# DPSjur / SBJur — Runbook: Correção de Status 'Realizado' -> 'Pago' & Webhook Asaas no VPS (v1.2.3)
 
 Guia prático para o Douglas executar no VPS Hostinger (EasyPanel / Docker) para corrigir o status do módulo financeiro e o webhook do Asaas.
 
@@ -6,7 +6,7 @@ Guia prático para o Douglas executar no VPS Hostinger (EasyPanel / Docker) para
 
 ## 1. O que este script faz
 
-O script **`04-consertar-realizado-vps.sh`** (versão `v1.2.2`):
+O script **`04-consertar-realizado-vps.sh`** (versão `v1.2.3`):
 
 1. **Auto-descobre** o contêiner real do PostgreSQL no VPS e o usuário/superusuário autêntico via variáveis de ambiente (`POSTGRES_USER`) com fallback testado dinamicamente (`postgres`, `supabase_admin`, etc.), eliminando o erro `FATAL: role "supabase_admin" does not exist`.
 2. Converte retroativamente qualquer lançamento com status **"Realizado"** ou **"Paga"** para **"Pago"** (status unificado consolidado no financeiro).
