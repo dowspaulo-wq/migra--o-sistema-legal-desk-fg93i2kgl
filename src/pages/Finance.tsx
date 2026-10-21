@@ -499,11 +499,29 @@ export default function Finance() {
         variant: 'destructive',
       })
     } else {
+      const nowIso = new Date().toISOString()
+      // Atualizar settings com o timestamp da última sincronização do Asaas
+      await supabase
+        .from('settings')
+        .update({ lastAsaasSyncAt: nowIso })
+        .eq('id', state.settings.id || 'default')
+      updateItem('settings', state.settings.id || 'default', { lastAsaasSyncAt: nowIso })
+
+      if (reloadTransactions) await reloadTransactions()
+
       toast({
         title: 'Sucesso',
         description: data?.message || 'Histórico sincronizado com ASAAS.',
       })
     }
+  }
+
+  const handleSicoobImportCompleted = async (timestamp: string) => {
+    await supabase
+      .from('settings')
+      .update({ lastSicoobImportAt: timestamp })
+      .eq('id', state.settings.id || 'default')
+    updateItem('settings', state.settings.id || 'default', { lastSicoobImportAt: timestamp })
   }
 
   const handleLinkToCase = async (transactionId: string, caseId: string) => {
@@ -817,27 +835,42 @@ export default function Finance() {
           <h1 className="text-3xl font-bold tracking-tight">Financeiro</h1>
           <p className="text-muted-foreground">Controle de honorários e despesas.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            onClick={() => setAsaasExtractDialogOpen(true)}
-            className="border-blue-200 text-blue-700 hover:bg-blue-50"
-          >
-            <Download className="mr-2 h-4 w-4 text-blue-600" />
-            Importar extrato do Asaas
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => setPdfImportDialogOpen(true)}
-            className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-          >
-            <Download className="mr-2 h-4 w-4 text-emerald-600" />
-            Importar extrato (PDF)
-          </Button>
-          <Button variant="outline" onClick={handleSyncHistory} disabled={syncingHistory}>
-            <Send className={`mr-2 h-4 w-4 ${syncingHistory ? 'animate-pulse' : ''}`} />
-            {syncingHistory ? 'Sincronizando...' : 'Sincronizar com Asaas'}
-          </Button>
+        <div className="flex flex-wrap gap-3 items-start">
+          {/* Botão Sincronizar com Asaas + Timestamp */}
+          <div className="flex flex-col items-center">
+            <Button
+              variant="outline"
+              onClick={handleSyncHistory}
+              disabled={syncingHistory}
+              className="border-blue-200 text-blue-700 hover:bg-blue-50"
+            >
+              <Send className={`mr-2 h-4 w-4 ${syncingHistory ? 'animate-pulse' : ''}`} />
+              {syncingHistory ? 'Sincronizando...' : 'Sincronizar com Asaas'}
+            </Button>
+            <span className="text-[11px] text-muted-foreground mt-1">
+              {state.settings?.lastAsaasSyncAt
+                ? `Última sincronização: ${formatSafeDateTime(state.settings.lastAsaasSyncAt)}`
+                : 'Última sincronização: Nunca'}
+            </span>
+          </div>
+
+          {/* Botão Importar Extrato SICOOB / Cartões + Timestamp */}
+          <div className="flex flex-col items-center">
+            <Button
+              variant="outline"
+              onClick={() => setPdfImportDialogOpen(true)}
+              className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+            >
+              <Download className="mr-2 h-4 w-4 text-emerald-600" />
+              Importar Extrato SICOOB / Cartões (PDF)
+            </Button>
+            <span className="text-[11px] text-muted-foreground mt-1">
+              {state.settings?.lastSicoobImportAt
+                ? `Última importação: ${formatSafeDateTime(state.settings.lastSicoobImportAt)}`
+                : 'Última importação: Nunca'}
+            </span>
+          </div>
+
           <Button
             variant="outline"
             onClick={() => {
@@ -1342,11 +1375,13 @@ export default function Finance() {
                           <Badge
                             variant="outline"
                             className={
-                              t.status === 'Pago' || t.status === 'Realizado'
-                                ? 'border-green-200 text-green-700 bg-green-50'
-                                : t.status === 'Atrasado'
+                              t.status === 'Pago' || t.status === 'Paga' || t.status === 'Realizado'
+                                ? 'border-emerald-300 text-emerald-700 bg-emerald-50 font-semibold'
+                                : t.status === 'Atrasado' || t.status === 'Vencida'
                                   ? 'border-red-200 text-red-700 bg-red-50'
-                                  : 'border-orange-200 text-orange-700 bg-orange-50'
+                                  : t.status === 'Cancelada' || t.status === 'Estornada'
+                                    ? 'border-slate-200 text-slate-600 bg-slate-50'
+                                    : 'border-orange-200 text-orange-700 bg-orange-50'
                             }
                           >
                             {t.status}
@@ -1868,7 +1903,7 @@ export default function Finance() {
                                     variant="outline"
                                     className={
                                       isFeePaid
-                                        ? 'border-green-200 text-green-700 bg-green-50'
+                                        ? 'border-emerald-200 text-emerald-700 bg-emerald-50'
                                         : 'border-orange-200 text-orange-700 bg-orange-50'
                                     }
                                   >
@@ -1888,7 +1923,7 @@ export default function Finance() {
                                     variant="outline"
                                     className={
                                       isRepassePaid
-                                        ? 'border-green-200 text-green-700 bg-green-50'
+                                        ? 'border-emerald-200 text-emerald-700 bg-emerald-50'
                                         : 'border-amber-200 text-amber-700 bg-amber-50'
                                     }
                                   >
@@ -1952,18 +1987,11 @@ export default function Finance() {
         )}
 
         {/* Dialogs de importação de extrato */}
-        <AsaasExtractImportDialog
-          open={asaasExtractDialogOpen}
-          onOpenChange={setAsaasExtractDialogOpen}
-          onSuccess={async () => {
-            if (reloadTransactions) await reloadTransactions()
-          }}
-        />
-
         <BankPdfImportDialog
           open={pdfImportDialogOpen}
           onOpenChange={setPdfImportDialogOpen}
           bankAccounts={bankOptions}
+          onImportCompleted={handleSicoobImportCompleted}
           onSuccess={async () => {
             if (reloadTransactions) await reloadTransactions()
           }}

@@ -34,8 +34,8 @@ function getAsaasApiKey(req?: Request): string | null {
 
 const ASAAS_STATUS_MAP: Record<string, string> = {
   PENDING: 'Previsto',
-  RECEIVED: 'Paga',
-  CONFIRMED: 'Paga',
+  RECEIVED: 'Pago',
+  CONFIRMED: 'Pago',
   OVERDUE: 'Vencida',
   REFUNDED: 'Estornada',
   DELETED: 'Cancelada',

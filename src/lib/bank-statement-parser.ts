@@ -19,17 +19,29 @@ export function cleanTextLines(text: string): string[] {
     .filter((l) => l.length > 0)
 }
 
-// Extrai data no formato YYYY-MM-DD a partir de dd/mm/yyyy ou dd/mm/yy
-function parseBrazilianDate(dateStr: string): string | null {
-  const match = dateStr.match(/(\d{2})\/(\d{2})\/(\d{4}|\d{2})/)
-  if (!match) return null
-  const day = match[1]
-  const month = match[2]
-  let year = match[3]
-  if (year.length === 2) {
-    year = `20${year}`
+// Extrai data no formato YYYY-MM-DD a partir de dd/mm/yyyy ou dd/mm/yy ou dd/mm
+function parseBrazilianDate(dateStr: string, defaultYear?: number): string | null {
+  const fullMatch = dateStr.match(/(\d{2})\/(\d{2})\/(\d{4}|\d{2})/)
+  if (fullMatch) {
+    const day = fullMatch[1]
+    const month = fullMatch[2]
+    let year = fullMatch[3]
+    if (year.length === 2) {
+      year = `20${year}`
+    }
+    return `${year}-${month}-${day}`
   }
-  return `${year}-${month}-${day}`
+
+  // Fatura de cartão costuma ter apenas dd/mm (ex: 15/10 GOOGLE ADS)
+  const shortMatch = dateStr.match(/^(\d{2})\/(\d{2})$/)
+  if (shortMatch) {
+    const day = shortMatch[1]
+    const month = shortMatch[2]
+    const year = defaultYear || new Date().getFullYear()
+    return `${year}-${month}-${day}`
+  }
+
+  return null
 }
 
 // Converte string monetária brasileira para número
@@ -64,29 +76,46 @@ export function parseBankStatementText(rawText: string): ParsedBankStatementItem
   const lines = cleanTextLines(rawText)
   const results: ParsedBankStatementItem[] = []
 
-  // Regex comum para linha de extrato:
+  // Regex comum para linha de extrato ou fatura de cartão:
   // Exemplo: 02/03/2026 Pix Enviado Fulano -150,00 ou 150,00 D ou R$ 150,00
+  // Também aceita dd/mm no início da linha para faturas de cartão (Santander, Inter)
   const dateRegex = /\b(\d{2}\/\d{2}\/(?:\d{4}|\d{2}))\b/
+  const shortDateRegex = /^\s*(\d{2}\/\d{2})\b/
   const currencyRegex =
-    /([+-]?\s*(?:R\$\s*)?\d{1,3}(?:\.\d{3})*,\d{2}\s*(?:[CD-])?|[+-]?\s*(?:R\$\s*)?\d+,\d{2}\s*(?:[CD-])?)/i
+    /([+-]?\s*(?:R\$\s*|US\$\s*)?\d{1,3}(?:\.\d{3})*,\d{2}\s*(?:[CD-])?|[+-]?\s*(?:R\$\s*|US\$\s*)?\d+,\d{2}\s*(?:[CD-])?)/i
+
+  // Tenta extrair ano de referência do cabeçalho se houver (para faturas dd/mm)
+  let referenceYear = new Date().getFullYear()
+  for (let h = 0; h < Math.min(lines.length, 15); h++) {
+    const yMatch = lines[h].match(/\b(202\d)\b/)
+    if (yMatch) {
+      referenceYear = parseInt(yMatch[1], 10)
+      break
+    }
+  }
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
 
     // Ignora cabeçalhos e rodapés comuns
     if (
-      /extrato|per[ií]odo|saldo\s+anterior|saldo\s+do\s+dia|saldo\s+atual|folha\s+\d|p[aá]gina/i.test(
+      /saldo\s+anterior|saldo\s+do\s+dia|saldo\s+atual|folha\s+\d|p[aá]gina\s+\d|limite\s+dispon[ií]vel|total\s+da\s+fatura|pagamento\s+m[ií]nimo/i.test(
         line,
       ) &&
-      !currencyRegex.test(line)
+      !/google|meta|ads|facebk|honor/i.test(line)
     ) {
       continue
     }
 
-    const dateMatch = line.match(dateRegex)
+    let dateMatch = line.match(dateRegex)
+    let isShortDate = false
+    if (!dateMatch) {
+      dateMatch = line.match(shortDateRegex)
+      isShortDate = Boolean(dateMatch)
+    }
     if (!dateMatch) continue
 
-    const isoDate = parseBrazilianDate(dateMatch[1])
+    const isoDate = parseBrazilianDate(dateMatch[1], referenceYear)
     if (!isoDate) continue
 
     // Extrai valores monetários presentes na linha
@@ -139,6 +168,9 @@ export function parseBankStatementText(rawText: string): ParsedBankStatementItem
       upperLine.includes('COMPRA') ||
       upperLine.includes('TRANSFERENCIA ENVIADA') ||
       upperLine.includes('PIX ENVIADO') ||
+      upperLine.includes('GOOGLE') ||
+      upperLine.includes('META') ||
+      upperLine.includes('FACEBK') ||
       parsedCurr.isNegative
 
     const isExplicitCredit =
@@ -150,7 +182,9 @@ export function parseBankStatementText(rawText: string): ParsedBankStatementItem
       upperLine.includes('DEPOSITO') ||
       upperLine.includes('DEPÓSITO') ||
       upperLine.includes('TRANSFERENCIA RECEBIDA') ||
-      upperLine.includes('PIX RECEBIDO')
+      upperLine.includes('PIX RECEBIDO') ||
+      upperLine.includes('HONORARIOS') ||
+      upperLine.includes('HONORÁRIOS')
 
     let type: 'income' | 'expense' = 'expense'
     let confidence: 'high' | 'medium' | 'low' = 'medium'
@@ -162,15 +196,34 @@ export function parseBankStatementText(rawText: string): ParsedBankStatementItem
       type = 'expense'
       confidence = 'high'
     } else {
-      // Quando não há sinal claro, desconfia
+      // Quando não há sinal claro, em extrato de cartão de crédito compras são sempre despesas
       type = 'expense'
-      confidence = 'low'
+      confidence = 'medium'
     }
 
-    // Sugestão de categoria por palavras-chave
+    // Sugestão de categoria e classificação inteligente
+    // Despesas com GOOGLEADS e METAADS importadas de cartões devem ser classificadas
+    // como despesas do escritório ("Marketing" ou "Marketing / Publicidade"), NUNCA como despesa do cliente.
     let categorySuggestion = type === 'income' ? 'Honorários Contratuais' : 'Despesas Gerais'
     const descLower = desc.toLowerCase()
-    if (descLower.includes('tarifa') || descLower.includes('iof') || descLower.includes('taxa')) {
+
+    if (
+      descLower.includes('google') ||
+      descLower.includes('googleads') ||
+      descLower.includes('google ads') ||
+      descLower.includes('meta ads') ||
+      descLower.includes('metaads') ||
+      descLower.includes('facebook') ||
+      descLower.includes('facebk')
+    ) {
+      categorySuggestion = 'Marketing'
+      type = 'expense'
+      confidence = 'high'
+    } else if (
+      descLower.includes('tarifa') ||
+      descLower.includes('iof') ||
+      descLower.includes('taxa')
+    ) {
       categorySuggestion = 'Taxas Bancárias'
     } else if (descLower.includes('aluguel') || descLower.includes('condominio')) {
       categorySuggestion = 'Infraestrutura'

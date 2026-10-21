@@ -49,9 +49,8 @@ export function ConciliationTab({
   transactions,
   clients,
   cases,
-  suppliers = [],
+  suppliers,
   onUpdateTransaction,
-  onOpenAsaasImport,
   onOpenPdfImport,
 }: ConciliationTabProps) {
   // Filtros
@@ -269,17 +268,6 @@ export function ConciliationTab({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {onOpenAsaasImport && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onOpenAsaasImport}
-              className="gap-1.5 border-blue-200 text-blue-700 hover:bg-blue-50"
-            >
-              <Download className="h-4 w-4 text-blue-600" />
-              Importar extrato do Asaas
-            </Button>
-          )}
           {onOpenPdfImport && (
             <Button
               variant="outline"
@@ -288,7 +276,7 @@ export function ConciliationTab({
               className="gap-1.5 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
             >
               <FileUp className="h-4 w-4 text-emerald-600" />
-              Importar extrato (PDF)
+              Importar Extrato SICOOB / Cartões (PDF)
             </Button>
           )}
         </div>
@@ -458,10 +446,10 @@ export function ConciliationTab({
                         <Badge
                           variant="outline"
                           className={cn(
-                            'text-xs',
-                            t.status === 'Pago' || t.status === 'Realizado'
-                              ? 'border-green-200 text-green-700 bg-green-50'
-                              : t.status === 'Atrasado'
+                            'text-xs font-semibold',
+                            t.status === 'Pago' || t.status === 'Paga' || t.status === 'Realizado'
+                              ? 'border-emerald-300 text-emerald-700 bg-emerald-50'
+                              : t.status === 'Atrasado' || t.status === 'Vencida'
                                 ? 'border-red-200 text-red-700 bg-red-50'
                                 : 'border-amber-200 text-amber-700 bg-amber-50',
                           )}

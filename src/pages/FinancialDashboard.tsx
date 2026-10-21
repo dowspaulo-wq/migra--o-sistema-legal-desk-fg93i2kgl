@@ -352,9 +352,9 @@ export default function FinancialDashboard() {
                       <Badge
                         variant="outline"
                         className={
-                          t.status === 'Pago' || t.status === 'Realizado'
-                            ? 'border-green-200 text-green-700 bg-green-50'
-                            : t.status === 'Atrasado'
+                          t.status === 'Pago' || t.status === 'Paga' || t.status === 'Realizado'
+                            ? 'border-emerald-300 text-emerald-700 bg-emerald-50 font-semibold'
+                            : t.status === 'Atrasado' || t.status === 'Vencida'
                               ? 'border-red-200 text-red-700 bg-red-50'
                               : 'border-orange-200 text-orange-700 bg-orange-50'
                         }

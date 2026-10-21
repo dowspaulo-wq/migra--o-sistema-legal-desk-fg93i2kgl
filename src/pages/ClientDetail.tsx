@@ -1489,9 +1489,11 @@ export default function ClientDetail() {
                               variant="outline"
                               className={
                                 (t.status as string) === 'Pago' ||
+                                (t.status as string) === 'Paga' ||
                                 (t.status as string) === 'Realizado'
-                                  ? 'border-green-200 text-green-700 bg-green-50'
-                                  : (t.status as string) === 'Atrasado'
+                                  ? 'border-emerald-300 text-emerald-700 bg-emerald-50 font-semibold'
+                                  : (t.status as string) === 'Atrasado' ||
+                                      (t.status as string) === 'Vencida'
                                     ? 'border-red-200 text-red-700 bg-red-50'
                                     : 'border-orange-200 text-orange-700 bg-orange-50'
                               }

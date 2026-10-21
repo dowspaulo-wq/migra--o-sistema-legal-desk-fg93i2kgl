@@ -2,8 +2,8 @@
   "_versions": {
     "create-user": 19,
     "google-calendar": 33,
-    "asaas-integration": 23,
-    "asaas-webhook": 11,
+    "asaas-integration": 24,
+    "asaas-webhook": 12,
     "datajud-sync": 4,
     "database-backup": 195,
     "electronic-signature": 176,

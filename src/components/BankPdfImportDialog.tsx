@@ -51,13 +51,15 @@ interface BankPdfImportDialogProps {
   onOpenChange: (open: boolean) => void
   onSuccess: () => Promise<void> | void
   bankAccounts?: string[]
+  onImportCompleted?: (timestamp: string, account: string) => Promise<void> | void
 }
 
 export function BankPdfImportDialog({
   open,
   onOpenChange,
   onSuccess,
-  bankAccounts = ['SICOOB', 'CAIXA', 'PESSOAL', 'OUTRO'],
+  bankAccounts = ['SICOOB', 'CAIXA', 'PESSOAL', 'Crédito Santander Aline'],
+  onImportCompleted,
 }: BankPdfImportDialogProps) {
   const [selectedBank, setSelectedBank] = useState<string>('SICOOB')
   const [parsing, setParsing] = useState(false)
@@ -156,13 +158,29 @@ export function BankPdfImportDialog({
 
     setSaving(true)
     try {
+      // Se for fatura de cartão de crédito (Santander Aline, Inter, etc), a forma de pagamento é CARTÃO DE CRÉDITO
+      const isCreditCard =
+        selectedBank.toLowerCase().includes('crédito') ||
+        selectedBank.toLowerCase().includes('credito') ||
+        selectedBank.toLowerCase().includes('cartão') ||
+        selectedBank.toLowerCase().includes('cartao')
+
+      const originTag =
+        selectedBank === 'SICOOB'
+          ? 'IMPORT_SICOOB'
+          : `EXTRATO_${selectedBank.toUpperCase().replace(/\s+/g, '_')}`
+
       const records = itemsToImport.map((it) => ({
         description: it.description,
         amount: it.amount,
         type: it.type,
         category:
           it.categorySuggestion ||
-          (it.type === 'income' ? 'Honorários Contratuais' : 'Despesas Gerais'),
+          (it.type === 'income'
+            ? 'Honorários Contratuais'
+            : isCreditCard
+              ? 'Despesas Gerais'
+              : 'Despesas Gerais'),
         status: 'Pago',
         date: it.date,
         clientId: null,
@@ -170,20 +188,24 @@ export function BankPdfImportDialog({
         processId: null,
         sendToFinance: true,
         bankAccount: selectedBank,
-        payment_method: 'OUTRO',
-        pendente_vinculo: true, // Sempre entra na fila de conciliação para conferência
-        origem:
-          selectedBank === 'SICOOB' ? 'IMPORT_SICOOB' : `EXTRATO_${selectedBank.toUpperCase()}`,
+        payment_method: isCreditCard ? 'CARTÃO DE CRÉDITO' : 'OUTRO',
+        pendente_vinculo: true, // Entra na fila de conciliação para conferência manual
+        origem: originTag,
       }))
 
       const { error } = await supabase.from('transactions').insert(records)
       if (error) throw error
 
+      const nowIso = new Date().toISOString()
+      if (onImportCompleted) {
+        await onImportCompleted(nowIso, selectedBank)
+      }
+
       await onSuccess()
 
       toast({
-        title: 'Extrato Importado!',
-        description: `${records.length} lançamentos enviados para a fila de conciliação para conferência.`,
+        title: 'Extrato Importado com Sucesso!',
+        description: `${records.length} lançamentos da conta '${selectedBank}' enviados para o Financeiro.`,
       })
 
       handleReset()
@@ -221,33 +243,34 @@ export function BankPdfImportDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileUp className="h-5 w-5 text-emerald-600" />
-            Importar Extrato Bancário (PDF ou Texto)
+            Importar Extrato Bancário ou de Cartão (PDF ou Texto)
           </DialogTitle>
           <DialogDescription>
-            Envie o extrato em PDF da sua conta bancária (Sicoob, Caixa, BB, etc.). O sistema lê as
-            linhas no seu navegador e joga na fila de conciliação para conferência manual.
+            Envie o extrato em PDF da conta SICOOB, ou faturas dos seus cartões de crédito (Crédito
+            Santander Aline, Cartão Inter, etc.). O sistema lê os lançamentos e vincula à
+            conta/cartão selecionado. Despesas com GoogleAds/MetaAds são automaticamente
+            categorizadas como Marketing do escritório.
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto space-y-4 py-2 pr-1">
-          {/* Configuração de Banco */}
+          {/* Configuração de Conta / Cartão de Origem */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
             <div className="space-y-1.5">
-              <Label>Conta Bancária de Origem</Label>
+              <Label className="font-semibold text-slate-800">Conta / Cartão de Origem</Label>
               <Select value={selectedBank} onValueChange={setSelectedBank}>
                 <SelectTrigger className="bg-white">
-                  <SelectValue placeholder="Selecione o banco" />
+                  <SelectValue placeholder="Selecione a conta ou cartão" />
                 </SelectTrigger>
                 <SelectContent>
-                  {bankAccounts.map((b) => (
+                  {/* Lista vinda das contas cadastradas nas configurações */}
+                  {Array.from(
+                    new Set([...bankAccounts, 'SICOOB', 'Crédito Santander Aline', 'Cartão Inter']),
+                  ).map((b) => (
                     <SelectItem key={b} value={b}>
                       {b}
                     </SelectItem>
                   ))}
-                  {!bankAccounts.includes('SICOOB') && (
-                    <SelectItem value="SICOOB">SICOOB</SelectItem>
-                  )}
-                  {!bankAccounts.includes('CAIXA') && <SelectItem value="CAIXA">CAIXA</SelectItem>}
                 </SelectContent>
               </Select>
             </div>

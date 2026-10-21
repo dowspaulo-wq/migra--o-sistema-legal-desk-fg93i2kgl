@@ -8,10 +8,11 @@ const corsHeaders = {
     'authorization, x-client-info, x-supabase-client-platform, apikey, content-type, x-asaas-webhook-token, x-asaas-api-key, x-asaas-api-url, asaas-access-token',
 }
 
-// Mapeamento abrangente de eventos de cobrança do Asaas para status do sistema DPSjur
+// Mapeamento abrangente de eventos de cobrança do Asaas para status do sistema DPSjur.
+// Padrão consolidado no Financeiro do sistema: status gravado é SEMPRE "Pago" (masculino).
 const EVENT_STATUS_MAP: Record<string, string> = {
-  PAYMENT_CONFIRMED: 'Paga',
-  PAYMENT_RECEIVED: 'Paga',
+  PAYMENT_CONFIRMED: 'Pago',
+  PAYMENT_RECEIVED: 'Pago',
   PAYMENT_OVERDUE: 'Vencida',
   PAYMENT_DELETED: 'Cancelada',
   PAYMENT_REFUNDED: 'Estornada',
@@ -23,7 +24,6 @@ const EVENT_STATUS_MAP: Record<string, string> = {
   PAYMENT_RESTORED: 'Previsto',
   PAYMENT_UPDATED: 'Previsto',
 }
-
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -170,9 +170,15 @@ Deno.serve(async (req: Request) => {
     }
 
     // 4. Localizar a transação no banco de dados
-    const { data: existingTx, error: txErr } = await supabase
+    // Estratégia de casamento resiliente:
+    // (a) Busca direta por asaas_id
+    // (b) Se não achar por asaas_id, tentar casar com parcela existente do parcelamento/cliente
+    //     para evitar criar lançamento duplicado ou ignorar pagamento.
+    let { data: existingTx, error: txErr } = await supabase
       .from('transactions')
-      .select('id, status, asaas_id, amount, date, bankAccount, clientId, description')
+      .select(
+        'id, status, asaas_id, amount, date, bankAccount, clientId, description, plan_id, installment_number, processId',
+      )
       .eq('asaas_id', asaasPaymentId)
       .maybeSingle()
 
@@ -180,44 +186,166 @@ Deno.serve(async (req: Request) => {
       console.error('Erro ao consultar transação por asaas_id:', txErr.message)
     }
 
+    // Se não achou por asaas_id, tenta casar com parcela prevista do mesmo cliente / parcelamento / descrição / valor
+    let wasMatchedByHeuristic = false
     if (!existingTx) {
-      // Não temos essa cobrança cadastrada no sistema ainda.
-      // Pode ser cobrança gerada avulsa fora do SBJur. Registra log para auditoria e responde 200.
-      await supabase
-        .from('logs')
-        .insert({
-          action: 'webhook_unmatched',
-          entity: 'transactions',
-          user: 'ASAAS Webhook',
-          date: new Date().toISOString(),
-          details: JSON.stringify({
-            asaas_id: asaasPaymentId,
-            event: eventType,
-            value: payment.value,
-            customer: payment.customer,
-            description: payment.description,
-            note: 'Cobrança não encontrada no banco do DPSjur; ignorada com sucesso.',
-          }),
-        })
-        .catch(() => {})
+      const paymentValue = Number(payment.value ?? 0)
+      const paymentDesc = String(payment.description || '').trim()
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          message: 'Cobrança não encontrada no banco do DPSjur. Ignorada sem efeitos colaterais.',
+      // Tenta achar cliente pelo asaas customerId
+      let matchedClientId: string | null = null
+      if (payment.customer) {
+        const { data: cl } = await supabase
+          .from('clients')
+          .select('id')
+          .eq('asaas_id', payment.customer)
+          .maybeSingle()
+        if (cl?.id) matchedClientId = cl.id
+      }
+
+      // Extrai número da parcela da descrição (ex: "Parcela 7 de 21" ou "3/10")
+      let extractedInstallment: number | null = null
+      const pMatch =
+        paymentDesc.match(/parcela\s+(\d+)\s+de\s+(\d+)/i) || paymentDesc.match(/\((\d+)\/(\d+)\)/)
+      if (pMatch) {
+        extractedInstallment = parseInt(pMatch[1], 10)
+      }
+
+      // Query por transações "Previsto" ou sem asaas_id vinculado
+      let candidateQuery = supabase
+        .from('transactions')
+        .select(
+          'id, status, asaas_id, amount, date, bankAccount, clientId, description, plan_id, installment_number, processId',
+        )
+        .is('asaas_id', null)
+
+      if (matchedClientId) {
+        candidateQuery = candidateQuery.eq('clientId', matchedClientId)
+      }
+
+      const { data: candidates } = await candidateQuery.limit(30)
+
+      if (candidates && candidates.length > 0) {
+        // Encontra o melhor candidato
+        const matched = candidates.find((cand: any) => {
+          const candAmt = Number(cand.amount || 0)
+          const valueMatches = Math.abs(candAmt - paymentValue) < 0.05
+          if (!valueMatches) return false
+
+          if (extractedInstallment !== null && cand.installment_number === extractedInstallment) {
+            return true
+          }
+
+          if (paymentDesc && cand.description) {
+            const pNorm = paymentDesc.toLowerCase().replace(/\s+/g, ' ')
+            const cNorm = cand.description.toLowerCase().replace(/\s+/g, ' ')
+            if (pNorm.includes(cNorm) || cNorm.includes(pNorm)) return true
+            if (extractedInstallment !== null && cNorm.includes(`parcela ${extractedInstallment}`))
+              return true
+          }
+
+          return false
+        })
+
+        if (matched) {
+          existingTx = matched
+          wasMatchedByHeuristic = true
+          console.log(
+            `Webhook casou cobrança ${asaasPaymentId} com parcela existente ${matched.id}`,
+          )
+        }
+      }
+    }
+
+    if (!existingTx) {
+      // Se não encontrou nenhuma transação correspondente, verificar se é um pagamento confirmado/recebido
+      // Nesses casos, cria o lançamento no sistema como "Pago" (nunca "Realizado") para não perder a receita!
+      if (targetStatus === 'Pago') {
+        const paymentDate =
+          payment.paymentDate ||
+          payment.clientPaymentDate ||
+          payment.confirmedDate ||
+          new Date().toISOString().split('T')[0]
+
+        let matchedClientId: string | null = null
+        if (payment.customer) {
+          const { data: cl } = await supabase
+            .from('clients')
+            .select('id')
+            .eq('asaas_id', payment.customer)
+            .maybeSingle()
+          if (cl?.id) matchedClientId = cl.id
+        }
+
+        const newTx = {
+          description: payment.description || `Pagamento Asaas ${asaasPaymentId}`,
+          amount: Number(payment.value ?? 0),
+          type: 'income',
+          category: 'Honorários Contratuais',
+          status: 'Pago', // Sempre "Pago", nunca "Realizado"
+          date: paymentDate,
+          clientId: matchedClientId,
           asaas_id: asaasPaymentId,
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 },
-      )
+          sendToFinance: true,
+          bankAccount: 'ASAAS',
+          payment_method: payment.billingType || 'PIX',
+          pendente_vinculo: !matchedClientId,
+          origem: 'ASAAS_WEBHOOK',
+        }
+
+        const { data: insertedTx, error: insertErr } = await supabase
+          .from('transactions')
+          .insert(newTx)
+          .select('id')
+          .single()
+
+        if (insertErr) {
+          console.error('Erro ao criar transação a partir do webhook:', insertErr.message)
+        } else {
+          existingTx = { ...newTx, id: insertedTx?.id }
+        }
+      }
+
+      if (!existingTx) {
+        // Não é pagamento ou falhou inserção: registrar log de auditoria e responder 200
+        await supabase
+          .from('logs')
+          .insert({
+            action: 'webhook_unmatched',
+            entity: 'transactions',
+            user: 'ASAAS Webhook',
+            date: new Date().toISOString(),
+            details: JSON.stringify({
+              asaas_id: asaasPaymentId,
+              event: eventType,
+              value: payment.value,
+              customer: payment.customer,
+              description: payment.description,
+              note: 'Cobrança não encontrada no banco do DPSjur; ignorada com sucesso.',
+            }),
+          })
+          .catch(() => {})
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            message: 'Cobrança não encontrada no banco do DPSjur. Ignorada sem efeitos colaterais.',
+            asaas_id: asaasPaymentId,
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 },
+        )
+      }
     }
 
     // 5. Idempotência: se já está com o status alvo, responder 200 e encerrar sem reprocessamento
     const isAlreadyTargetStatus =
       existingTx.status === targetStatus ||
-      (targetStatus === 'Paga' &&
-        (existingTx.status === 'Pago' || existingTx.status === 'Realizado'))
+      (targetStatus === 'Pago' &&
+        (existingTx.status === 'Pago' ||
+          existingTx.status === 'Paga' ||
+          existingTx.status === 'Realizado'))
 
-    if (isAlreadyTargetStatus) {
+    if (isAlreadyTargetStatus && !wasMatchedByHeuristic && existingTx.asaas_id === asaasPaymentId) {
       return new Response(
         JSON.stringify({
           success: true,
@@ -229,21 +357,27 @@ Deno.serve(async (req: Request) => {
       )
     }
 
-    // 6. Atualização da transação (baixa automática)
+    // 6. Atualização da transação (baixa automática na parcela correspondente)
+    // Garantir SEMPRE status "Pago" (nunca "Realizado")
     const updatePayload: Record<string, any> = {
-      status: targetStatus,
+      status: targetStatus === 'Paga' ? 'Pago' : targetStatus,
+    }
+
+    // Se vinculamos por heurística ou ainda não tinha asaas_id, grava o ID do Asaas
+    if (!existingTx.asaas_id || wasMatchedByHeuristic) {
+      updatePayload.asaas_id = asaasPaymentId
     }
 
     // Se o evento é de pagamento recebido/confirmado, garantir bankAccount = 'ASAAS'
     // e atualizar a data do pagamento se informada pelo Asaas
-    if (targetStatus === 'Paga') {
+    if (targetStatus === 'Pago' || targetStatus === 'Paga') {
       updatePayload.bankAccount = existingTx.bankAccount || 'ASAAS'
       const paymentDate =
         payment.paymentDate ||
         payment.clientPaymentDate ||
         payment.confirmedDate ||
         new Date().toISOString().split('T')[0]
-      if (paymentDate && !existingTx.date) {
+      if (paymentDate) {
         updatePayload.date = paymentDate
       }
       // Se estava pendente de vínculo na conciliação, o webhook confirma que é real

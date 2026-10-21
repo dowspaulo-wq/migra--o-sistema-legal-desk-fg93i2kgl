@@ -186,6 +186,8 @@ export interface Settings {
   googleClientId?: string | null
   googleClientSecret?: string | null
   googleServiceAccount?: string | null
+  lastAsaasSyncAt?: string | null
+  lastSicoobImportAt?: string | null
 }
 export interface WhatsAppMessage {
   id: string
@@ -264,5 +266,7 @@ export const initialData: LegalState = {
     asaasApiKey: null,
     asaasApiUrl: 'https://api.asaas.com/v3',
     googleServiceAccount: null,
+    lastAsaasSyncAt: null,
+    lastSicoobImportAt: null,
   },
 }
