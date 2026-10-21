@@ -2,7 +2,7 @@
 # ==============================================================================
 # SCRIPT VPS: CONSERTAR "REALIZADO" -> "PAGO", UNIFICAR DUPLICATAS E WEBHOOK ASAAS
 # DPSjur - Sistema Jurídico SBJur no VPS Hostinger (EasyPanel / Docker)
-# Versão: v1.2.0
+# Versão: v1.2.1
 # Data: 2026-10-21
 #
 # O QUE ESTE SCRIPT FAZ (Totalmente Idempotente e Confiável):
@@ -38,7 +38,7 @@
 
 set -uo pipefail
 
-SCRIPT_VERSION="v1.2.0"
+SCRIPT_VERSION="v1.2.1"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -80,7 +80,7 @@ run_container_sql_file() {
     local dbname="$4"
     local sql_content="$5"
 
-    local rand_id="dpsjur_sql_$RANDOM_$$"
+    local rand_id="dpsjur_sql_${RANDOM:-$$}_$(date +%s%N 2>/dev/null || date +%s)_$$"
     local host_tmp="/tmp/${rand_id}.sql"
     local cont_tmp="/tmp/${rand_id}.sql"
 

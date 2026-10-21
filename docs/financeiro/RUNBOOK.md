@@ -1,36 +1,4 @@
-                      RESUMO DA CORREÇÃO
-
-=====================================================================
-
-1. Banco Real Identificado:
-   - Contêiner: dpsjur_dpsjur-db.1...
-   - Usuário: postgres (ou usuário configurado no EasyPanel)
-   - Banco: postgres
-2. Status 'Realizado':
-   - Registros restantes: 0 [OK] (100% extinto e unificado como 'Pago')
-3. Webhook Asaas & Edge Runtime:
-   - Gravação de status: 'Pago' (padrão único)
-   - Casamento resiliente: Ativo (une cobrança à parcela existente)
-   - # Edge containers: atualizado(s) e reiniciado(s)
-
-# ✅ OPERAÇÃO CONCLUÍDA COM SUCESSO! [OK]
-
-=====================================================================
-RESUMO DA CORREÇÃO
-=====================================================================
-
-1. Banco Real Identificado:
-   - Contêiner: sbjur-local_supabase-db-1
-   - Usuário: postgres (ou usuário configurado no EasyPanel)
-   - Banco: postgres
-2. Status 'Realizado':
-   - Registros restantes: 0 [OK] (100% extinto e unificado como 'Pago')
-3. Webhook Asaas & Edge Runtime:
-   - Gravação de status: 'Pago' (padrão único)
-   - Casamento resiliente: Ativo (une cobrança à parcela existente)
-   - # Edge containers: 1 atualizado(s) e reiniciado(s)
-
-✅ OPERAÇÃO CONCLUÍDA COM SUCESSO! [OK]# DPSjur / SBJur — Runbook: Correção de Status 'Realizado' -> 'Pago' & Webhook Asaas no VPS
+# DPSjur / SBJur — Runbook: Correção de Status 'Realizado' -> 'Pago' & Webhook Asaas no VPS (v1.2.1)
 
 Guia prático para o Douglas executar no VPS Hostinger (EasyPanel / Docker) para corrigir o status do módulo financeiro e o webhook do Asaas.
 
@@ -38,7 +6,7 @@ Guia prático para o Douglas executar no VPS Hostinger (EasyPanel / Docker) para
 
 ## 1. O que este script faz
 
-O script **`04-consertar-realizado-vps.sh`**:
+O script **`04-consertar-realizado-vps.sh`** (versão `v1.2.1`):
 
 1. **Auto-descobre** o contêiner real do PostgreSQL no VPS e o usuário/superusuário autêntico via variáveis de ambiente (`POSTGRES_USER`) com fallback testado dinamicamente (`postgres`, `supabase_admin`, etc.), eliminando o erro `FATAL: role "supabase_admin" does not exist`.
 2. Converte retroativamente qualquer lançamento com status **"Realizado"** ou **"Paga"** para **"Pago"** (status unificado consolidado no financeiro).
@@ -80,15 +48,15 @@ O script exibirá um relatório dividido em 5 etapas finalizando com:
                       RESUMO DA CORREÇÃO
 =====================================================================
 1. Banco Real Identificado:
-   - Contêiner:          dpsjur_dpsjur-db.1...
-   - Usuário:            postgres (ou usuário configurado no EasyPanel)
+   - Contêiner:          sbjur-local_supabase-db-1
+   - Usuário:            supabase_admin
    - Banco:              postgres
 2. Status 'Realizado':
    - Registros restantes: 0 [OK] (100% extinto e unificado como 'Pago')
 3. Webhook Asaas & Edge Runtime:
    - Gravação de status:  'Pago' (padrão único)
    - Casamento resiliente: Ativo (une cobrança à parcela existente)
-   - Edge containers:     atualizado(s) e reiniciado(s)
+   - Edge containers:     1 atualizado(s) e reiniciado(s)
 =====================================================================
 
 ✅ OPERAÇÃO CONCLUÍDA COM SUCESSO! [OK]
