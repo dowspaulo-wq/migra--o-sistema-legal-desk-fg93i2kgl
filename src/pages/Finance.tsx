@@ -1313,8 +1313,27 @@ export default function Finance() {
                         onClick={() => setEditingTransaction(t)}
                       >
                         <TableCell>{formatSafeLocalDate(t.date)}</TableCell>
-                        <TableCell className="font-medium">{t.description}</TableCell>
-                        <TableCell>{t.category}</TableCell>
+                        <TableCell className="font-medium">
+                          <div>{t.description}</div>
+                          {t.category === 'Honorários Avulsos' && (
+                            <div className="text-xs text-muted-foreground font-normal">
+                              Serviço: {t.description || '—'}
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span>{t.category}</span>
+                            {t.category === 'Honorários Avulsos' && (
+                              <Badge
+                                variant="secondary"
+                                className="text-[10px] bg-blue-50 text-blue-700 border-blue-200"
+                              >
+                                Avulso
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell>{t.bankAccount || '-'}</TableCell>
                         <TableCell>
                           {(() => {
@@ -1361,9 +1380,13 @@ export default function Finance() {
                               )
                               if (clientObj?.name) {
                                 return (
-                                  <span className="text-xs text-muted-foreground">
+                                  <Badge
+                                    variant="outline"
+                                    className="text-xs font-normal bg-blue-50/60 text-blue-900 border-blue-200 max-w-xs truncate"
+                                    title={`Cliente: ${clientObj.name}`}
+                                  >
                                     Cliente: {clientObj.name}
-                                  </span>
+                                  </Badge>
                                 )
                               }
                             }

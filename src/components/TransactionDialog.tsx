@@ -18,6 +18,17 @@ import {
 import { Button } from '@/components/ui/button'
 import { toast } from '@/hooks/use-toast'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
+import { Check, ChevronsUpDown } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import useLegalStore from '@/stores/useLegalStore'
 import {
   isSuccessFeeType,
@@ -95,6 +106,17 @@ export function TransactionDialog({
     return false
   }
 
+  const resolveClientId = (item: any) => {
+    if (!item) return lockedClientId || ''
+    if (item.clientId) return item.clientId
+    if (lockedClientId) return lockedClientId
+    if (item.processId) {
+      const foundCase = (state?.cases || []).find((c: any) => c.id === item.processId)
+      if (foundCase?.clientId) return foundCase.clientId
+    }
+    return ''
+  }
+
   const getInitial = () => ({
     description: '',
     amount: '',
@@ -132,6 +154,8 @@ export function TransactionDialog({
       category: initialCategory,
       amount: data.amount != null ? data.amount.toString() : '',
       date: data.date ?? '',
+      clientId: resolveClientId(data),
+      processId: data.processId || lockedProcessId || '',
       sendToFinance: data.sendToFinance !== false,
       bankAccount: data.bankAccount || state?.settings?.bankAccounts?.[0] || 'ASAAS',
       supplierId: data.supplierId || '',
@@ -144,6 +168,7 @@ export function TransactionDialog({
 
   const [isRecurring, setIsRecurring] = useState(false)
   const [installments, setInstallments] = useState('2')
+  const [clientSearchOpen, setClientSearchOpen] = useState(false)
 
   const lastInitializedIdRef = useState<{ id: string | null }>({ id: null })[0]
 
@@ -181,6 +206,8 @@ export function TransactionDialog({
                 category: initialCategory,
                 amount: data.amount != null ? data.amount.toString() : '',
                 date: data.date ?? '',
+                clientId: resolveClientId(data),
+                processId: data.processId || lockedProcessId || '',
                 sendToFinance: data.sendToFinance !== false,
                 bankAccount: data.bankAccount || 'ASAAS',
                 supplierId: data.supplierId || '',
@@ -197,7 +224,7 @@ export function TransactionDialog({
     } else {
       // Quando fechar, se for cancelamento explícito, o chamador limpa
     }
-  }, [data, open, lockedProcessId, lockedClientId])
+  }, [data, open, lockedProcessId, lockedClientId, state?.cases])
 
   const isSuccessFee = isCategorySuccessFee(fd.category)
   const currentCategoryList =
@@ -233,6 +260,20 @@ export function TransactionDialog({
         variant: 'destructive',
       })
       return
+    }
+
+    // Regra específica para Honorários Avulsos: ou tem processo vinculado, ou tem cliente
+    if (fd.category === 'Honorários Avulsos') {
+      const hasClient = Boolean(fd.clientId && fd.clientId !== 'none')
+      const hasProcess = Boolean(fd.processId && fd.processId !== 'none')
+      if (!hasClient && !hasProcess) {
+        toast({
+          title: 'Vínculo Obrigatório',
+          description: 'Para Honorários Avulsos, selecione um Cliente ou vincule a um Processo.',
+          variant: 'destructive',
+        })
+        return
+      }
     }
 
     const finalDescription = capitalizeFirstLetter(fd.description)
@@ -326,18 +367,6 @@ export function TransactionDialog({
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label>Descrição *</Label>
-              <Input
-                required
-                placeholder="Ex: Honorários contratuais ou Guia de custas"
-                value={fd.description}
-                onChange={(e) =>
-                  setFd({ ...fd, description: capitalizeFirstLetter(e.target.value) })
-                }
-              />
-            </div>
-
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>{fd.type === 'income' ? 'Tipo de Honorário *' : 'Tipo de Despesa *'}</Label>
@@ -373,6 +402,97 @@ export function TransactionDialog({
                   onChange={(e) => setFd({ ...fd, date: e.target.value })}
                 />
               </div>
+            </div>
+
+            {/* Seletor de Cliente com busca para Honorários Avulsos */}
+            {fd.category === 'Honorários Avulsos' && (
+              <div className="space-y-2 bg-blue-50/50 p-3 rounded-lg border border-blue-200">
+                <Label className="text-blue-950 font-semibold">Cliente *</Label>
+                <Popover open={clientSearchOpen} onOpenChange={setClientSearchOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={clientSearchOpen}
+                      disabled={Boolean(lockedClientId)}
+                      className="w-full justify-between font-normal bg-white"
+                    >
+                      <span className="truncate">
+                        {(() => {
+                          const selected = (state?.clients || []).find(
+                            (c: any) => c.id === fd.clientId,
+                          )
+                          return selected ? selected.name : 'Selecione ou busque um cliente...'
+                        })()}
+                      </span>
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar cliente por nome..." />
+                      <CommandList className="max-h-60">
+                        <CommandEmpty>Nenhum cliente encontrado.</CommandEmpty>
+                        <CommandGroup>
+                          {[...(state?.clients || [])]
+                            .sort((a: any, b: any) =>
+                              (a.name || '').localeCompare(b.name || '', 'pt-BR'),
+                            )
+                            .map((client: any) => (
+                              <CommandItem
+                                key={client.id}
+                                value={client.name}
+                                onSelect={() => {
+                                  setFd((prev: any) => ({ ...prev, clientId: client.id }))
+                                  setClientSearchOpen(false)
+                                }}
+                              >
+                                <Check
+                                  className={cn(
+                                    'mr-2 h-4 w-4',
+                                    fd.clientId === client.id ? 'opacity-100' : 'opacity-0',
+                                  )}
+                                />
+                                <span className="truncate">{client.name}</span>
+                                {client.document && (
+                                  <span className="ml-2 text-xs text-muted-foreground">
+                                    ({client.document})
+                                  </span>
+                                )}
+                              </CommandItem>
+                            ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+                {fd.processId && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Processo vinculado:{' '}
+                    {(state?.cases || []).find((c: any) => c.id === fd.processId)?.number ||
+                      fd.processId}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label>
+                {fd.category === 'Honorários Avulsos' ? 'Descrição do serviço *' : 'Descrição *'}
+              </Label>
+              <Input
+                required
+                placeholder={
+                  fd.category === 'Honorários Avulsos'
+                    ? 'Ex: Redação de contrato à parte'
+                    : 'Ex: Honorários contratuais ou Guia de custas'
+                }
+                value={fd.description}
+                onChange={(e) =>
+                  setFd({ ...fd, description: capitalizeFirstLetter(e.target.value) })
+                }
+              />
             </div>
 
             {isSuccessFee && (

@@ -1361,12 +1361,23 @@ export default function ClientDetail() {
                             <span>• Processos: {linkedNumbers.join(', ')}</span>
                           ) : (
                             <span className="text-amber-600 font-medium">
-                              • Sem processo vinculado
+                              •{' '}
+                              {t.category === 'Honorários Avulsos'
+                                ? 'Honorário Avulso (sem processo)'
+                                : 'Sem processo vinculado'}
                             </span>
                           )}
                         </div>
+                        {t.category === 'Honorários Avulsos' && (
+                          <div className="mt-1">
+                            <span className="text-xs bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700">
+                              Serviço: {t.description || 'Não informada'}
+                            </span>
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center gap-3">
+                        {' '}
                         <span className="font-bold text-green-600 text-sm">
                           R$ {t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </span>
@@ -1482,8 +1493,27 @@ export default function ClientDetail() {
                       return (
                         <TableRow key={t.id} className="group">
                           <TableCell className="text-sm">{formatSafeLocalDate(t.date)}</TableCell>
-                          <TableCell className="font-medium text-sm">{t.description}</TableCell>
-                          <TableCell className="text-sm">{t.category}</TableCell>
+                          <TableCell className="font-medium text-sm">
+                            <div>{t.description}</div>
+                            {t.category === 'Honorários Avulsos' && (
+                              <div className="text-xs text-muted-foreground font-normal">
+                                Serviço: {t.description || '—'}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span>{t.category}</span>
+                              {t.category === 'Honorários Avulsos' && (
+                                <Badge
+                                  variant="secondary"
+                                  className="text-[10px] bg-blue-50 text-blue-700 border-blue-200"
+                                >
+                                  Avulso
+                                </Badge>
+                              )}
+                            </div>
+                          </TableCell>{' '}
                           <TableCell>
                             <Badge
                               variant="outline"
@@ -1516,6 +1546,13 @@ export default function ClientDetail() {
                                   </Badge>
                                 ))}
                               </div>
+                            ) : t.category === 'Honorários Avulsos' ? (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] bg-blue-50 text-blue-700 border-blue-300 font-normal"
+                              >
+                                Cliente direto (avulso)
+                              </Badge>
                             ) : (
                               <Badge
                                 variant="outline"
@@ -1525,7 +1562,7 @@ export default function ClientDetail() {
                                 Sem vínculo
                               </Badge>
                             )}
-                          </TableCell>
+                          </TableCell>{' '}
                           <TableCell>
                             <div className="flex items-center justify-end gap-1">
                               {!linked && (
