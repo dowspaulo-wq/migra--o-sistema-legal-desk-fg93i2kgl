@@ -4,9 +4,13 @@ Guia prático para o Douglas executar no VPS Hostinger (EasyPanel / Docker) para
 
 ---
 
-## 1. O que este script faz
+## 1. O que estes scripts fazem
 
-O script **`04-consertar-realizado-vps.sh`** (versão `v1.2.3`):
+### Script 05: `05-timestamps-sincronizacao-vps.sh` (versão `v1.2.3`)
+
+Garante no banco de dados do VPS a presença das colunas de timestamps de sincronização do Asaas (`lastAsaasSyncAt`) e importação do Sicoob/Cartões (`lastSicoobImportAt`) na tabela `public.settings`. Descobre dinamicamente contêiner, banco e usuário reais sem depender de roles inexistentes, aplica a migração com `docker cp + psql -f`, notifica o PostgREST e reinicia o serviço, efetuando conferência estrita [OK] antes de encerrar.
+
+### Script 04: `04-consertar-realizado-vps.sh` (versão `v1.2.3`)
 
 1. **Auto-descobre** o contêiner real do PostgreSQL no VPS e o usuário/superusuário autêntico via variáveis de ambiente (`POSTGRES_USER`) com fallback testado dinamicamente (`postgres`, `supabase_admin`, etc.), eliminando o erro `FATAL: role "supabase_admin" does not exist`.
 2. Converte retroativamente qualquer lançamento com status **"Realizado"** ou **"Paga"** para **"Pago"** (status unificado consolidado no financeiro).
@@ -27,9 +31,15 @@ Acesse seu terminal VPS via SSH como **root**:
 ssh root@2.25.181.69
 ```
 
-### Comando Único Recomendado (baixa e executa com bash, sem pipe direto):
+### Comando Único Recomendado - Timestamps de Sincronização (Script 05):
 
 Cole a linha abaixo no terminal e aperte **Enter**:
+
+```bash
+curl -sSL "https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/financeiro/05-timestamps-sincronizacao-vps.sh" -o /root/05-timestamps-sincronizacao-vps.sh && bash /root/05-timestamps-sincronizacao-vps.sh
+```
+
+### Comando Único - Consertar Status Realizado -> Pago & Webhook Asaas (Script 04):
 
 ```bash
 curl -sSL "https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/financeiro/04-consertar-realizado-vps.sh" -o /root/04-consertar-realizado-vps.sh && bash /root/04-consertar-realizado-vps.sh

@@ -500,12 +500,33 @@ export default function Finance() {
       })
     } else {
       const nowIso = new Date().toISOString()
-      // Atualizar settings com o timestamp da última sincronização do Asaas
-      await supabase
-        .from('settings')
-        .update({ lastAsaasSyncAt: nowIso })
-        .eq('id', state.settings.id || 'default')
-      updateItem('settings', state.settings.id || 'default', { lastAsaasSyncAt: nowIso })
+      // 1. Atualiza imediatamente o estado global da aplicação (sem reload de página)
+      try {
+        await updateItem('settings', state.settings?.id || 'default', { lastAsaasSyncAt: nowIso })
+      } catch (upErr) {
+        console.warn('Erro ao atualizar settings localmente:', upErr)
+      }
+
+      // 2. Garante persistência direta na tabela settings caso o ID do banco seja específico
+      try {
+        if (state.settings?.id && state.settings.id !== 'default') {
+          await supabase
+            .from('settings')
+            .update({ lastAsaasSyncAt: nowIso })
+            .eq('id', state.settings.id)
+        } else {
+          // Se settings não tinha id específico, atualiza qualquer linha existente
+          const { data: existingRows } = await supabase.from('settings').select('id').limit(1)
+          if (existingRows && existingRows.length > 0) {
+            await supabase
+              .from('settings')
+              .update({ lastAsaasSyncAt: nowIso })
+              .eq('id', existingRows[0].id)
+          }
+        }
+      } catch (dbErr) {
+        console.warn('Erro ao persistir lastAsaasSyncAt no Supabase:', dbErr)
+      }
 
       if (reloadTransactions) await reloadTransactions()
 
@@ -517,11 +538,34 @@ export default function Finance() {
   }
 
   const handleSicoobImportCompleted = async (timestamp: string) => {
-    await supabase
-      .from('settings')
-      .update({ lastSicoobImportAt: timestamp })
-      .eq('id', state.settings.id || 'default')
-    updateItem('settings', state.settings.id || 'default', { lastSicoobImportAt: timestamp })
+    // 1. Atualiza imediatamente o estado global da aplicação (sem reload de página)
+    try {
+      await updateItem('settings', state.settings?.id || 'default', {
+        lastSicoobImportAt: timestamp,
+      })
+    } catch (upErr) {
+      console.warn('Erro ao atualizar settings localmente:', upErr)
+    }
+
+    // 2. Garante persistência direta na tabela settings
+    try {
+      if (state.settings?.id && state.settings.id !== 'default') {
+        await supabase
+          .from('settings')
+          .update({ lastSicoobImportAt: timestamp })
+          .eq('id', state.settings.id)
+      } else {
+        const { data: existingRows } = await supabase.from('settings').select('id').limit(1)
+        if (existingRows && existingRows.length > 0) {
+          await supabase
+            .from('settings')
+            .update({ lastSicoobImportAt: timestamp })
+            .eq('id', existingRows[0].id)
+        }
+      }
+    } catch (dbErr) {
+      console.warn('Erro ao persistir lastSicoobImportAt no Supabase:', dbErr)
+    }
   }
 
   const handleLinkToCase = async (transactionId: string, caseId: string) => {
