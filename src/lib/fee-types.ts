@@ -9,6 +9,7 @@ export const SUCCESS_FEE_TYPE = 'Honorários de Êxito'
 
 // Lista exclusiva de tipos de honorários (apenas receitas / honorários)
 export const ONLY_FEE_TYPES = [
+  'Honorários Avulsos',
   'Honorários Contratuais',
   'Honorários de Êxito',
   'Honorários Sucumbenciais',
