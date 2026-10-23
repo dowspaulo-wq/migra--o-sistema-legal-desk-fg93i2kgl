@@ -75,13 +75,19 @@ export function ClientOnboardingCard({
   }
 
   const handleGenerateChecklist = async () => {
+    if (isGenerating) return
     setIsGenerating(true)
     try {
       const generated = await generateOnboardingTasks(clientId, clientResponsibleId)
       if (generated && generated.length > 0) {
         toast({
-          title: 'Checklist gerado com sucesso!',
-          description: `${generated.length} etapas do checklist de onboarding foram criadas.`,
+          title: 'Checklist disparado',
+          description: `${generated.length} nova(s) etapa(s) de onboarding criada(s).`,
+        })
+      } else {
+        toast({
+          title: 'Checklist verificado',
+          description: 'Nenhuma etapa duplicada — todas as etapas pendentes já estão ativas.',
         })
       }
     } catch (err: any) {
@@ -143,11 +149,11 @@ export function ClientOnboardingCard({
                 size="sm"
                 onClick={handleGenerateChecklist}
                 disabled={isGenerating}
-                title="Gera novamente ou adiciona etapas do modelo para este cliente"
+                title="Verifica ou adiciona etapas do modelo para este cliente sem duplicar"
                 className="text-xs text-slate-600 hover:text-slate-900"
               >
-                <RotateCcw className="h-3.5 w-3.5 mr-1" />
-                Disparar Novamente
+                <RotateCcw className={`h-3.5 w-3.5 mr-1 ${isGenerating ? 'animate-spin' : ''}`} />
+                {isGenerating ? 'Disparando...' : 'Disparar Novamente'}
               </Button>
             )}
 

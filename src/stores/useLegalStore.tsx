@@ -746,18 +746,96 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       const createdBy = state.currentUser?.id || user?.id || null
       const todayStr = new Date().toISOString().split('T')[0]
 
-      const tasksToInsert = steps.map((step, idx) => ({
-        title: step.title,
-        clientId,
-        relatedProcessId: null,
-        status: idx === 0 ? 'Concluída' : 'pendente',
-        priority: 'Média',
-        type: 'Onboarding',
-        description: `Etapa ${idx + 1} do Onboarding de Cliente Novo`,
-        responsibleId: step.responsibleId || fallbackResponsible,
-        created_by: createdBy,
-        dueDate: todayStr,
-      }))
+      // Helper para identificar se uma tarefa está concluída
+      const isStatusDone = (status?: string | null) => {
+        const normalized = (status || '').trim().toLowerCase()
+        return (
+          normalized === 'concluída' || normalized === 'concluido' || normalized === 'concluida'
+        )
+      }
+
+      // Buscar tarefas existentes no banco para este cliente e tipo Onboarding
+      // Garante visão fresca mesmo se o estado em memória estiver dessincronizado
+      const { data: dbExistingTasks, error: fetchErr } = await supabase
+        .from('tasks')
+        .select('*')
+        .eq('clientId', clientId)
+        .ilike('type', '%onboarding%')
+
+      if (fetchErr) {
+        console.warn(
+          'Falha ao consultar tarefas existentes no banco, usando memória local:',
+          fetchErr,
+        )
+      }
+
+      // Combinar estado em memória + dados frescos do banco
+      const memExisting = (state.tasks || []).filter(
+        (t) =>
+          t.clientId === clientId &&
+          (t.type === 'Onboarding' || (t.type || '').toLowerCase().includes('onboarding')),
+      )
+      const mergedExisting: Task[] = [...((dbExistingTasks as Task[]) || [])]
+      const existingDbIds = new Set(mergedExisting.map((t) => t.id))
+      for (const t of memExisting) {
+        if (!existingDbIds.has(t.id)) {
+          mergedExisting.push(t)
+        }
+      }
+
+      // Filtrar tarefas abertas (não concluídas) e mapear por chave normalizada do título
+      const openTaskTitleKeys = new Set<string>()
+      let hasAnyDoneTask = false
+
+      for (const t of mergedExisting) {
+        const done = isStatusDone(t.status)
+        if (done) {
+          hasAnyDoneTask = true
+        } else {
+          openTaskTitleKeys.add((t.title || '').trim().toLowerCase())
+        }
+      }
+
+      // REGRA ANTI-DUPLICIDADE:
+      // Se já existir tarefa Onboarding para este cliente + etapa aberta (não concluída), NÃO recriar.
+      // Se o checklist inteiro anterior tiver sido 100% concluído (todas as etapas done),
+      // a recriação (recomeçar onboarding) é permitida.
+      const candidateSteps = steps.filter((step) => {
+        const key = (step.title || '').trim().toLowerCase()
+        return !openTaskTitleKeys.has(key)
+      })
+
+      if (candidateSteps.length === 0) {
+        // Nenhuma etapa pendente a ser criada (todas já existem abertas)
+        return []
+      }
+
+      // Se há tarefas anteriores (já iniciadas) ou concluídas, a primeira etapa não deve vir auto-concluída
+      const shouldFirstStepBeDone = !hasAnyDoneTask && mergedExisting.length === 0
+
+      const tasksToInsert = candidateSteps.map((step) => {
+        // Localiza a posição original no checklist para montar descrição e status inicial
+        const originalIndex = steps.findIndex(
+          (s) =>
+            s.id === step.id || s.title.trim().toLowerCase() === step.title.trim().toLowerCase(),
+        )
+        const stepNum = originalIndex >= 0 ? originalIndex + 1 : step.order || 1
+        const initialStatus =
+          originalIndex === 0 && shouldFirstStepBeDone ? 'Concluída' : 'pendente'
+
+        return {
+          title: step.title,
+          clientId,
+          relatedProcessId: null,
+          status: initialStatus,
+          priority: 'Média',
+          type: 'Onboarding',
+          description: `Etapa ${stepNum} do Onboarding de Cliente Novo`,
+          responsibleId: step.responsibleId || fallbackResponsible,
+          created_by: createdBy,
+          dueDate: todayStr,
+        }
+      })
 
       const { data, error } = await supabase
         .from('tasks')
@@ -768,7 +846,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         console.error('Erro ao gerar tarefas de onboarding:', error)
         toast({
           title: 'Aviso de Onboarding',
-          description: 'Cliente criado, mas houve falha ao gerar as etapas de onboarding.',
+          description: 'Houve falha ao gerar as etapas de onboarding.',
           variant: 'destructive',
         })
         return []
@@ -787,7 +865,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
 
       return (data as Task[]) || []
     },
-    [state.settings?.onboardingChecklist, state.currentUser?.id, user?.id],
+    [state.settings?.onboardingChecklist, state.currentUser?.id, state.tasks, user?.id],
   )
 
   const addClient = useCallback(
