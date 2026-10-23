@@ -828,7 +828,7 @@ export default function ClientDetail() {
                             })()}
                             {c.number}
                           </Link>{' '}
-                          <CaseFeeBadge hasFees={casesWithFees.has(c.id)} />
+                          <CaseFeeBadge hasFees={casesWithFees.has(c.id)} noFees={c.noFees} />
                           {c.isSpecial && (
                             <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
                           )}
@@ -1006,7 +1006,10 @@ export default function ClientDetail() {
                                     })()}
                                     {sub.number}
                                   </Link>{' '}
-                                  <CaseFeeBadge hasFees={casesWithFees.has(sub.id)} />
+                                  <CaseFeeBadge
+                                    hasFees={casesWithFees.has(sub.id)}
+                                    noFees={sub.noFees}
+                                  />
                                   {sub.isSpecial && (
                                     <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
                                   )}

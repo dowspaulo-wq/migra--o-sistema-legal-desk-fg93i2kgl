@@ -635,7 +635,7 @@ export default function Cases() {
                               })()}
                               {c.number}
                             </Link>{' '}
-                            <CaseFeeBadge hasFees={casesWithFees.has(c.id)} />
+                            <CaseFeeBadge hasFees={casesWithFees.has(c.id)} noFees={c.noFees} />
                             {c.isSpecial && (
                               <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
                             )}
@@ -822,7 +822,7 @@ export default function Cases() {
                               {c.number}
                             </Link>
                             <div className="flex items-center gap-1 shrink-0">
-                              <CaseFeeBadge hasFees={casesWithFees.has(c.id)} />
+                              <CaseFeeBadge hasFees={casesWithFees.has(c.id)} noFees={c.noFees} />
                               {c.isProblematic && (
                                 <span className="text-base leading-none" title="Problemático">
                                   💩

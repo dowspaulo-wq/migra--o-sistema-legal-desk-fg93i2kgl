@@ -71,18 +71,26 @@ interface CaseFeeBadgeProps {
   hasFees: boolean
   className?: string
   showNoFeeWarning?: boolean
+  noFees?: boolean
 }
 
 /**
  * Componente visual de indicador de honorários do processo.
  * - hasFees = true: 💰 com tooltip "Honorários lançados"
  * - hasFees = false: 🟡 com tooltip "Sem honorários lançados" (ou alerta de atenção)
+ * Se noFees === true (processo marcado como "Não gera honorários"), o alerta amarelo de
+ * honorários ausentes não é renderizado.
  */
 export const CaseFeeBadge: React.FC<CaseFeeBadgeProps> = ({
   hasFees,
   className = '',
   showNoFeeWarning = true,
+  noFees = false,
 }) => {
+  if (noFees) {
+    return null
+  }
+
   if (!hasFees && !showNoFeeWarning) {
     return null
   }

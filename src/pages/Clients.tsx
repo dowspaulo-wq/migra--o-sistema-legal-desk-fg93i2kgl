@@ -633,7 +633,11 @@ export default function Clients() {
                               <div className="inline-flex items-center justify-center gap-1.5">
                                 <span>{caseCount}</span>
                                 {clientCases.map((cs) => (
-                                  <CaseFeeBadge key={cs.id} hasFees={casesWithFees.has(cs.id)} />
+                                  <CaseFeeBadge
+                                    key={cs.id}
+                                    hasFees={casesWithFees.has(cs.id)}
+                                    noFees={cs.noFees}
+                                  />
                                 ))}
                               </div>
                             </TableCell>
@@ -819,7 +823,11 @@ export default function Clients() {
                               <span>Processos:</span>
                               <span className="font-bold">{caseCount}</span>
                               {clientCases.map((cs) => (
-                                <CaseFeeBadge key={cs.id} hasFees={casesWithFees.has(cs.id)} />
+                                <CaseFeeBadge
+                                  key={cs.id}
+                                  hasFees={casesWithFees.has(cs.id)}
+                                  noFees={cs.noFees}
+                                />
                               ))}
                             </p>
                             <p className="flex items-center gap-2">

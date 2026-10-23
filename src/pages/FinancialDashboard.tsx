@@ -37,7 +37,7 @@ export default function FinancialDashboard() {
     .reduce((s: number, t: any) => s + (t.amount || 0), 0)
 
   const casesWithoutFees = useMemo(() => {
-    return state.cases.filter((c: any) => !c.feeValue || c.feeValue === 0)
+    return state.cases.filter((c: any) => !c.noFees && (!c.feeValue || c.feeValue === 0))
   }, [state.cases])
 
   const nonFinancialCases = useMemo(() => {
