@@ -54,7 +54,7 @@ import {
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import { ClientDialog } from '@/components/ClientDialog'
-import { normalizeStr, formatPhone, getWhatsAppPhone } from '@/lib/utils'
+import { normalizeStr, formatPhone, getWhatsAppPhone, formatSafeDateTime } from '@/lib/utils'
 import { downloadCSV } from '@/lib/export'
 import { Download } from 'lucide-react'
 import { buildCasesWithFeesSet, CaseFeeBadge } from '@/components/CaseFeeBadge'
@@ -546,20 +546,36 @@ export default function Clients() {
                             (t.status || '').toLowerCase() === 'concluida',
                         ).length
 
+                        const creator = c.created_by
+                          ? state.users.find((u) => u.id === c.created_by)
+                          : resp
+                        const createdFormatted = c.created_at
+                          ? formatSafeDateTime(c.created_at)
+                          : null
+
                         return (
                           <TableRow key={c.id}>
                             <TableCell className="font-medium">
-                              <div className="flex items-center gap-2">
-                                <Star
-                                  className={`h-4 w-4 cursor-pointer ${c.isSpecial ? 'fill-yellow-400 text-yellow-400' : 'text-slate-300'}`}
-                                  onClick={() =>
-                                    updateItem('clients', c.id, { isSpecial: !c.isSpecial })
-                                  }
-                                />{' '}
-                                {c.name}{' '}
-                                <Badge variant="outline" className="text-[10px]">
-                                  {c.type}
-                                </Badge>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <Star
+                                    className={`h-4 w-4 cursor-pointer ${c.isSpecial ? 'fill-yellow-400 text-yellow-400' : 'text-slate-300'}`}
+                                    onClick={() =>
+                                      updateItem('clients', c.id, { isSpecial: !c.isSpecial })
+                                    }
+                                  />{' '}
+                                  {c.name}{' '}
+                                  <Badge variant="outline" className="text-[10px]">
+                                    {c.type}
+                                  </Badge>
+                                </div>
+                                {(creator?.name || createdFormatted) && (
+                                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                                    {creator?.name ? `Criado por: ${creator.name}` : ''}
+                                    {creator?.name && createdFormatted ? ' • ' : ''}
+                                    {createdFormatted ? `Criado em: ${createdFormatted}` : ''}
+                                  </p>
+                                )}
                               </div>
                             </TableCell>
                             <TableCell>{c.document}</TableCell>
@@ -715,6 +731,11 @@ export default function Clients() {
                         (t.status || '').toLowerCase() === 'concluida',
                     ).length
 
+                    const creator = c.created_by
+                      ? state.users.find((u) => u.id === c.created_by)
+                      : resp
+                    const createdFormatted = c.created_at ? formatSafeDateTime(c.created_at) : null
+
                     return (
                       <Card key={c.id} className="relative overflow-hidden group">
                         <div
@@ -732,6 +753,13 @@ export default function Clients() {
                               <p className="text-xs text-muted-foreground">
                                 {c.type} • {c.document}
                               </p>
+                              {(creator?.name || createdFormatted) && (
+                                <p className="text-[11px] text-muted-foreground mt-0.5">
+                                  {creator?.name ? `Criado por: ${creator.name}` : ''}
+                                  {creator?.name && createdFormatted ? ' • ' : ''}
+                                  {createdFormatted ? `Criado em: ${createdFormatted}` : ''}
+                                </p>
+                              )}
                             </div>
                             <Badge variant={c.status === 'Ativo' ? 'default' : 'secondary'}>
                               {c.status}

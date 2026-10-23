@@ -870,9 +870,14 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
 
   const addClient = useCallback(
     async (client: Omit<Client, 'id'>) => {
+      const creatorId = state.currentUser?.id || user?.id || null
+      const clientPayload = {
+        ...client,
+        created_by: (client as any).created_by || creatorId,
+      }
       const { data, error } = await supabase
         .from('clients')
-        .insert(client as any)
+        .insert(clientPayload as any)
         .select()
         .single()
       if (error) {
@@ -883,7 +888,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       // Dispara automaticamente as tarefas de onboarding com base no modelo configurado
       await generateOnboardingTasks(data.id, data.responsibleId)
 
-      // Sincroniza todas as tarefas geradas (triggers do banco + checklist de onboarding)
+      // Sincroniza todas as tarefas geradas do cliente
       const { data: allClientTasks } = await supabase
         .from('tasks')
         .select('*')
@@ -904,7 +909,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       })
       return data as Client
     },
-    [generateOnboardingTasks],
+    [generateOnboardingTasks, state.currentUser?.id, user?.id],
   )
 
   const addTask = useCallback(
@@ -934,7 +939,12 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       caseData.feeValue = parseFloat(feeConfig.feeValue || '0')
       caseData.feeInstallments = parseInt(feeConfig.feeInstallments || '1', 10)
     }
-    const fullCase = { ...caseData, updatedAt: new Date().toISOString().split('T')[0] }
+    const creatorId = state.currentUser?.id || user?.id || null
+    const fullCase = {
+      ...caseData,
+      updatedAt: new Date().toISOString().split('T')[0],
+      created_by: caseData.created_by || creatorId,
+    }
     const { data, error } = await supabase
       .from('cases')
       .insert(fullCase as any)

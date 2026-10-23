@@ -36,6 +36,8 @@ export interface Client {
   city?: string
   state?: string
   asaas_id?: string | null
+  created_at?: string
+  created_by?: string | null
 }
 export interface Case {
   id: string
@@ -62,6 +64,8 @@ export interface Case {
   alerts: string
   parentId?: string | null
   classification?: string
+  created_at?: string
+  created_by?: string | null
 }
 export interface Task {
   id: string

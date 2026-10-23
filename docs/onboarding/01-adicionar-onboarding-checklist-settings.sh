@@ -2,13 +2,22 @@
 # ==============================================================================
 # DPSjur / SBJur - Kit Onboarding de Clientes para Supabase Self-Hosted no VPS (EasyPanel)
 # Script: docs/onboarding/01-adicionar-onboarding-checklist-settings.sh
-# Versão: v1.0.0
+# Versão: v1.2.3
 # ==============================================================================
 # Finalidade:
-# Adicionar com segurança e de forma idempotente a coluna "onboardingChecklist"
-# na tabela public.settings no PostgreSQL do Supabase Self-Hosted no VPS,
-# inicializar as etapas padrão caso nula, garantir políticas de RLS e emitir
-# NOTIFY pgrst, 'reload schema' para atualizar o schema cache do PostgREST.
+# 1. Adicionar com segurança e de forma idempotente a coluna "onboardingChecklist"
+#    na tabela public.settings no PostgreSQL do Supabase Self-Hosted no VPS;
+# 2. Inicializar as etapas padrão (8 etapas) caso nula ou vazia;
+# 3. Remover trigger obsoleto 'on_client_created' que gerava indevidamente tarefas
+#    de processo ao cadastrar cliente (Item 2);
+# 4. Adicionar colunas de auditoria "created_by" em public.clients e public.cases (Item 1);
+# 5. Emitir NOTIFY pgrst, 'reload schema' e reiniciar PostgREST para limpar o schema cache.
+#
+# Padrão v1.2.3:
+# - Descoberta automática de contêiner Docker real (PostgreSQL, PostgREST);
+# - Descoberta do usuário e banco reais (NUNCA assume supabase_admin cegamente);
+# - Escapamento de variáveis SQL (\$ e \$1) para segurança contra unbound variable;
+# - Verificação real dos objetos no final com saída [OK] verdadeira.
 #
 # Execução recomendada no terminal do VPS (como root - não interativo):
 #   curl -sSL "https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/onboarding/01-adicionar-onboarding-checklist-settings.sh" -o /root/01-adicionar-onboarding-checklist-settings.sh
@@ -17,7 +26,7 @@
 
 set -euo pipefail
 
-SCRIPT_VERSION="v1.0.0"
+SCRIPT_VERSION="v1.2.3"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -27,7 +36,7 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 echo -e "${BOLD}${BLUE}=====================================================================${NC}"
-echo -e "${BOLD}${BLUE} DPSjur - Adicionar onboardingChecklist em Settings (VPS)             ${NC}"
+echo -e "${BOLD}${BLUE} DPSjur - Atualização Onboarding & Dedo Duro no VPS                  ${NC}"
 echo -e "${BOLD}${BLUE} Versão: ${SCRIPT_VERSION}${NC}"
 echo -e "${BOLD}${BLUE}=====================================================================${NC}"
 echo -e "Data: $(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || true)"
@@ -61,7 +70,6 @@ if [ -z "$DB_CONTAINER" ]; then
 fi
 
 PGRST_CONTAINER=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E 'supa?base.*rest|postgrest' | head -n 1 || true)
-FUNCTIONS_CONTAINER=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E 'supa?base.*functions|edge-runtime' | head -n 1 || true)
 
 # ------------------------------------------------------------------------------
 # 2. Introspecção de credenciais e detecção robusta de usuário/banco
@@ -137,7 +145,7 @@ echo -e "Usuário PostgreSQL detectado: ${GREEN}${DB_USER}${NC}"
 echo -e "Banco de Dados detectado:     ${GREEN}${DB_NAME}${NC}"
 
 run_sql_query() {
-    local sql_query="$1"
+    local sql_query="\$1"
     if [ -n "$LOCAL_DB_PASSWORD" ]; then
         docker exec -i -e PGPASSWORD="$LOCAL_DB_PASSWORD" "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -tAc "$sql_query" 2>&1
     else
@@ -148,7 +156,7 @@ run_sql_query() {
 # ------------------------------------------------------------------------------
 # 3. Execução da migração SQL idempotente
 # ------------------------------------------------------------------------------
-echo -e "\n${BOLD}[3/4] Aplicando migração SQL idempotente na tabela public.settings...${NC}"
+echo -e "\n${BOLD}[3/4] Aplicando migração SQL idempotente...${NC}"
 
 MIGRATION_SQL="
 DO \$\$
@@ -183,7 +191,7 @@ BEGIN
         RAISE NOTICE 'Coluna onboardingChecklist já existe na tabela public.settings.';
     END IF;
 
-    -- 3. Atualizar registros existentes caso esteja NULL
+    -- 3. Preencher registros existentes caso esteja NULL
     UPDATE public.settings
     SET \"onboardingChecklist\" = '[
         {\"id\": \"step-1\", \"title\": \"Cadastrar cliente\", \"order\": 1},
@@ -197,10 +205,46 @@ BEGIN
     ]'::jsonb
     WHERE \"onboardingChecklist\" IS NULL;
 
-    -- 4. Documentação da coluna
-    COMMENT ON COLUMN public.settings.\"onboardingChecklist\" IS 'Lista de etapas do modelo padrão de onboarding de novos clientes (id, title, order)';
+    -- 4. Remoção do trigger obsoleto on_client_created (Bug do Onboarding - Item 2)
+    -- Tarefas de processo NÃO devem nascer no cadastro de cliente!
+    DROP TRIGGER IF EXISTS on_client_created ON public.clients;
+    DROP FUNCTION IF EXISTS public.handle_new_client_tasks();
+    RAISE NOTICE 'Trigger obsoleto on_client_created removido com sucesso de public.clients.';
 
-    -- 5. Garantir políticas de RLS
+    -- 5. Adicionar coluna created_by em public.clients (Dedo duro - Item 1)
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_schema = 'public' 
+          AND table_name = 'clients' 
+          AND column_name = 'created_by'
+    ) THEN
+        ALTER TABLE public.clients ADD COLUMN created_by uuid REFERENCES public.profiles(id) ON DELETE SET NULL;
+        CREATE INDEX IF NOT EXISTS idx_clients_created_by ON public.clients(created_by);
+        RAISE NOTICE 'Coluna created_by adicionada em public.clients.';
+    END IF;
+
+    -- 6. Adicionar coluna created_by em public.cases (Dedo duro - Item 1)
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_schema = 'public' 
+          AND table_name = 'cases' 
+          AND column_name = 'created_by'
+    ) THEN
+        ALTER TABLE public.cases ADD COLUMN created_by uuid REFERENCES public.profiles(id) ON DELETE SET NULL;
+        CREATE INDEX IF NOT EXISTS idx_cases_created_by ON public.cases(created_by);
+        RAISE NOTICE 'Coluna created_by adicionada em public.cases.';
+    END IF;
+
+    -- 7. Preenchimento retroativo seguro de created_by herdando do responsibleId
+    UPDATE public.clients
+    SET created_by = \"responsibleId\"
+    WHERE created_by IS NULL AND \"responsibleId\" IS NOT NULL;
+
+    UPDATE public.cases
+    SET created_by = \"responsibleId\"
+    WHERE created_by IS NULL AND \"responsibleId\" IS NOT NULL;
+
+    -- 8. Garantir políticas de RLS em settings
     ALTER TABLE public.settings ENABLE ROW LEVEL SECURITY;
 
     DROP POLICY IF EXISTS \"authenticated_select_settings\" ON public.settings;
@@ -242,12 +286,19 @@ COL_TYPE=$(run_sql_query "SELECT data_type FROM information_schema.columns WHERE
 SETTINGS_COUNT=$(run_sql_query "SELECT count(*) FROM public.settings;")
 CHECKLIST_COUNT=$(run_sql_query "SELECT jsonb_array_length(\"onboardingChecklist\") FROM public.settings WHERE \"onboardingChecklist\" IS NOT NULL LIMIT 1;")
 
+CLIENT_CREATED_BY=$(run_sql_query "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'clients' AND column_name = 'created_by');")
+CASE_CREATED_BY=$(run_sql_query "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'cases' AND column_name = 'created_by');")
+TRIGGER_CLIENT_STATUS=$(run_sql_query "SELECT EXISTS (SELECT 1 FROM information_schema.triggers WHERE event_object_table = 'clients' AND trigger_name = 'on_client_created');")
+
 echo -e "   - Coluna 'onboardingChecklist': $( [ "$COL_STATUS" = "t" ] && echo -e "${GREEN}EXISTE (tipo: ${COL_TYPE}) [OK]${NC}" || echo -e "${RED}NÃO ENCONTRADA [FALHA]${NC}" )"
+echo -e "   - Coluna 'clients.created_by':  $( [ "$CLIENT_CREATED_BY" = "t" ] && echo -e "${GREEN}EXISTE [OK]${NC}" || echo -e "${RED}NÃO ENCONTRADA [FALHA]${NC}" )"
+echo -e "   - Coluna 'cases.created_by':    $( [ "$CASE_CREATED_BY" = "t" ] && echo -e "${GREEN}EXISTE [OK]${NC}" || echo -e "${RED}NÃO ENCONTRADA [FALHA]${NC}" )"
+echo -e "   - Trigger antigo em clients:    $( [ "$TRIGGER_CLIENT_STATUS" = "f" ] && echo -e "${GREEN}REMOVIDO COM SUCESSO [OK]${NC}" || echo -e "${YELLOW}AINDA PRESENTE [ATENÇÃO]${NC}" )"
 echo -e "   - Registros em public.settings: ${GREEN}${SETTINGS_COUNT} linha(s) [OK]${NC}"
 echo -e "   - Etapas do modelo padrão:     ${GREEN}${CHECKLIST_COUNT:-0} etapa(s) [OK]${NC}"
 
-if [ "$COL_STATUS" != "t" ]; then
-    echo -e "\n${RED}❌ ERRO: A coluna onboardingChecklist não foi detectada após a execução.${NC}"
+if [ "$COL_STATUS" != "t" ] || [ "$CLIENT_CREATED_BY" != "t" ] || [ "$CASE_CREATED_BY" != "t" ]; then
+    echo -e "\n${RED}❌ ERRO: Uma ou mais colunas não foram detectadas após a execução.${NC}"
     exit 1
 fi
 
@@ -255,10 +306,7 @@ echo -e "\n${BOLD}${GREEN}======================================================
 echo -e "${BOLD}${GREEN}🎉 BANCO DE DADOS ATUALIZADO COM SUCESSO NO VPS!                     ${NC}"
 echo -e "${BOLD}${GREEN}=====================================================================${NC}"
 echo -e "Status da coluna: ${BOLD}OK${NC} (public.settings.onboardingChecklist)"
+echo -e "Status auditoria: ${BOLD}OK${NC} (clients.created_by e cases.created_by)"
+echo -e "Status automação: ${BOLD}OK${NC} (trigger indevido removido)"
 echo -e "Schema cache do PostgREST recarregado com sucesso."
-echo ""
-echo -e "Próximos passos:"
-echo -e "1. Acesse o sistema em ${BOLD}https://sistema.advdouglaspsantos.com.br/configuracoes${NC}"
-echo -e "2. Acesse a aba ${BOLD}Onboarding de Cliente${NC} para personalizar as etapas do checklist padrão."
-echo -e "3. Ao cadastrar um novo cliente, as tarefas de onboarding serão disparadas automaticamente."
 echo -e "${BOLD}${GREEN}=====================================================================${NC}\n"

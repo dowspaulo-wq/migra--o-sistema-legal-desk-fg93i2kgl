@@ -42,7 +42,13 @@ import { DatePicker } from '@/components/ui/date-picker'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import { CaseDialog } from '@/components/CaseDialog'
-import { normalizeStr, normalizeProcessNumber, getDetailedDuration, stripHtml } from '@/lib/utils'
+import {
+  normalizeStr,
+  normalizeProcessNumber,
+  getDetailedDuration,
+  stripHtml,
+  formatSafeDateTime,
+} from '@/lib/utils'
 import { downloadCSV } from '@/lib/export'
 import { Download } from 'lucide-react'
 import {
@@ -593,6 +599,10 @@ export default function Cases() {
                   {filtered.map((c) => {
                     const client = state.clients.find((cl) => cl.id === c.clientId)
                     const resp = state.users.find((u) => u.id === c.responsibleId)
+                    const creator = c.created_by
+                      ? state.users.find((u) => u.id === c.created_by)
+                      : resp
+                    const createdFormatted = c.created_at ? formatSafeDateTime(c.created_at) : null
 
                     return (
                       <div
@@ -668,6 +678,13 @@ export default function Cases() {
                               </>
                             )}
                           </div>
+                          {(creator?.name || createdFormatted) && (
+                            <p className="text-[11px] text-muted-foreground">
+                              {creator?.name ? `Criado por: ${creator.name}` : ''}
+                              {creator?.name && createdFormatted ? ' • ' : ''}
+                              {createdFormatted ? `Criado em: ${createdFormatted}` : ''}
+                            </p>
+                          )}
                           <p className="text-sm font-medium mt-1">
                             {client ? (
                               <Link
@@ -772,6 +789,10 @@ export default function Cases() {
                   {filtered.map((c) => {
                     const client = state.clients.find((cl) => cl.id === c.clientId)
                     const resp = state.users.find((u) => u.id === c.responsibleId)
+                    const creator = c.created_by
+                      ? state.users.find((u) => u.id === c.created_by)
+                      : resp
+                    const createdFormatted = c.created_at ? formatSafeDateTime(c.created_at) : null
                     const typeColor = getTypeColor(c.type)
 
                     return (
@@ -852,6 +873,13 @@ export default function Cases() {
                               </>
                             )}
                           </div>
+                          {(creator?.name || createdFormatted) && (
+                            <p className="text-[11px] text-muted-foreground">
+                              {creator?.name ? `Criado por: ${creator.name}` : ''}
+                              {creator?.name && createdFormatted ? ' • ' : ''}
+                              {createdFormatted ? `Criado em: ${createdFormatted}` : ''}
+                            </p>
+                          )}
                           <div className="text-sm space-y-1">
                             <p>
                               <span className="text-muted-foreground">Cliente:</span>{' '}
