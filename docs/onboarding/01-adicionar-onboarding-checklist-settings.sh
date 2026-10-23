@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur / SBJur - Kit Onboarding de Clientes para Supabase Self-Hosted no VPS (EasyPanel)
 # Script: docs/onboarding/01-adicionar-onboarding-checklist-settings.sh
-# Versão: v1.2.3
+# Versão: v1.3.0
 # ==============================================================================
 # Finalidade:
 # 1. Adicionar com segurança e de forma idempotente a coluna "onboardingChecklist"
@@ -13,11 +13,11 @@
 # 4. Adicionar colunas de auditoria "created_by" em public.clients e public.cases (Item 1);
 # 5. Emitir NOTIFY pgrst, 'reload schema' e reiniciar PostgREST para limpar o schema cache.
 #
-# Padrão v1.2.3:
-# - Descoberta automática de contêiner Docker real (PostgreSQL, PostgREST);
-# - Descoberta do usuário e banco reais (NUNCA assume supabase_admin cegamente);
-# - Escapamento de variáveis SQL (\$ e \$1) para segurança contra unbound variable;
-# - Verificação real dos objetos no final com saída [OK] verdadeira.
+# Histórico de alterações:
+# - v1.3.0: Correção crítica no bash da função run_sql_query (remoção do escape indevido '\$1'
+#   que passava a string literal '$1' para o psql em vez da query), exibição em vermelho do erro
+#   real do psql em vez de engolir a saída e conferências honestas pós-migração.
+# - v1.2.3: Descoberta automática de contêiner Docker real e usuário/banco.
 #
 # Execução recomendada no terminal do VPS (como root - não interativo):
 #   curl -sSL "https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/main/docs/onboarding/01-adicionar-onboarding-checklist-settings.sh" -o /root/01-adicionar-onboarding-checklist-settings.sh
@@ -26,7 +26,7 @@
 
 set -euo pipefail
 
-SCRIPT_VERSION="v1.2.3"
+SCRIPT_VERSION="v1.3.0"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -145,12 +145,23 @@ echo -e "Usuário PostgreSQL detectado: ${GREEN}${DB_USER}${NC}"
 echo -e "Banco de Dados detectado:     ${GREEN}${DB_NAME}${NC}"
 
 run_sql_query() {
-    local sql_query="\$1"
+    local sql_query="$1"
+    local raw_output
+    local exit_code=0
+
     if [ -n "$LOCAL_DB_PASSWORD" ]; then
-        docker exec -i -e PGPASSWORD="$LOCAL_DB_PASSWORD" "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -tAc "$sql_query" 2>&1
+        raw_output=$(docker exec -i -e PGPASSWORD="$LOCAL_DB_PASSWORD" "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -tAc "$sql_query" 2>&1) || exit_code=$?
     else
-        docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -tAc "$sql_query" 2>&1
+        raw_output=$(docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -tAc "$sql_query" 2>&1) || exit_code=$?
     fi
+
+    if [ $exit_code -ne 0 ] || [[ "$raw_output" =~ (ERROR:|FATAL:|PANIC:|psql: error:) ]]; then
+        echo -e "${RED}[ERRO PSQL] Falha ao executar: ${sql_query}${NC}" >&2
+        echo -e "${RED}${raw_output}${NC}" >&2
+        return $exit_code
+    fi
+
+    echo "$raw_output"
 }
 
 # ------------------------------------------------------------------------------
@@ -281,14 +292,14 @@ fi
 # ------------------------------------------------------------------------------
 echo -e "\n${BOLD}[4/4] Conferência do schema no PostgreSQL (usuário: ${DB_USER}, banco: ${DB_NAME}):${NC}"
 
-COL_STATUS=$(run_sql_query "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'settings' AND column_name = 'onboardingChecklist');")
-COL_TYPE=$(run_sql_query "SELECT data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'settings' AND column_name = 'onboardingChecklist';")
-SETTINGS_COUNT=$(run_sql_query "SELECT count(*) FROM public.settings;")
-CHECKLIST_COUNT=$(run_sql_query "SELECT jsonb_array_length(\"onboardingChecklist\") FROM public.settings WHERE \"onboardingChecklist\" IS NOT NULL LIMIT 1;")
+COL_STATUS=$(run_sql_query "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'settings' AND column_name = 'onboardingChecklist');" || echo "erro")
+COL_TYPE=$(run_sql_query "SELECT data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'settings' AND column_name = 'onboardingChecklist';" || echo "desconhecido")
+SETTINGS_COUNT=$(run_sql_query "SELECT count(*) FROM public.settings;" || echo "0")
+CHECKLIST_COUNT=$(run_sql_query "SELECT jsonb_array_length(\"onboardingChecklist\") FROM public.settings WHERE \"onboardingChecklist\" IS NOT NULL LIMIT 1;" || echo "0")
 
-CLIENT_CREATED_BY=$(run_sql_query "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'clients' AND column_name = 'created_by');")
-CASE_CREATED_BY=$(run_sql_query "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'cases' AND column_name = 'created_by');")
-TRIGGER_CLIENT_STATUS=$(run_sql_query "SELECT EXISTS (SELECT 1 FROM information_schema.triggers WHERE event_object_table = 'clients' AND trigger_name = 'on_client_created');")
+CLIENT_CREATED_BY=$(run_sql_query "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'clients' AND column_name = 'created_by');" || echo "erro")
+CASE_CREATED_BY=$(run_sql_query "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'cases' AND column_name = 'created_by');" || echo "erro")
+TRIGGER_CLIENT_STATUS=$(run_sql_query "SELECT EXISTS (SELECT 1 FROM information_schema.triggers WHERE event_object_table = 'clients' AND trigger_name = 'on_client_created');" || echo "erro")
 
 echo -e "   - Coluna 'onboardingChecklist': $( [ "$COL_STATUS" = "t" ] && echo -e "${GREEN}EXISTE (tipo: ${COL_TYPE}) [OK]${NC}" || echo -e "${RED}NÃO ENCONTRADA [FALHA]${NC}" )"
 echo -e "   - Coluna 'clients.created_by':  $( [ "$CLIENT_CREATED_BY" = "t" ] && echo -e "${GREEN}EXISTE [OK]${NC}" || echo -e "${RED}NÃO ENCONTRADA [FALHA]${NC}" )"
