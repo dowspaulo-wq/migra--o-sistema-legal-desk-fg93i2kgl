@@ -155,10 +155,16 @@ export function TaskDialog({
     if (!current.clientId || current.clientId === 'none' || !String(current.clientId).trim()) {
       errs.clientId = 'Cliente relacionado é obrigatório.'
     }
+    // Tarefas do tipo Onboarding são vinculadas SOMENTE ao cliente, sem exigir processo
+    const isOnboarding =
+      String(current.type || '')
+        .trim()
+        .toLowerCase() === 'onboarding'
     if (
-      !current.relatedProcessId ||
-      current.relatedProcessId === 'none' ||
-      !String(current.relatedProcessId).trim()
+      !isOnboarding &&
+      (!current.relatedProcessId ||
+        current.relatedProcessId === 'none' ||
+        !String(current.relatedProcessId).trim())
     ) {
       errs.relatedProcessId = 'Processo relacionado é obrigatório.'
     }
@@ -195,6 +201,19 @@ export function TaskDialog({
   }
 
   const isCompleted = formData.status === 'Concluído'
+  const isOnboardingType =
+    String(formData.type || '')
+      .trim()
+      .toLowerCase() === 'onboarding'
+
+  // Lista de tipos de tarefa: se for uma tarefa Onboarding existente ou gerada, inclui 'Onboarding' na lista
+  const availableTaskTypes = (() => {
+    const base = settings?.taskTypes || ['Outro']
+    if (isOnboardingType && !base.includes('Onboarding')) {
+      return ['Onboarding', ...base]
+    }
+    return base
+  })()
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -344,7 +363,7 @@ export function TaskDialog({
                   <SelectValue placeholder="Selecione..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {(settings?.taskTypes || ['Outro']).map((t: string) => (
+                  {availableTaskTypes.map((t: string) => (
                     <SelectItem key={t} value={t}>
                       {t}
                     </SelectItem>
@@ -424,7 +443,14 @@ export function TaskDialog({
 
           <div className="space-y-2">
             <Label className="flex items-center gap-1 font-medium">
-              Processo Relacionado <span className="text-red-500 font-bold">*</span>
+              Processo Relacionado{' '}
+              {isOnboardingType ? (
+                <span className="text-xs text-muted-foreground font-normal">
+                  (Opcional para tarefas de Onboarding)
+                </span>
+              ) : (
+                <span className="text-red-500 font-bold">*</span>
+              )}
             </Label>
             <Select
               value={formData.relatedProcessId || 'none'}
@@ -449,9 +475,20 @@ export function TaskDialog({
                   errors.relatedProcessId ? 'border-red-500 focus-visible:ring-red-500' : ''
                 }
               >
-                <SelectValue placeholder="Selecione um processo..." />
+                <SelectValue
+                  placeholder={
+                    isOnboardingType
+                      ? 'Nenhum processo (somente cliente)'
+                      : 'Selecione um processo...'
+                  }
+                />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="none">
+                  {isOnboardingType
+                    ? 'Nenhum processo (apenas cliente)'
+                    : 'Sem processo relacionado'}
+                </SelectItem>
                 {(formData.clientId && formData.clientId !== 'none'
                   ? cases?.filter((c: any) => c.clientId === formData.clientId)
                   : cases

@@ -4,6 +4,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
   CheckCircle2,
   Plus,
   Trash2,
@@ -15,6 +22,7 @@ import {
   RotateCcw,
   Sparkles,
   ClipboardList,
+  UserCheck,
 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { DEFAULT_ONBOARDING_STEPS, OnboardingStep } from '@/lib/mockData'
@@ -23,6 +31,7 @@ import { toast } from '@/hooks/use-toast'
 export function OnboardingSettingsTab() {
   const { state, updateItem } = useLegalStore()
   const s = state.settings
+  const users = state.users || []
 
   // Lista atual no store ou fallback padrão
   const steps: OnboardingStep[] =
@@ -31,6 +40,7 @@ export function OnboardingSettingsTab() {
       : DEFAULT_ONBOARDING_STEPS
 
   const [newTitle, setNewTitle] = useState('')
+  const [newResponsibleId, setNewResponsibleId] = useState<string>('default')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
   const [isSaving, setIsSaving] = useState(false)
@@ -80,10 +90,20 @@ export function OnboardingSettingsTab() {
       id: `step-${Date.now()}`,
       title: trimmed,
       order: steps.length + 1,
+      responsibleId: newResponsibleId === 'default' ? null : newResponsibleId,
     }
 
     const next = [...steps, newStep]
     setNewTitle('')
+    setNewResponsibleId('default')
+    saveSteps(next)
+  }
+
+  const handleStepResponsibleChange = (stepId: string, value: string) => {
+    const nextResponsibleId = value === 'default' ? null : value
+    const next = steps.map((st) =>
+      st.id === stepId ? { ...st, responsibleId: nextResponsibleId } : st,
+    )
     saveSteps(next)
   }
 
@@ -194,7 +214,7 @@ export function OnboardingSettingsTab() {
             <label className="text-sm font-semibold text-slate-800 dark:text-slate-200">
               Adicionar Nova Etapa ao Modelo
             </label>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <Input
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
@@ -203,6 +223,27 @@ export function OnboardingSettingsTab() {
                 disabled={isSaving}
                 onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
               />
+              <div className="w-full sm:w-56 shrink-0">
+                <Select
+                  value={newResponsibleId}
+                  onValueChange={setNewResponsibleId}
+                  disabled={isSaving}
+                >
+                  <SelectTrigger className="h-10 text-xs">
+                    <SelectValue placeholder="Colaborador responsável" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default" className="text-xs">
+                      Padrão (Resp. do Cliente)
+                    </SelectItem>
+                    {users.map((u) => (
+                      <SelectItem key={u.id} value={u.id} className="text-xs">
+                        {u.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <Button
                 onClick={handleAdd}
                 disabled={!newTitle.trim() || isSaving}
@@ -225,7 +266,7 @@ export function OnboardingSettingsTab() {
                 return (
                   <div
                     key={step.id || `step-${index}`}
-                    className="flex items-center justify-between p-3.5 hover:bg-slate-50/80 dark:hover:bg-slate-900/50 transition-colors gap-3"
+                    className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 hover:bg-slate-50/80 dark:hover:bg-slate-900/50 transition-colors gap-3"
                   >
                     <div className="flex items-center gap-3 flex-1 min-w-0">
                       {/* Badge do número da etapa */}
@@ -274,51 +315,82 @@ export function OnboardingSettingsTab() {
                       )}
                     </div>
 
-                    {/* Botões de Ação: Subir, Descer, Editar, Excluir */}
-                    {!isEditing && (
-                      <div className="flex items-center gap-1 shrink-0">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-slate-500 hover:text-slate-900 disabled:opacity-30"
-                          onClick={() => handleMove(index, 'up')}
-                          disabled={index === 0 || isSaving}
-                          title="Mover para cima"
-                        >
-                          <ArrowUp className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-slate-500 hover:text-slate-900 disabled:opacity-30"
-                          onClick={() => handleMove(index, 'down')}
-                          disabled={index === steps.length - 1 || isSaving}
-                          title="Mover para baixo"
-                        >
-                          <ArrowDown className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-slate-500 hover:text-slate-900"
-                          onClick={() => handleStartEdit(step)}
+                    <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0 pl-9 sm:pl-0">
+                      {/* Seletor de Colaborador da etapa */}
+                      <div className="w-48 shrink-0">
+                        <Select
+                          value={step.responsibleId || 'default'}
+                          onValueChange={(val) => handleStepResponsibleChange(step.id, val)}
                           disabled={isSaving}
-                          title="Renomear etapa"
                         >
-                          <Edit2 className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50"
-                          onClick={() => handleRemove(step.id)}
-                          disabled={isSaving}
-                          title="Excluir etapa do modelo"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                          <SelectTrigger
+                            className="h-7 text-xs bg-white dark:bg-slate-950 border-slate-200"
+                            title="Colaborador responsável por esta etapa"
+                          >
+                            <UserCheck className="h-3 w-3 mr-1 text-slate-500 shrink-0" />
+                            <SelectValue placeholder="Resp. da Etapa" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="default" className="text-xs">
+                              <span className="text-slate-500 italic">
+                                Padrão (Resp. do Cliente)
+                              </span>
+                            </SelectItem>
+                            {users.map((u) => (
+                              <SelectItem key={u.id} value={u.id} className="text-xs">
+                                {u.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
-                    )}
+
+                      {/* Botões de Ação: Subir, Descer, Editar, Excluir */}
+                      {!isEditing && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-slate-500 hover:text-slate-900 disabled:opacity-30"
+                            onClick={() => handleMove(index, 'up')}
+                            disabled={index === 0 || isSaving}
+                            title="Mover para cima"
+                          >
+                            <ArrowUp className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-slate-500 hover:text-slate-900 disabled:opacity-30"
+                            onClick={() => handleMove(index, 'down')}
+                            disabled={index === steps.length - 1 || isSaving}
+                            title="Mover para baixo"
+                          >
+                            <ArrowDown className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-slate-500 hover:text-slate-900"
+                            onClick={() => handleStartEdit(step)}
+                            disabled={isSaving}
+                            title="Renomear etapa"
+                          >
+                            <Edit2 className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => handleRemove(step.id)}
+                            disabled={isSaving}
+                            title="Excluir etapa do modelo"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )
               })}

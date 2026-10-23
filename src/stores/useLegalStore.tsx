@@ -742,18 +742,19 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
               { id: 'step-8', title: 'Monitorar assinaturas', order: 8 },
             ]
 
-      const targetResponsible = responsibleId || state.currentUser?.id || user?.id || null
+      const fallbackResponsible = responsibleId || state.currentUser?.id || user?.id || null
       const createdBy = state.currentUser?.id || user?.id || null
       const todayStr = new Date().toISOString().split('T')[0]
 
       const tasksToInsert = steps.map((step, idx) => ({
         title: step.title,
         clientId,
+        relatedProcessId: null,
         status: idx === 0 ? 'Concluída' : 'pendente',
         priority: 'Média',
         type: 'Onboarding',
         description: `Etapa ${idx + 1} do Onboarding de Cliente Novo`,
-        responsibleId: targetResponsible,
+        responsibleId: step.responsibleId || fallbackResponsible,
         created_by: createdBy,
         dueDate: todayStr,
       }))

@@ -93,6 +93,15 @@ const getTaskTypeStyle = (type: string) => {
       hexBorder: '#e9d5ff',
     }
   }
+  if (t.includes('onboarding')) {
+    return {
+      bg: 'bg-sky-50',
+      text: 'text-sky-700',
+      border: 'border-sky-200',
+      hex: '#f0f9ff',
+      hexBorder: '#bae6fd',
+    }
+  }
   return {
     bg: 'bg-slate-50',
     text: 'text-slate-700',

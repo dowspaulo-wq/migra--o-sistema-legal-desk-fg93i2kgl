@@ -168,6 +168,7 @@ export interface OnboardingStep {
   id: string
   title: string
   order: number
+  responsibleId?: string | null
 }
 
 export const DEFAULT_ONBOARDING_STEPS: OnboardingStep[] = [

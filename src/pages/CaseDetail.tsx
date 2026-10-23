@@ -81,6 +81,9 @@ const getTaskTypeStyle = (type: string) => {
   if (t.includes('revisão/protocolo') || t.includes('revisao/protocolo')) {
     return { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' }
   }
+  if (t.includes('onboarding')) {
+    return { bg: 'bg-sky-50', text: 'text-sky-700', border: 'border-sky-200' }
+  }
   return { bg: 'bg-slate-50', text: 'text-slate-700', border: 'border-slate-200' }
 }
 
