@@ -106,7 +106,7 @@ export function CaseDialog({
       alerts: '',
       parentId: data?.parentId || null,
       classification: 'DPS',
-      noFees: false,
+      noFees: Boolean(data?.noFees ?? (data as any)?.no_fees ?? false),
     }
 
     if (!data || data.isNew) {
@@ -119,6 +119,7 @@ export function CaseDialog({
             ...parsed,
             clientId: lockedClientId || parsed.clientId || '',
             parentId: data?.parentId || null,
+            noFees: Boolean(parsed.noFees ?? data?.noFees ?? (data as any)?.no_fees ?? false),
           }
         }
       } catch (e) {
@@ -130,7 +131,11 @@ export function CaseDialog({
 
   const [fd, setFd] = useState(() =>
     data && !data.isNew
-      ? { ...data, classification: data.classification || 'DPS', noFees: !!data.noFees }
+      ? {
+          ...data,
+          classification: data.classification || 'DPS',
+          noFees: Boolean(data.noFees ?? (data as any)?.no_fees ?? false),
+        }
       : getInitial(),
   )
 
@@ -159,7 +164,11 @@ export function CaseDialog({
     if (open) {
       setFd(
         data && !data.isNew
-          ? { ...data, classification: data.classification || 'DPS', noFees: !!data.noFees }
+          ? {
+              ...data,
+              classification: data.classification || 'DPS',
+              noFees: Boolean(data.noFees ?? (data as any)?.no_fees ?? false),
+            }
           : getInitial(),
       )
     }
@@ -196,6 +205,7 @@ export function CaseDialog({
 
     const payload = {
       ...fd,
+      noFees: Boolean(fd.noFees),
       classification: fd.classification || 'DPS',
       feeConfig: feeConfig.hasFees ? feeConfig : undefined,
       _previousStatus: oldStatusRef.current,

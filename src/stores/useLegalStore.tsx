@@ -829,6 +829,13 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           }
         }
 
+        if (
+          table === 'cases' &&
+          (finalChanges.noFees !== undefined || finalChanges.no_fees !== undefined)
+        ) {
+          finalChanges.noFees = Boolean(finalChanges.noFees ?? finalChanges.no_fees ?? false)
+        }
+
         setState((prev) => {
           const arr = prev[table as keyof LegalState] as any[]
           originalItem = arr?.find((item) => item.id === id)
@@ -1192,8 +1199,10 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         caseData.feeInstallments = parseInt(feeConfig.feeInstallments || '1', 10)
       }
       const creatorId = state.currentUser?.id || user?.id || null
+      const resolvedNoFees = Boolean(caseData.noFees ?? caseData.no_fees ?? false)
       const fullCase = {
         ...caseData,
+        noFees: resolvedNoFees,
         updatedAt: new Date().toISOString().split('T')[0],
         created_by: caseData.created_by || creatorId,
       }
