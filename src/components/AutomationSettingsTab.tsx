@@ -31,6 +31,9 @@ import {
   CheckCircle2,
   AlertCircle,
   Clock,
+  Lock,
+  Sparkles,
+  ShieldAlert,
 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { useToast } from '@/hooks/use-toast'
@@ -59,6 +62,152 @@ interface RuleFormData {
   taskType: string
   active: boolean
 }
+
+interface BuiltinAutomation {
+  id: string
+  trigger: string
+  triggerBadge: string
+  triggerColor: string
+  action: string
+  description: string
+  conditions?: string
+  effectDetails: {
+    taskOrRecord: string
+    responsible: string
+    dueOrTiming: string
+    priorityOrNotes?: string
+  }
+}
+
+const BUILTIN_AUTOMATIONS: BuiltinAutomation[] = [
+  {
+    id: 'builtin-client-onboarding',
+    trigger: 'Cadastro de novo cliente',
+    triggerBadge: 'Cliente cadastrado',
+    triggerColor:
+      'border-blue-200 text-blue-700 dark:border-blue-800 dark:text-blue-300 bg-blue-50/50 dark:bg-blue-950/30',
+    action: 'Disparar Checklist de Onboarding (Tarefas em lote)',
+    description:
+      'Gera as etapas configuradas em Configurações → Onboarding de Cliente como tarefas do tipo "Onboarding", vinculadas ao cliente cadastrado.',
+    conditions:
+      'Possui trava inteligente anti-duplicidade: não recria etapas que já existam em aberto para o mesmo cliente.',
+    effectDetails: {
+      taskOrRecord:
+        'Gera até 8 tarefas sequenciais (ex: Cadastrar processos, Coletar documentos, Redigir procuração, etc.)',
+      responsible: 'Responsável configurado por etapa ou responsável do cliente',
+      dueOrTiming: 'Data de hoje (vencimento imediato para início da esteira)',
+      priorityOrNotes: 'Prioridade: Média | 1ª etapa marcada como concluída se novo cliente',
+    },
+  },
+  {
+    id: 'builtin-case-routine-tasks',
+    trigger: 'Abertura de processo (caso principal)',
+    triggerBadge: 'Processo cadastrado',
+    triggerColor:
+      'border-emerald-200 text-emerald-700 dark:border-emerald-800 dark:text-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/30',
+    action: 'Criar tarefas padrão de Redação e Acompanhamento',
+    description:
+      'Cria automaticamente a tarefa "Redigir Inicial ou Defesa" e a tarefa "Acompanhamento processual" vinculadas ao processo recém-aberto.',
+    conditions:
+      'Apenas para processos principais (não dispara em subprocessos/recursos vinculados).',
+    effectDetails: {
+      taskOrRecord:
+        '1) "Redigir Inicial ou Defesa" (tipo: Redigir inicial)\n2) "Acompanhamento processual" (tipo: interna e adm)',
+      responsible: 'Redigir: Usuário cadastrador | Acompanhamento: Usuário Mestre (Admin)',
+      dueOrTiming:
+        'Redigir: Próximo dia útil subsequente | Acompanhamento: Dia 25 do mês subsequente',
+      priorityOrNotes: 'Prioridade: Baixa | Status: pendente / atualização',
+    },
+  },
+  {
+    id: 'builtin-task-completion-review',
+    trigger: 'Conclusão de tarefa técnica por colaborador',
+    triggerBadge: 'Tarefa concluída',
+    triggerColor:
+      'border-purple-200 text-purple-700 dark:border-purple-800 dark:text-purple-300 bg-purple-50/50 dark:bg-purple-950/30',
+    action: 'Gerar tarefa de "Revisão/protocolo" para o Dr. Douglas',
+    description:
+      'Quando um colaborador conclui uma tarefa das categorias técnicas, o sistema cria automaticamente uma tarefa de revisão e protocolo sob responsabilidade do Dr. Douglas.',
+    conditions:
+      'Dispara quando o status muda para "Concluída", o usuário que concluiu é Colaborador, e o tipo da tarefa original é "recorrer", "redigir inicial" ou "petições".',
+    effectDetails: {
+      taskOrRecord: 'Gera tarefa "Revisão/protocolo" com título "[Cliente] - [Processo]"',
+      responsible: 'Dr. Douglas (dowspaulo@gmail.com / Admin)',
+      dueOrTiming: 'Data atual (hoje)',
+      priorityOrNotes: 'Prioridade: Média | Tipo: Revisão/protocolo',
+    },
+  },
+  {
+    id: 'builtin-case-status-date',
+    trigger: 'Status do processo alterado para "Concluído"',
+    triggerBadge: 'Status do processo',
+    triggerColor:
+      'border-amber-200 text-amber-700 dark:border-amber-800 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-950/30',
+    action: 'Atualizar data de encerramento do processo (updatedAt)',
+    description:
+      'Preenche e carimba a data de atualização do processo no momento exato em que ele passa para um status de conclusão.',
+    conditions: 'Transição de qualquer status não concluído para "Concluído" / "Concluída".',
+    effectDetails: {
+      taskOrRecord:
+        'Atualiza o campo de data de encerramento/atualização (updatedAt) no cadastro do processo',
+      responsible: 'Execução automática no sistema',
+      dueOrTiming: 'Imediato (data corrente YYYY-MM-DD)',
+    },
+  },
+  {
+    id: 'builtin-task-audit-completed-by',
+    trigger: 'Marcação de tarefa como concluída ou reaberta',
+    triggerBadge: 'Status da tarefa',
+    triggerColor:
+      'border-slate-300 text-slate-700 dark:border-slate-700 dark:text-slate-300 bg-slate-50/50 dark:bg-slate-900/30',
+    action: 'Auditoria de conclusão (completed_by)',
+    description:
+      'Grava o ID do usuário que concluiu a tarefa para prestação de contas da equipe; caso a tarefa seja reaberta, o registro é limpo automaticamente.',
+    conditions: 'Transição entre status aberto e status "Concluída" / "Concluído".',
+    effectDetails: {
+      taskOrRecord:
+        'Preenche campo completed_by com o ID do usuário logado; ao reabrir, define como NULL',
+      responsible: 'Usuário autenticado ativo',
+      dueOrTiming: 'Imediato',
+    },
+  },
+  {
+    id: 'builtin-holiday-recurrence',
+    trigger: 'Cadastro ou edição de compromisso do tipo "Feriado"',
+    triggerBadge: 'Agenda / Feriado',
+    triggerColor:
+      'border-rose-200 text-rose-700 dark:border-rose-800 dark:text-rose-300 bg-rose-50/50 dark:bg-rose-950/30',
+    action: 'Projeção automática para os próximos 5 anos',
+    description:
+      'Replica automaticamente o feriado nos anos seguintes mantendo a data do calendário e tratando anos bissextos.',
+    conditions: 'Compromisso com tipo definido como "Feriado".',
+    effectDetails: {
+      taskOrRecord: 'Cria 5 registros futuros na agenda com prioridade Baixa',
+      responsible: 'Responsável do compromisso original',
+      dueOrTiming:
+        'Mesmo dia e mês nos próximos 5 anos (trata 29/fev para 28/fev em não bissextos)',
+    },
+  },
+  {
+    id: 'builtin-case-financial-fees',
+    trigger: 'Abertura de processo com honorários contratuais parcelados',
+    triggerBadge: 'Processo / Financeiro',
+    triggerColor:
+      'border-emerald-200 text-emerald-700 dark:border-emerald-800 dark:text-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/30',
+    action: 'Geração automática das parcelas a receber no Financeiro',
+    description:
+      'Se o processo tiver honorários configurados e não for marcado como "noFees", gera lançamentos de receita futura em série unificada (recurring_id).',
+    conditions:
+      'Processo com feeConfig.hasFees ativo e tipo financeiro (não se aplica a honorários não financeiros).',
+    effectDetails: {
+      taskOrRecord:
+        'Gera N lançamentos no financeiro (tipo income, categoria Honorários Contratuais, status Previsto)',
+      responsible: 'Escritório / Conta bancária selecionada',
+      dueOrTiming: 'Parcelamento mensal a partir da primeira data de vencimento informada',
+      priorityOrNotes: 'Vinculado com recurring_id para edição em lote quando necessário',
+    },
+  },
+]
 
 const DEFAULT_FORM: RuleFormData = {
   title: '',
@@ -273,149 +422,254 @@ export function AutomationSettingsTab() {
           </div>
         </CardHeader>
 
-        <CardContent className="space-y-5">
-          {/* Aviso destacado obrigatório */}
-          <div className="flex items-start gap-3 p-3.5 rounded-lg border border-amber-200 bg-amber-50/80 dark:border-amber-900/40 dark:bg-amber-950/20 text-amber-900 dark:text-amber-200 text-xs sm:text-sm">
-            <Info className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-            <div>
-              <p className="font-semibold">
-                As automações padrão do sistema continuam ativas. As regras abaixo são adicionais.
-              </p>
-              <p className="text-xs text-amber-800 dark:text-amber-300/80 mt-0.5">
-                O checklist de onboarding de cliente novo e as tarefas padrão criadas na abertura de
-                processos não são afetados.
-              </p>
+        <CardContent className="space-y-6">
+          {/* Seção: Automações Padrão do Sistema (Somente Leitura) */}
+          <div className="space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1 border-b">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  Automações padrão do sistema
+                </h3>
+                <Badge
+                  variant="secondary"
+                  className="bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-200 border border-amber-300/60 dark:border-amber-800 text-[11px] font-medium"
+                >
+                  Padrão do sistema
+                </Badge>
+              </div>
+              <span className="text-xs text-muted-foreground flex items-center gap-1.5 italic">
+                <Lock className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                Somente leitura — para alterar uma automação padrão, procure o suporte
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3">
+              {BUILTIN_AUTOMATIONS.map((builtin) => (
+                <div
+                  key={builtin.id}
+                  className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 p-3.5 text-xs sm:text-sm space-y-2 hover:border-slate-300 dark:hover:border-slate-700 transition-colors"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
+                    <div className="space-y-1 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge
+                          variant="outline"
+                          className={`text-[10px] sm:text-[11px] font-medium ${builtin.triggerColor}`}
+                        >
+                          Gatilho: {builtin.triggerBadge}
+                        </Badge>
+                        <span className="font-semibold text-slate-900 dark:text-slate-100">
+                          {builtin.action}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                        {builtin.description}
+                      </p>
+                      {builtin.conditions && (
+                        <p className="text-[11px] text-amber-800 dark:text-amber-300/90 font-medium">
+                          Condição: {builtin.conditions}
+                        </p>
+                      )}
+                    </div>
+                    <div className="shrink-0 flex items-center gap-1 text-[11px] font-medium text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1 self-start">
+                      <Lock className="h-3 w-3 text-slate-400" />
+                      Ativa (Padrão)
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-200/70 dark:border-slate-800/70 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 text-[11px] text-slate-600 dark:text-slate-400">
+                    <div>
+                      <span className="font-medium text-slate-700 dark:text-slate-300 block">
+                        Efeito / Registro:
+                      </span>
+                      <span className="whitespace-pre-line">
+                        {builtin.effectDetails.taskOrRecord}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="font-medium text-slate-700 dark:text-slate-300 block">
+                        Responsável & Prazo:
+                      </span>
+                      <span>
+                        {builtin.effectDetails.responsible} • {builtin.effectDetails.dueOrTiming}
+                      </span>
+                    </div>
+                    {builtin.effectDetails.priorityOrNotes && (
+                      <div>
+                        <span className="font-medium text-slate-700 dark:text-slate-300 block">
+                          Detalhes adicionais:
+                        </span>
+                        <span>{builtin.effectDetails.priorityOrNotes}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
-          {/* Lista de regras ou estado vazio */}
-          {rules.length === 0 ? (
-            <div className="text-center py-12 px-4 border border-dashed rounded-lg bg-slate-50/50 dark:bg-slate-900/20">
-              <Zap className="h-10 w-10 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
-              <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                Nenhuma regra criada. Crie uma regra para automatizar tarefas.
-              </p>
-              <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
-                Exemplo: quando um processo for cadastrado, criar automaticamente a tarefa
-                &ldquo;Solicitar documentos complementares&rdquo; com prazo de 5 dias.
-              </p>
-              <Button variant="outline" size="sm" onClick={handleOpenCreate} className="mt-4">
-                <Plus className="h-3.5 w-3.5 mr-1" /> Criar primeira regra
-              </Button>
+          {/* Divisor com cabeçalho de regras customizadas adicionais */}
+          <div className="pt-2 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1 border-b">
+              <div className="flex items-center gap-2">
+                <Zap className="h-4 w-4 text-amber-500" />
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  Regras customizadas adicionais
+                </h3>
+                <Badge variant="outline" className="text-[11px]">
+                  {rules.length} {rules.length === 1 ? 'regra' : 'regras'}
+                </Badge>
+              </div>
+              <span className="text-xs text-muted-foreground">
+                Regras personalizadas configuradas pelo escritório
+              </span>
             </div>
-          ) : (
-            <div className="divide-y rounded-lg border bg-card">
-              {rules.map((rule) => {
-                const responsibleUser = users.find((u) => u.id === rule.responsibleId)
-                return (
-                  <div
-                    key={rule.id}
-                    className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/60 dark:hover:bg-slate-900/40 transition-colors"
-                  >
-                    <div className="space-y-1.5 flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-sm text-slate-900 dark:text-slate-100">
-                          {rule.title}
-                        </span>
-                        <Badge
-                          variant={rule.active ? 'default' : 'secondary'}
-                          className={
-                            rule.active
-                              ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300 text-[10px] font-medium'
-                              : 'text-[10px]'
-                          }
-                        >
-                          {rule.active ? 'Ativa' : 'Inativa'}
-                        </Badge>
-                        <Badge
-                          variant="outline"
-                          className="text-[10px] bg-slate-50 dark:bg-slate-900"
-                        >
-                          {TRIGGER_LABELS[rule.triggerEvent] || rule.triggerEvent}
-                        </Badge>
-                        {rule.caseStatusTrigger && (
+
+            {/* Aviso destacado obrigatório sobre coexistência */}
+            <div className="flex items-start gap-3 p-3.5 rounded-lg border border-amber-200 bg-amber-50/80 dark:border-amber-900/40 dark:bg-amber-950/20 text-amber-900 dark:text-amber-200 text-xs sm:text-sm">
+              <Info className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold">
+                  As automações padrão do sistema continuam ativas. As regras abaixo são adicionais.
+                </p>
+                <p className="text-xs text-amber-800 dark:text-amber-300/80 mt-0.5">
+                  O checklist de onboarding de cliente novo e as tarefas padrão criadas na abertura
+                  de processos não são afetados pelas regras criadas aqui.
+                </p>
+              </div>
+            </div>
+
+            {/* Lista de regras ou estado vazio */}
+            {rules.length === 0 ? (
+              <div className="text-center py-10 px-4 border border-dashed rounded-lg bg-slate-50/50 dark:bg-slate-900/20">
+                <Zap className="h-9 w-9 text-slate-300 dark:text-slate-600 mx-auto mb-2.5" />
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Nenhuma regra customizada criada. Crie uma regra para automatizar tarefas
+                  adicionais.
+                </p>
+                <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
+                  Exemplo: quando um processo for cadastrado, criar automaticamente a tarefa
+                  &ldquo;Solicitar documentos complementares&rdquo; com prazo de 5 dias.
+                </p>
+                <Button variant="outline" size="sm" onClick={handleOpenCreate} className="mt-4">
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Criar primeira regra
+                </Button>
+              </div>
+            ) : (
+              <div className="divide-y rounded-lg border bg-card">
+                {rules.map((rule) => {
+                  const responsibleUser = users.find((u) => u.id === rule.responsibleId)
+                  return (
+                    <div
+                      key={rule.id}
+                      className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/60 dark:hover:bg-slate-900/40 transition-colors"
+                    >
+                      <div className="space-y-1.5 flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-sm text-slate-900 dark:text-slate-100">
+                            {rule.title}
+                          </span>
+                          <Badge
+                            variant={rule.active ? 'default' : 'secondary'}
+                            className={
+                              rule.active
+                                ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300 text-[10px] font-medium'
+                                : 'text-[10px]'
+                            }
+                          >
+                            {rule.active ? 'Ativa' : 'Inativa'}
+                          </Badge>
                           <Badge
                             variant="outline"
-                            className="text-[10px] border-amber-200 text-amber-700 dark:text-amber-400"
+                            className="text-[10px] bg-slate-50 dark:bg-slate-900"
                           >
-                            Status: {rule.caseStatusTrigger}
+                            {TRIGGER_LABELS[rule.triggerEvent] || rule.triggerEvent}
                           </Badge>
-                        )}
-                        {rule.caseTypeTrigger && (
-                          <Badge
-                            variant="outline"
-                            className="text-[10px] border-blue-200 text-blue-700 dark:text-blue-400"
-                          >
-                            Tipo: {rule.caseTypeTrigger}
-                          </Badge>
-                        )}
-                        {rule.taskTypeTrigger && (
-                          <Badge
-                            variant="outline"
-                            className="text-[10px] border-purple-200 text-purple-700 dark:text-purple-400"
-                          >
-                            Tipo tarefa: {rule.taskTypeTrigger}
-                          </Badge>
-                        )}
+                          {rule.caseStatusTrigger && (
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] border-amber-200 text-amber-700 dark:text-amber-400"
+                            >
+                              Status: {rule.caseStatusTrigger}
+                            </Badge>
+                          )}
+                          {rule.caseTypeTrigger && (
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] border-blue-200 text-blue-700 dark:text-blue-400"
+                            >
+                              Tipo: {rule.caseTypeTrigger}
+                            </Badge>
+                          )}
+                          {rule.taskTypeTrigger && (
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] border-purple-200 text-purple-700 dark:text-purple-400"
+                            >
+                              Tipo tarefa: {rule.taskTypeTrigger}
+                            </Badge>
+                          )}
+                        </div>
+
+                        <div className="text-xs text-muted-foreground flex items-center gap-3 flex-wrap">
+                          <span className="flex items-center gap-1 font-medium text-slate-700 dark:text-slate-300">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-blue-500" />
+                            Gera: &ldquo;{rule.taskTitle}&rdquo;
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            Prazo: {rule.dueDays}{' '}
+                            {rule.dueType === 'business_days' ? 'dias úteis' : 'dias corridos'}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <UserCheck className="h-3 w-3" />
+                            {responsibleUser ? responsibleUser.name : 'Responsável do registro'}
+                          </span>
+                          <span className="text-[11px] text-slate-500">
+                            Prioridade: {rule.taskPriority || 'Média'}
+                          </span>
+                        </div>
                       </div>
 
-                      <div className="text-xs text-muted-foreground flex items-center gap-3 flex-wrap">
-                        <span className="flex items-center gap-1 font-medium text-slate-700 dark:text-slate-300">
-                          <CheckCircle2 className="h-3.5 w-3.5 text-blue-500" />
-                          Gera: &ldquo;{rule.taskTitle}&rdquo;
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Clock className="h-3 w-3" />
-                          Prazo: {rule.dueDays}{' '}
-                          {rule.dueType === 'business_days' ? 'dias úteis' : 'dias corridos'}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <UserCheck className="h-3 w-3" />
-                          {responsibleUser ? responsibleUser.name : 'Responsável do registro'}
-                        </span>
-                        <span className="text-[11px] text-slate-500">
-                          Prioridade: {rule.taskPriority || 'Média'}
-                        </span>
+                      <div className="flex items-center gap-3 shrink-0 self-end sm:self-center">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground hidden sm:inline">
+                            {rule.active ? 'Ativa' : 'Inativa'}
+                          </span>
+                          <Switch
+                            checked={rule.active}
+                            onCheckedChange={() => handleToggleActive(rule.id, rule.active)}
+                            title="Ativar/desativar regra"
+                          />
+                        </div>
+                        <div className="flex items-center gap-1 border-l pl-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-slate-500 hover:text-slate-900"
+                            onClick={() => handleOpenEdit(rule)}
+                            title="Editar regra"
+                          >
+                            <Edit2 className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => handleDeleteRule(rule)}
+                            title="Excluir regra"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       </div>
                     </div>
-
-                    <div className="flex items-center gap-3 shrink-0 self-end sm:self-center">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground hidden sm:inline">
-                          {rule.active ? 'Ativa' : 'Inativa'}
-                        </span>
-                        <Switch
-                          checked={rule.active}
-                          onCheckedChange={() => handleToggleActive(rule.id, rule.active)}
-                          title="Ativar/desativar regra"
-                        />
-                      </div>
-                      <div className="flex items-center gap-1 border-l pl-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-slate-500 hover:text-slate-900"
-                          onClick={() => handleOpenEdit(rule)}
-                          title="Editar regra"
-                        >
-                          <Edit2 className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50"
-                          onClick={() => handleDeleteRule(rule)}
-                          title="Excluir regra"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
 
