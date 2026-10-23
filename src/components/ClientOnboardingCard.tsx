@@ -1,14 +1,23 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Progress } from '@/components/ui/progress'
-import { CheckCircle2, Clock, Sparkles, RotateCcw, PlusCircle, ExternalLink } from 'lucide-react'
+import {
+  CheckCircle2,
+  Clock,
+  Sparkles,
+  RotateCcw,
+  PlusCircle,
+  ExternalLink,
+  Lock,
+} from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Task } from '@/lib/mockData'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 interface ClientOnboardingCardProps {
   clientId: string
@@ -23,6 +32,35 @@ export function ClientOnboardingCard({
 }: ClientOnboardingCardProps) {
   const { state, updateItem, generateOnboardingTasks } = useLegalStore()
   const [isGenerating, setIsGenerating] = useState(false)
+
+  // Identificação do cliente e verificação de regras de permissão
+  const client = state.clients.find((c) => c.id === clientId)
+  const currentUserId = state.currentUser?.id
+  const isAdmin = state.currentUser?.role === 'Admin'
+
+  const isNewClient = useMemo(() => {
+    if (!client) return false
+    // 1. Criado pelo próprio usuário logado
+    if (client.created_by && currentUserId && client.created_by === currentUserId) {
+      return true
+    }
+    // 2. Cadastrado há ≤ 7 dias
+    const createdAtStr = client.created_at || (client as any).createdAt
+    if (createdAtStr) {
+      const createdDate = new Date(createdAtStr)
+      if (!isNaN(createdDate.getTime())) {
+        const diffMs = Date.now() - createdDate.getTime()
+        const diffDays = diffMs / (1000 * 60 * 60 * 24)
+        if (diffDays <= 7) {
+          return true
+        }
+      }
+    }
+    return false
+  }, [client, currentUserId])
+
+  // Pode disparar onboarding: cliente novo (qualquer usuário) OU admin (mesmo para clientes antigos)
+  const canTriggerOnboarding = isNewClient || isAdmin
 
   // Filtra as tarefas de onboarding vinculadas a este cliente
   const onboardingTasks = state.tasks
@@ -76,6 +114,14 @@ export function ClientOnboardingCard({
 
   const handleGenerateChecklist = async () => {
     if (isGenerating) return
+    if (!canTriggerOnboarding) {
+      toast({
+        title: 'Permissão necessária',
+        description: 'Somente administradores podem disparar o onboarding de clientes antigos.',
+        variant: 'destructive',
+      })
+      return
+    }
     setIsGenerating(true)
     try {
       const generated = await generateOnboardingTasks(clientId, clientResponsibleId)
@@ -134,16 +180,40 @@ export function ClientOnboardingCard({
 
           <div className="flex items-center gap-2 shrink-0">
             {totalSteps === 0 ? (
-              <Button
-                size="sm"
-                onClick={handleGenerateChecklist}
-                disabled={isGenerating}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
-              >
-                <PlusCircle className="h-4 w-4 mr-1.5" />
-                {isGenerating ? 'Gerando...' : 'Gerar Checklist de Onboarding'}
-              </Button>
-            ) : (
+              canTriggerOnboarding ? (
+                <Button
+                  size="sm"
+                  onClick={handleGenerateChecklist}
+                  disabled={isGenerating}
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  <PlusCircle className="h-4 w-4 mr-1.5" />
+                  {isGenerating ? 'Gerando...' : 'Gerar Checklist de Onboarding'}
+                </Button>
+              ) : (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <Button
+                          size="sm"
+                          disabled
+                          className="bg-slate-300 dark:bg-slate-800 text-slate-500 cursor-not-allowed"
+                        >
+                          <Lock className="h-3.5 w-3.5 mr-1.5" />
+                          Gerar Checklist (Admin)
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>
+                        Somente administradores podem disparar o onboarding de clientes antigos.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )
+            ) : canTriggerOnboarding ? (
               <Button
                 variant="outline"
                 size="sm"
@@ -155,6 +225,27 @@ export function ClientOnboardingCard({
                 <RotateCcw className={`h-3.5 w-3.5 mr-1 ${isGenerating ? 'animate-spin' : ''}`} />
                 {isGenerating ? 'Disparando...' : 'Disparar Novamente'}
               </Button>
+            ) : (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled
+                        className="text-xs opacity-50 cursor-not-allowed text-slate-400"
+                      >
+                        <Lock className="h-3.5 w-3.5 mr-1" />
+                        Disparar Novamente
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Somente administradores podem disparar o onboarding de clientes antigos.</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             )}
 
             <Button
@@ -197,14 +288,35 @@ export function ClientOnboardingCard({
                 padrão gerado a qualquer momento com apenas 1 clique.
               </p>
             </div>
-            <Button
-              onClick={handleGenerateChecklist}
-              disabled={isGenerating}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              <PlusCircle className="h-4 w-4 mr-1.5" />
-              {isGenerating ? 'Gerando etapas...' : 'Gerar Checklist de Onboarding'}
-            </Button>
+            {canTriggerOnboarding ? (
+              <Button
+                onClick={handleGenerateChecklist}
+                disabled={isGenerating}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                <PlusCircle className="h-4 w-4 mr-1.5" />
+                {isGenerating ? 'Gerando etapas...' : 'Gerar Checklist de Onboarding'}
+              </Button>
+            ) : (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <Button
+                        disabled
+                        className="bg-slate-300 dark:bg-slate-800 text-slate-500 cursor-not-allowed"
+                      >
+                        <Lock className="h-4 w-4 mr-1.5" />
+                        Gerar Checklist (Apenas Administrador)
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Somente administradores podem disparar o onboarding de clientes antigos.</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
           </div>
         ) : (
           <div className="grid gap-2 sm:grid-cols-2">

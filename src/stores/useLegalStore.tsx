@@ -54,6 +54,7 @@ import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/hooks/use-auth'
 import { normalizeStr, calculateInstallmentDate } from '@/lib/utils'
 import { isNonFinancialFeeType, isSuccessFeeType } from '@/lib/fee-types'
+import { AutomationTriggerEvent, AutomationDueType } from '@/lib/mockData'
 
 interface LegalContextType {
   state: LegalState
@@ -68,11 +69,13 @@ interface LegalContextType {
   addCase: (newCase: Omit<Case, 'id' | 'updatedAt'>) => void
   addTask: (task: Omit<Task, 'id'>) => void
   executeAutomationRules: (
-    event: 'client_created' | 'case_created' | 'case_status_changed' | 'document_signed',
+    event: AutomationTriggerEvent,
     context: {
       clientId?: string | null
       caseId?: string | null
+      caseType?: string | null
       newCaseStatus?: string | null
+      completedTaskType?: string | null
       responsibleId?: string | null
       targetName?: string | null
     },
@@ -575,9 +578,193 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     [addLog],
   )
 
+  // Motor adicional de Regras de Automação customizadas (Item 1)
+  // Coexiste com as automações existentes e nunca altera o comportamento padrão caso não haja regras ativas
+  const executeAutomationRules = useCallback(
+    async (
+      event: AutomationTriggerEvent,
+      context: {
+        clientId?: string | null
+        caseId?: string | null
+        caseType?: string | null
+        newCaseStatus?: string | null
+        completedTaskType?: string | null
+        responsibleId?: string | null
+        targetName?: string | null
+      },
+    ): Promise<Task[]> => {
+      try {
+        const allRules = state.settings?.automationRules || []
+        // Filtra apenas regras ativas para o evento correspondente
+        const activeRules = allRules.filter((r) => {
+          if (!r.active) return false
+          if (r.triggerEvent !== event) return false
+
+          // Condição opcional de status do processo
+          if (event === 'case_status_changed') {
+            if (!r.caseStatusTrigger || !context.newCaseStatus) return false
+            if (
+              r.caseStatusTrigger.trim().toLowerCase() !==
+              context.newCaseStatus.trim().toLowerCase()
+            ) {
+              return false
+            }
+          }
+
+          // Condição opcional de tipo de processo
+          if (r.caseTypeTrigger && r.caseTypeTrigger.trim()) {
+            if (!context.caseType) return false
+            if (r.caseTypeTrigger.trim().toLowerCase() !== context.caseType.trim().toLowerCase()) {
+              return false
+            }
+          }
+
+          // Condição opcional de tipo de tarefa concluída
+          if (event === 'task_completed' && r.taskTypeTrigger && r.taskTypeTrigger.trim()) {
+            if (!context.completedTaskType) return false
+            if (
+              r.taskTypeTrigger.trim().toLowerCase() !==
+              context.completedTaskType.trim().toLowerCase()
+            ) {
+              return false
+            }
+          }
+
+          return true
+        })
+
+        if (activeRules.length === 0) {
+          return []
+        }
+
+        const creatorId = state.currentUser?.id || user?.id || null
+        const targetClientId = context.clientId || null
+        const targetCaseId = context.caseId || null
+        const fallbackResp = context.responsibleId || creatorId || null
+
+        // Busca tarefas existentes abertas para trava de duplicidade
+        let query = supabase.from('tasks').select('*')
+        if (targetClientId) {
+          query = query.eq('clientId', targetClientId)
+        }
+        if (targetCaseId) {
+          query = query.eq('relatedProcessId', targetCaseId)
+        }
+        const { data: dbExisting } = await query
+
+        const isStatusDone = (status?: string | null) => {
+          const norm = (status || '').trim().toLowerCase()
+          return norm === 'concluída' || norm === 'concluido' || norm === 'concluida'
+        }
+
+        const openTaskTitleKeys = new Set<string>()
+        for (const t of dbExisting || []) {
+          if (!isStatusDone(t.status)) {
+            openTaskTitleKeys.add((t.title || '').trim().toLowerCase())
+          }
+        }
+        for (const t of state.tasks || []) {
+          const matchClient = !targetClientId || t.clientId === targetClientId
+          const matchCase = !targetCaseId || t.relatedProcessId === targetCaseId
+          if (matchClient && matchCase && !isStatusDone(t.status)) {
+            openTaskTitleKeys.add((t.title || '').trim().toLowerCase())
+          }
+        }
+
+        const calculateDueDate = (days: number, type?: AutomationDueType) => {
+          const now = new Date()
+          const targetDays = Math.max(0, Number(days) || 0)
+          if (type === 'business_days') {
+            let added = 0
+            const curr = new Date(now)
+            while (added < targetDays) {
+              curr.setDate(curr.getDate() + 1)
+              const dayOfWeek = curr.getDay()
+              // 0 = Domingo, 6 = Sábado
+              if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+                added++
+              }
+            }
+            return curr.toISOString().split('T')[0]
+          }
+          // calendar_days por padrão
+          const curr = new Date(now)
+          curr.setDate(curr.getDate() + targetDays)
+          return curr.toISOString().split('T')[0]
+        }
+
+        // Executar uma regra de cada vez em try/catch para isolar falhas
+        const createdTasks: Task[] = []
+
+        for (const rule of activeRules) {
+          try {
+            const key = (rule.taskTitle || '').trim().toLowerCase()
+            if (openTaskTitleKeys.has(key)) {
+              continue // Idempotência: não duplicar tarefa aberta da mesma regra
+            }
+
+            const dueDate = calculateDueDate(rule.dueDays, rule.dueType)
+            const taskType =
+              rule.taskType && rule.taskType.trim() ? rule.taskType.trim() : 'Automação'
+
+            const payload = {
+              title: rule.taskTitle,
+              description:
+                rule.taskDescription ||
+                `Gerado automaticamente pela regra "${rule.title}" no evento ${rule.triggerEvent}`,
+              clientId: targetClientId,
+              relatedProcessId: targetCaseId,
+              status: 'pendente',
+              priority: rule.taskPriority || 'Média',
+              type: taskType,
+              dueDate,
+              responsibleId: rule.responsibleId || fallbackResp,
+              created_by: creatorId,
+            }
+
+            const { data, error } = await supabase
+              .from('tasks')
+              .insert(payload as any)
+              .select()
+              .single()
+
+            if (error) {
+              console.error(`Erro ao criar tarefa para regra "${rule.title}":`, error)
+              continue
+            }
+
+            if (data) {
+              openTaskTitleKeys.add(key)
+              createdTasks.push(data as Task)
+            }
+          } catch (ruleErr) {
+            console.error(`Exceção ao processar regra de automação "${rule.title}":`, ruleErr)
+          }
+        }
+
+        if (createdTasks.length > 0) {
+          setState((prev) => {
+            const existingIds = new Set(prev.tasks.map((t) => t.id))
+            const fresh = createdTasks.filter((t) => !existingIds.has(t.id))
+            return {
+              ...prev,
+              tasks: [...fresh, ...prev.tasks],
+            }
+          })
+        }
+
+        return createdTasks
+      } catch (err) {
+        console.error('Falha inesperada no motor de regras de automação:', err)
+        return []
+      }
+    },
+    [state.settings?.automationRules, state.tasks, state.currentUser?.id, user?.id],
+  )
+
   const updateItem = useCallback(
     async (table: string, id: string, changes: any) => {
-      if (changes._delete) return deleteItem(table, id)
+      if (changes === null || changes._delete) return deleteItem(table, id)
 
       let originalItem: any
 
@@ -691,6 +878,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
             executeAutomationRules('case_status_changed', {
               caseId: id,
               clientId: (originalItem as any).clientId,
+              caseType: (originalItem as any).type,
               responsibleId: (originalItem as any).responsibleId,
               newCaseStatus: newStatus,
               targetName: (originalItem as any).number,
@@ -700,261 +888,28 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        if (table === 'appointments' && originalItem) {
-          const updatedItem = { ...originalItem, ...changes }
-          const wasHoliday = originalItem.type?.toLowerCase() === 'feriado'
-          const isHoliday = updatedItem.type?.toLowerCase() === 'feriado'
-          const dateChanged = originalItem.date !== updatedItem.date
-
-          if (isHoliday && (!wasHoliday || dateChanged)) {
-            const [y, m, d] = updatedItem.date.split('-')
-            const isLeapDay = m === '02' && d === '29'
-            const futureHolidays = []
-            for (let i = 1; i <= 5; i++) {
-              let ny = parseInt(y) + i
-              let nm = m
-              let nd = d
-              if (isLeapDay && !((ny % 4 === 0 && ny % 100 !== 0) || ny % 400 === 0)) {
-                nm = '02'
-                nd = '28'
-              }
-              futureHolidays.push({
-                title: updatedItem.title,
-                type: updatedItem.type,
-                priority: 'Baixa',
-                date: `${ny}-${nm}-${nd}`,
-                time: updatedItem.time,
-                description: updatedItem.description,
-                responsibleId: updatedItem.responsibleId,
-                clientId: updatedItem.clientId,
-                processId: updatedItem.processId,
-              })
-            }
-            supabase
-              .from('appointments')
-              .insert(futureHolidays)
-              .select()
-              .then(({ data, error }) => {
-                if (data && !error) {
-                  setState((prev) => ({
-                    ...prev,
-                    appointments: [...data, ...prev.appointments].sort(
-                      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-                    ),
-                  }))
-                }
-              })
-          }
-        }
-      }
-    },
-    [deleteItem, executeAutomationRules],
-  )
-
-  // Motor adicional de Regras de Automação customizadas (Item 1)
-  // Coexiste com as automações existentes e nunca altera o comportamento padrão caso não haja regras ativas
-  const executeAutomationRules = useCallback(
-    async (
-      event: 'client_created' | 'case_created' | 'case_status_changed' | 'document_signed',
-      context: {
-        clientId?: string | null
-        caseId?: string | null
-        newCaseStatus?: string | null
-        responsibleId?: string | null
-        targetName?: string | null
-      },
-    ): Promise<Task[]> => {
-      const allRules = state.settings?.automationRules || []
-      // Filtra apenas regras ativas para o evento correspondente
-      const activeRules = allRules.filter((r) => {
-        if (!r.active) return false
-        if (r.triggerEvent !== event) return false
-        if (event === 'case_status_changed') {
-          if (!r.caseStatusTrigger || !context.newCaseStatus) return false
-          return (
-            r.caseStatusTrigger.trim().toLowerCase() === context.newCaseStatus.trim().toLowerCase()
-          )
-        }
-        return true
-      })
-
-      if (activeRules.length === 0) {
-        return []
-      }
-
-      const creatorId = state.currentUser?.id || user?.id || null
-      const targetClientId = context.clientId || null
-      const targetCaseId = context.caseId || null
-      const fallbackResp = context.responsibleId || creatorId || null
-
-      // Busca tarefas existentes abertas para trava de duplicidade
-      let query = supabase.from('tasks').select('*')
-      if (targetClientId) {
-        query = query.eq('clientId', targetClientId)
-      }
-      if (targetCaseId) {
-        query = query.eq('relatedProcessId', targetCaseId)
-      }
-      const { data: dbExisting } = await query
-
-      const isStatusDone = (status?: string | null) => {
-        const norm = (status || '').trim().toLowerCase()
-        return norm === 'concluída' || norm === 'concluido' || norm === 'concluida'
-      }
-
-      const openTaskTitleKeys = new Set<string>()
-      for (const t of dbExisting || []) {
-        if (!isStatusDone(t.status)) {
-          openTaskTitleKeys.add((t.title || '').trim().toLowerCase())
-        }
-      }
-      for (const t of state.tasks || []) {
-        const matchClient = !targetClientId || t.clientId === targetClientId
-        const matchCase = !targetCaseId || t.relatedProcessId === targetCaseId
-        if (matchClient && matchCase && !isStatusDone(t.status)) {
-          openTaskTitleKeys.add((t.title || '').trim().toLowerCase())
-        }
-      }
-
-      const calculateDueDate = (days: number, type?: 'calendar_days' | 'business_days') => {
-        const now = new Date()
-        const targetDays = Math.max(0, Number(days) || 0)
-        if (type === 'business_days') {
-          let added = 0
-          const curr = new Date(now)
-          while (added < targetDays) {
-            curr.setDate(curr.getDate() + 1)
-            const dayOfWeek = curr.getDay()
-            // 0 = Domingo, 6 = Sábado
-            if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-              added++
-            }
-          }
-          return curr.toISOString().split('T')[0]
-        }
-        // calendar_days por padrão
-        const curr = new Date(now)
-        curr.setDate(curr.getDate() + targetDays)
-        return curr.toISOString().split('T')[0]
-      }
-
-      // Regras que ainda não possuem tarefa aberta com o mesmo título para este alvo
-      const eligibleRules = activeRules.filter((r) => {
-        const key = (r.taskTitle || '').trim().toLowerCase()
-        return !openTaskTitleKeys.has(key)
-      })
-
-      if (eligibleRules.length === 0) {
-        return []
-      }
-
-      const tasksToInsert = eligibleRules.map((rule) => {
-        const dueDate = calculateDueDate(rule.dueDays, rule.dueType)
-        const taskType = rule.taskType && rule.taskType.trim() ? rule.taskType.trim() : 'Automação'
-        return {
-          title: rule.taskTitle,
-          description:
-            rule.taskDescription ||
-            `Gerado automaticamente pela regra "${rule.title}" no evento ${rule.triggerEvent}`,
-          clientId: targetClientId,
-          relatedProcessId: targetCaseId,
-          status: 'pendente',
-          priority: rule.taskPriority || 'Média',
-          type: taskType,
-          dueDate,
-          responsibleId: rule.responsibleId || fallbackResp,
-          created_by: creatorId,
-        }
-      })
-
-      const { data, error } = await supabase
-        .from('tasks')
-        .insert(tasksToInsert as any)
-        .select()
-
-      if (error) {
-        console.error('Erro ao executar regras de automação:', error)
-        return []
-      }
-
-      if (data && data.length > 0) {
-        setState((prev) => {
-          const existingIds = new Set(prev.tasks.map((t) => t.id))
-          const fresh = (data as Task[]).filter((t) => !existingIds.has(t.id))
-          return {
-            ...prev,
-            tasks: [...fresh, ...prev.tasks],
-          }
-        })
-      }
-
-      return (data as Task[]) || []
-    },
-    [state.settings?.automationRules, state.tasks, state.currentUser?.id, user?.id],
-  )
-
-  const updateItem = useCallback(
-    async (table: string, id: string, changes: any) => {
-      let originalItem: any = null
-
-      if (changes === null) {
-        deleteItem(table, id)
-      } else {
-        const finalChanges = { ...changes }
-
-        setState((prev) => {
-          const arr = prev[table as keyof LegalState] as any[]
-          originalItem = arr?.find((item) => item.id === id)
-
-          if (table === 'cases' && changes.status) {
-            const isConcluidoNew = normalizeStr(changes.status).includes('concluido')
-            const isConcluidoOld = originalItem?.status
-              ? normalizeStr(originalItem.status).includes('concluido')
-              : false
-            if (isConcluidoNew && !isConcluidoOld) {
-              finalChanges.updatedAt = new Date().toISOString().split('T')[0]
-            }
-          }
-
-          if (table === 'tasks' && finalChanges.status !== undefined) {
-            const isFinishing =
-              String(finalChanges.status).toLowerCase() === 'concluída' ||
-              String(finalChanges.status).toLowerCase() === 'concluído'
-            const wasDone =
-              originalItem?.status &&
-              (String(originalItem.status).toLowerCase() === 'concluída' ||
-                String(originalItem.status).toLowerCase() === 'concluído')
-
-            if (isFinishing && !wasDone && finalChanges.completed_by === undefined) {
-              finalChanges.completed_by = state.currentUser?.id || user?.id || null
-            } else if (!isFinishing && wasDone && finalChanges.completed_by === undefined) {
-              finalChanges.completed_by = null
-            }
-          }
-
-          return {
-            ...prev,
-            [table]: arr?.map((item) => (item.id === id ? { ...item, ...finalChanges } : item)),
-          }
-        })
-
-        await supabase
-          .from(table as any)
-          .update(finalChanges as any)
-          .eq('id', id)
-
-        if (table === 'cases' && changes.status && originalItem) {
+        if (table === 'tasks' && changes.status && originalItem) {
           const oldStatus = originalItem.status
           const newStatus = changes.status
-          if (oldStatus !== newStatus) {
-            executeAutomationRules('case_status_changed', {
-              caseId: id,
-              clientId: (originalItem as any).clientId,
-              responsibleId: (originalItem as any).responsibleId,
-              newCaseStatus: newStatus,
-              targetName: (originalItem as any).number,
+          const isFinishing =
+            String(newStatus).toLowerCase() === 'concluída' ||
+            String(newStatus).toLowerCase() === 'concluído' ||
+            String(newStatus).toLowerCase() === 'concluida'
+          const wasDone =
+            oldStatus &&
+            (String(oldStatus).toLowerCase() === 'concluída' ||
+              String(oldStatus).toLowerCase() === 'concluído' ||
+              String(oldStatus).toLowerCase() === 'concluida')
+
+          if (isFinishing && !wasDone) {
+            executeAutomationRules('task_completed', {
+              caseId: (originalItem as any).relatedProcessId || null,
+              clientId: (originalItem as any).clientId || null,
+              completedTaskType: (originalItem as any).type || null,
+              responsibleId: (originalItem as any).responsibleId || null,
+              targetName: (originalItem as any).title || null,
             }).catch((err) => {
-              console.error('Erro ao executar regras de mudança de status de processo:', err)
+              console.error('Erro ao executar regras de tarefa concluída:', err)
             })
           }
         }
@@ -1174,11 +1129,15 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       await generateOnboardingTasks(data.id, data.responsibleId)
 
       // Executa regras de automação customizadas adicionais no cadastro de cliente
-      await executeAutomationRules('client_created', {
-        clientId: data.id,
-        responsibleId: data.responsibleId,
-        targetName: data.name,
-      })
+      try {
+        await executeAutomationRules('client_created', {
+          clientId: data.id,
+          responsibleId: data.responsibleId,
+          targetName: data.name,
+        })
+      } catch (autoErr) {
+        console.error('Erro ao executar regras de automação no cadastro de cliente:', autoErr)
+      }
 
       // Sincroniza todas as tarefas geradas do cliente
       const { data: allClientTasks } = await supabase
@@ -1248,12 +1207,17 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       toast({ title: fullCase.parentId ? 'Subprocesso adicionado' : 'Processo adicionado' })
 
       // Executa regras de automação customizadas adicionais no cadastro de processo
-      await executeAutomationRules('case_created', {
-        caseId: data.id,
-        clientId: data.clientId,
-        responsibleId: data.responsibleId,
-        targetName: data.number,
-      })
+      try {
+        await executeAutomationRules('case_created', {
+          caseId: data.id,
+          clientId: data.clientId,
+          caseType: data.type,
+          responsibleId: data.responsibleId,
+          targetName: data.number,
+        })
+      } catch (autoErr) {
+        console.error('Erro ao executar regras de automação no cadastro de processo:', autoErr)
+      }
 
       // Se estiver marcado para não gerar honorários, não gera lançamentos no financeiro
       if (fullCase.noFees) {

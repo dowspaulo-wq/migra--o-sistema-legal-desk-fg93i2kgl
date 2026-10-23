@@ -179,6 +179,7 @@ export type AutomationTriggerEvent =
   | 'client_created'
   | 'case_created'
   | 'case_status_changed'
+  | 'task_completed'
   | 'document_signed'
 
 export type AutomationDueType = 'calendar_days' | 'business_days'
@@ -190,6 +191,8 @@ export interface AutomationRule {
   taskDescription?: string // Descrição opcional da tarefa
   triggerEvent: AutomationTriggerEvent // Evento gerador
   caseStatusTrigger?: string // Caso o evento seja 'case_status_changed', qual status dispara
+  caseTypeTrigger?: string // Filtro opcional por tipo de processo (ex: Previdenciário)
+  taskTypeTrigger?: string // Caso o evento seja 'task_completed', qual tipo de tarefa dispara
   dueDays: number // Prazo em dias (ex: 3, 5, 15)
   dueType?: AutomationDueType // 'calendar_days' (padrão) ou 'business_days'
   responsibleId?: string | null // Colaborador responsável (null = padrão / resp. do alvo)

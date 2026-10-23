@@ -31,7 +31,8 @@ import {
 import { FinancialEntitiesTab } from '@/components/FinancialEntitiesTab'
 import { SystemManagement } from '@/components/SystemManagement'
 import { OnboardingSettingsTab } from '@/components/OnboardingSettingsTab'
-import { UserCheck } from 'lucide-react'
+import { AutomationSettingsTab } from '@/components/AutomationSettingsTab'
+import { UserCheck, Zap } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import {
@@ -766,6 +767,9 @@ export default function Settings() {
               <TabsTrigger value="onboarding">
                 <UserCheck className="h-4 w-4 mr-2" /> Onboarding de Cliente
               </TabsTrigger>
+              <TabsTrigger value="automacao">
+                <Zap className="h-4 w-4 mr-2" /> Regras de Automação
+              </TabsTrigger>
               <TabsTrigger value="financeiro">
                 <Wallet className="h-4 w-4 mr-2" /> Financeiro
               </TabsTrigger>
@@ -886,6 +890,10 @@ export default function Settings() {
 
             <TabsContent value="onboarding" className="space-y-6">
               <OnboardingSettingsTab />
+            </TabsContent>
+
+            <TabsContent value="automacao" className="space-y-6">
+              <AutomationSettingsTab />
             </TabsContent>
 
             <TabsContent value="financeiro" className="space-y-6">

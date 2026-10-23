@@ -195,14 +195,17 @@ run_sql_query() {
 }
 
 # ------------------------------------------------------------------------------
-# 2. Execução da migração SQL idempotente
+# 2. Execução da migração SQL idempotente entregue via arquivo (docker cp + psql -f)
 # ------------------------------------------------------------------------------
-echo -e "\n${BOLD}${CYAN}[2/4] Aplicando migração SQL idempotente no banco real...${NC}"
+echo -e "\n${BOLD}${CYAN}[2/4] Aplicando migração SQL idempotente via arquivo no banco real...${NC}"
 
-MIGRATION_SQL="
-DO \$\$
+SQL_TEMP_HOST=$(mktemp /tmp/migration_automation_XXXXXX.sql)
+cat << 'EOF_MIGRATION_SQL' > "$SQL_TEMP_HOST"
+BEGIN;
+
+-- 1. Garante que a tabela public.settings existe
+DO $$
 BEGIN
-    -- 1. Garante que a tabela public.settings existe
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.tables 
         WHERE table_schema = 'public' AND table_name = 'settings'
@@ -217,7 +220,7 @@ BEGIN
           AND table_name = 'settings' 
           AND column_name = 'automationRules'
     ) THEN
-        ALTER TABLE public.settings ADD COLUMN \"automationRules\" JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE public.settings ADD COLUMN "automationRules" JSONB DEFAULT '[]'::jsonb;
         RAISE NOTICE 'Coluna automationRules adicionada com sucesso na tabela public.settings.';
     ELSE
         RAISE NOTICE 'Coluna automationRules já existe na tabela public.settings.';
@@ -225,29 +228,38 @@ BEGIN
 
     -- 3. Se estiver NULL em linhas existentes, inicializa como array vazio '[]'
     UPDATE public.settings
-    SET \"automationRules\" = '[]'::jsonb
-    WHERE \"automationRules\" IS NULL;
+    SET "automationRules" = '[]'::jsonb
+    WHERE "automationRules" IS NULL;
 
     -- 4. Garantir políticas de RLS em settings
     ALTER TABLE public.settings ENABLE ROW LEVEL SECURITY;
 
-    DROP POLICY IF EXISTS \"authenticated_select_settings\" ON public.settings;
-    CREATE POLICY \"authenticated_select_settings\" ON public.settings
+    DROP POLICY IF EXISTS "authenticated_select_settings" ON public.settings;
+    CREATE POLICY "authenticated_select_settings" ON public.settings
         FOR SELECT TO authenticated USING (true);
 
-    DROP POLICY IF EXISTS \"authenticated_update_settings\" ON public.settings;
-    CREATE POLICY \"authenticated_update_settings\" ON public.settings
+    DROP POLICY IF EXISTS "authenticated_update_settings" ON public.settings;
+    CREATE POLICY "authenticated_update_settings" ON public.settings
         FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
 
-END \$\$;
-"
+END $$;
+
+COMMIT;
+EOF_MIGRATION_SQL
+
+SQL_TEMP_CONTAINER="/tmp/migration_automation.sql"
+docker cp "$SQL_TEMP_HOST" "${DB_CONTAINER}:${SQL_TEMP_CONTAINER}" 2>/dev/null || true
+rm -f "$SQL_TEMP_HOST" 2>/dev/null || true
 
 MIG_EXIT_CODE=0
 if [ -n "$LOCAL_DB_PASSWORD" ]; then
-    docker exec -i -e PGPASSWORD="$LOCAL_DB_PASSWORD" "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 <<< "$MIGRATION_SQL" || MIG_EXIT_CODE=$?
+    docker exec -i -e PGPASSWORD="$LOCAL_DB_PASSWORD" "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -f "$SQL_TEMP_CONTAINER" || MIG_EXIT_CODE=$?
 else
-    docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 <<< "$MIGRATION_SQL" || MIG_EXIT_CODE=$?
+    docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -f "$SQL_TEMP_CONTAINER" || MIG_EXIT_CODE=$?
 fi
+
+# Limpa o arquivo temporário no contêiner
+docker exec -i "$DB_CONTAINER" rm -f "$SQL_TEMP_CONTAINER" 2>/dev/null || true
 
 if [ $MIG_EXIT_CODE -ne 0 ]; then
     echo -e "${RED}❌ Falha ao aplicar as instruções SQL no PostgreSQL (código de saída: ${MIG_EXIT_CODE})!${NC}"
