@@ -175,6 +175,31 @@ export interface OnboardingStep {
   responsibleId?: string | null
 }
 
+export type AutomationTriggerEvent =
+  | 'client_created'
+  | 'case_created'
+  | 'case_status_changed'
+  | 'document_signed'
+
+export type AutomationDueType = 'calendar_days' | 'business_days'
+
+export interface AutomationRule {
+  id: string
+  title: string // Título da regra descritivo
+  taskTitle: string // Título da tarefa que será gerada
+  taskDescription?: string // Descrição opcional da tarefa
+  triggerEvent: AutomationTriggerEvent // Evento gerador
+  caseStatusTrigger?: string // Caso o evento seja 'case_status_changed', qual status dispara
+  dueDays: number // Prazo em dias (ex: 3, 5, 15)
+  dueType?: AutomationDueType // 'calendar_days' (padrão) ou 'business_days'
+  responsibleId?: string | null // Colaborador responsável (null = padrão / resp. do alvo)
+  taskPriority?: 'Baixa' | 'Média' | 'Alta' | 'Urgente' // Padrão Média
+  taskType?: string // Tipo da tarefa gerada (padrão 'Automação')
+  active: boolean // Toggle ativo/inativo
+  createdAt?: string
+  updatedAt?: string
+}
+
 export const DEFAULT_ONBOARDING_STEPS: OnboardingStep[] = [
   { id: 'step-1', title: 'Cadastrar cliente', order: 1 },
   { id: 'step-2', title: 'Cadastrar processo(s)', order: 2 },
@@ -211,6 +236,7 @@ export interface Settings {
   lastAsaasSyncAt?: string | null
   lastSicoobImportAt?: string | null
   onboardingChecklist?: OnboardingStep[]
+  automationRules?: AutomationRule[]
 }
 export interface WhatsAppMessage {
   id: string
@@ -292,5 +318,6 @@ export const initialData: LegalState = {
     lastAsaasSyncAt: null,
     lastSicoobImportAt: null,
     onboardingChecklist: DEFAULT_ONBOARDING_STEPS,
+    automationRules: [],
   },
 }

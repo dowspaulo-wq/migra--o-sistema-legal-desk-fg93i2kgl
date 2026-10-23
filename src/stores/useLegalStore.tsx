@@ -67,6 +67,16 @@ interface LegalContextType {
   generateOnboardingTasks: (clientId: string, responsibleId?: string | null) => Promise<Task[]>
   addCase: (newCase: Omit<Case, 'id' | 'updatedAt'>) => void
   addTask: (task: Omit<Task, 'id'>) => void
+  executeAutomationRules: (
+    event: 'client_created' | 'case_created' | 'case_status_changed' | 'document_signed',
+    context: {
+      clientId?: string | null
+      caseId?: string | null
+      newCaseStatus?: string | null
+      responsibleId?: string | null
+      targetName?: string | null
+    },
+  ) => Promise<Task[]>
   addAppointment: (app: Omit<Appointment, 'id'>) => void
   addTransaction: (t: Omit<Transaction, 'id'> | Omit<Transaction, 'id'>[]) => void
   addSupplier: (s: Omit<Supplier, 'id'>) => void
@@ -674,6 +684,22 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           .update(finalChanges as any)
           .eq('id', id)
 
+        if (table === 'cases' && changes.status && originalItem) {
+          const oldStatus = originalItem.status
+          const newStatus = changes.status
+          if (oldStatus !== newStatus) {
+            executeAutomationRules('case_status_changed', {
+              caseId: id,
+              clientId: (originalItem as any).clientId,
+              responsibleId: (originalItem as any).responsibleId,
+              newCaseStatus: newStatus,
+              targetName: (originalItem as any).number,
+            }).catch((err) => {
+              console.error('Erro ao executar regras de mudança de status de processo:', err)
+            })
+          }
+        }
+
         if (table === 'appointments' && originalItem) {
           const updatedItem = { ...originalItem, ...changes }
           const wasHoliday = originalItem.type?.toLowerCase() === 'feriado'
@@ -722,7 +748,266 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [deleteItem],
+    [deleteItem, executeAutomationRules],
+  )
+
+  // Motor adicional de Regras de Automação customizadas (Item 1)
+  // Coexiste com as automações existentes e nunca altera o comportamento padrão caso não haja regras ativas
+  const executeAutomationRules = useCallback(
+    async (
+      event: 'client_created' | 'case_created' | 'case_status_changed' | 'document_signed',
+      context: {
+        clientId?: string | null
+        caseId?: string | null
+        newCaseStatus?: string | null
+        responsibleId?: string | null
+        targetName?: string | null
+      },
+    ): Promise<Task[]> => {
+      const allRules = state.settings?.automationRules || []
+      // Filtra apenas regras ativas para o evento correspondente
+      const activeRules = allRules.filter((r) => {
+        if (!r.active) return false
+        if (r.triggerEvent !== event) return false
+        if (event === 'case_status_changed') {
+          if (!r.caseStatusTrigger || !context.newCaseStatus) return false
+          return (
+            r.caseStatusTrigger.trim().toLowerCase() === context.newCaseStatus.trim().toLowerCase()
+          )
+        }
+        return true
+      })
+
+      if (activeRules.length === 0) {
+        return []
+      }
+
+      const creatorId = state.currentUser?.id || user?.id || null
+      const targetClientId = context.clientId || null
+      const targetCaseId = context.caseId || null
+      const fallbackResp = context.responsibleId || creatorId || null
+
+      // Busca tarefas existentes abertas para trava de duplicidade
+      let query = supabase.from('tasks').select('*')
+      if (targetClientId) {
+        query = query.eq('clientId', targetClientId)
+      }
+      if (targetCaseId) {
+        query = query.eq('relatedProcessId', targetCaseId)
+      }
+      const { data: dbExisting } = await query
+
+      const isStatusDone = (status?: string | null) => {
+        const norm = (status || '').trim().toLowerCase()
+        return norm === 'concluída' || norm === 'concluido' || norm === 'concluida'
+      }
+
+      const openTaskTitleKeys = new Set<string>()
+      for (const t of dbExisting || []) {
+        if (!isStatusDone(t.status)) {
+          openTaskTitleKeys.add((t.title || '').trim().toLowerCase())
+        }
+      }
+      for (const t of state.tasks || []) {
+        const matchClient = !targetClientId || t.clientId === targetClientId
+        const matchCase = !targetCaseId || t.relatedProcessId === targetCaseId
+        if (matchClient && matchCase && !isStatusDone(t.status)) {
+          openTaskTitleKeys.add((t.title || '').trim().toLowerCase())
+        }
+      }
+
+      const calculateDueDate = (days: number, type?: 'calendar_days' | 'business_days') => {
+        const now = new Date()
+        const targetDays = Math.max(0, Number(days) || 0)
+        if (type === 'business_days') {
+          let added = 0
+          const curr = new Date(now)
+          while (added < targetDays) {
+            curr.setDate(curr.getDate() + 1)
+            const dayOfWeek = curr.getDay()
+            // 0 = Domingo, 6 = Sábado
+            if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+              added++
+            }
+          }
+          return curr.toISOString().split('T')[0]
+        }
+        // calendar_days por padrão
+        const curr = new Date(now)
+        curr.setDate(curr.getDate() + targetDays)
+        return curr.toISOString().split('T')[0]
+      }
+
+      // Regras que ainda não possuem tarefa aberta com o mesmo título para este alvo
+      const eligibleRules = activeRules.filter((r) => {
+        const key = (r.taskTitle || '').trim().toLowerCase()
+        return !openTaskTitleKeys.has(key)
+      })
+
+      if (eligibleRules.length === 0) {
+        return []
+      }
+
+      const tasksToInsert = eligibleRules.map((rule) => {
+        const dueDate = calculateDueDate(rule.dueDays, rule.dueType)
+        const taskType = rule.taskType && rule.taskType.trim() ? rule.taskType.trim() : 'Automação'
+        return {
+          title: rule.taskTitle,
+          description:
+            rule.taskDescription ||
+            `Gerado automaticamente pela regra "${rule.title}" no evento ${rule.triggerEvent}`,
+          clientId: targetClientId,
+          relatedProcessId: targetCaseId,
+          status: 'pendente',
+          priority: rule.taskPriority || 'Média',
+          type: taskType,
+          dueDate,
+          responsibleId: rule.responsibleId || fallbackResp,
+          created_by: creatorId,
+        }
+      })
+
+      const { data, error } = await supabase
+        .from('tasks')
+        .insert(tasksToInsert as any)
+        .select()
+
+      if (error) {
+        console.error('Erro ao executar regras de automação:', error)
+        return []
+      }
+
+      if (data && data.length > 0) {
+        setState((prev) => {
+          const existingIds = new Set(prev.tasks.map((t) => t.id))
+          const fresh = (data as Task[]).filter((t) => !existingIds.has(t.id))
+          return {
+            ...prev,
+            tasks: [...fresh, ...prev.tasks],
+          }
+        })
+      }
+
+      return (data as Task[]) || []
+    },
+    [state.settings?.automationRules, state.tasks, state.currentUser?.id, user?.id],
+  )
+
+  const updateItem = useCallback(
+    async (table: string, id: string, changes: any) => {
+      let originalItem: any = null
+
+      if (changes === null) {
+        deleteItem(table, id)
+      } else {
+        const finalChanges = { ...changes }
+
+        setState((prev) => {
+          const arr = prev[table as keyof LegalState] as any[]
+          originalItem = arr?.find((item) => item.id === id)
+
+          if (table === 'cases' && changes.status) {
+            const isConcluidoNew = normalizeStr(changes.status).includes('concluido')
+            const isConcluidoOld = originalItem?.status
+              ? normalizeStr(originalItem.status).includes('concluido')
+              : false
+            if (isConcluidoNew && !isConcluidoOld) {
+              finalChanges.updatedAt = new Date().toISOString().split('T')[0]
+            }
+          }
+
+          if (table === 'tasks' && finalChanges.status !== undefined) {
+            const isFinishing =
+              String(finalChanges.status).toLowerCase() === 'concluída' ||
+              String(finalChanges.status).toLowerCase() === 'concluído'
+            const wasDone =
+              originalItem?.status &&
+              (String(originalItem.status).toLowerCase() === 'concluída' ||
+                String(originalItem.status).toLowerCase() === 'concluído')
+
+            if (isFinishing && !wasDone && finalChanges.completed_by === undefined) {
+              finalChanges.completed_by = state.currentUser?.id || user?.id || null
+            } else if (!isFinishing && wasDone && finalChanges.completed_by === undefined) {
+              finalChanges.completed_by = null
+            }
+          }
+
+          return {
+            ...prev,
+            [table]: arr?.map((item) => (item.id === id ? { ...item, ...finalChanges } : item)),
+          }
+        })
+
+        await supabase
+          .from(table as any)
+          .update(finalChanges as any)
+          .eq('id', id)
+
+        if (table === 'cases' && changes.status && originalItem) {
+          const oldStatus = originalItem.status
+          const newStatus = changes.status
+          if (oldStatus !== newStatus) {
+            executeAutomationRules('case_status_changed', {
+              caseId: id,
+              clientId: (originalItem as any).clientId,
+              responsibleId: (originalItem as any).responsibleId,
+              newCaseStatus: newStatus,
+              targetName: (originalItem as any).number,
+            }).catch((err) => {
+              console.error('Erro ao executar regras de mudança de status de processo:', err)
+            })
+          }
+        }
+
+        if (table === 'appointments' && originalItem) {
+          const updatedItem = { ...originalItem, ...changes }
+          const wasHoliday = originalItem.type?.toLowerCase() === 'feriado'
+          const isHoliday = updatedItem.type?.toLowerCase() === 'feriado'
+          const dateChanged = originalItem.date !== updatedItem.date
+
+          if (isHoliday && (!wasHoliday || dateChanged)) {
+            const [y, m, d] = updatedItem.date.split('-')
+            const isLeapDay = m === '02' && d === '29'
+            const futureHolidays = []
+            for (let i = 1; i <= 5; i++) {
+              let ny = parseInt(y) + i
+              let nm = m
+              let nd = d
+              if (isLeapDay && !((ny % 4 === 0 && ny % 100 !== 0) || ny % 400 === 0)) {
+                nm = '02'
+                nd = '28'
+              }
+              futureHolidays.push({
+                title: updatedItem.title,
+                type: updatedItem.type,
+                priority: 'Baixa',
+                date: `${ny}-${nm}-${nd}`,
+                time: updatedItem.time,
+                description: updatedItem.description,
+                responsibleId: updatedItem.responsibleId,
+                clientId: updatedItem.clientId,
+                processId: updatedItem.processId,
+              })
+            }
+            supabase
+              .from('appointments')
+              .insert(futureHolidays)
+              .select()
+              .then(({ data, error }) => {
+                if (data && !error) {
+                  setState((prev) => ({
+                    ...prev,
+                    appointments: [...data, ...prev.appointments].sort(
+                      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+                    ),
+                  }))
+                }
+              })
+          }
+        }
+      }
+    },
+    [deleteItem, executeAutomationRules, state.currentUser?.id, user?.id],
   )
 
   const generateOnboardingTasks = useCallback(
@@ -888,6 +1173,13 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       // Dispara automaticamente as tarefas de onboarding com base no modelo configurado
       await generateOnboardingTasks(data.id, data.responsibleId)
 
+      // Executa regras de automação customizadas adicionais no cadastro de cliente
+      await executeAutomationRules('client_created', {
+        clientId: data.id,
+        responsibleId: data.responsibleId,
+        targetName: data.name,
+      })
+
       // Sincroniza todas as tarefas geradas do cliente
       const { data: allClientTasks } = await supabase
         .from('tasks')
@@ -909,7 +1201,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       })
       return data as Client
     },
-    [generateOnboardingTasks, state.currentUser?.id, user?.id],
+    [generateOnboardingTasks, executeAutomationRules, state.currentUser?.id, user?.id],
   )
 
   const addTask = useCallback(
@@ -932,83 +1224,94 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     [state.currentUser?.id, user?.id],
   )
 
-  const addCase = useCallback(async (newCasePayload: any) => {
-    const { feeConfig, ...caseData } = newCasePayload
-    if (feeConfig && feeConfig.hasFees) {
-      caseData.feeType = feeConfig.feeType
-      caseData.feeValue = parseFloat(feeConfig.feeValue || '0')
-      caseData.feeInstallments = parseInt(feeConfig.feeInstallments || '1', 10)
-    }
-    const creatorId = state.currentUser?.id || user?.id || null
-    const fullCase = {
-      ...caseData,
-      updatedAt: new Date().toISOString().split('T')[0],
-      created_by: caseData.created_by || creatorId,
-    }
-    const { data, error } = await supabase
-      .from('cases')
-      .insert(fullCase as any)
-      .select()
-      .single()
-    if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
-    setState((prev) => ({ ...prev, cases: [data, ...prev.cases] }))
-    toast({ title: fullCase.parentId ? 'Subprocesso adicionado' : 'Processo adicionado' })
+  const addCase = useCallback(
+    async (newCasePayload: any) => {
+      const { feeConfig, ...caseData } = newCasePayload
+      if (feeConfig && feeConfig.hasFees) {
+        caseData.feeType = feeConfig.feeType
+        caseData.feeValue = parseFloat(feeConfig.feeValue || '0')
+        caseData.feeInstallments = parseInt(feeConfig.feeInstallments || '1', 10)
+      }
+      const creatorId = state.currentUser?.id || user?.id || null
+      const fullCase = {
+        ...caseData,
+        updatedAt: new Date().toISOString().split('T')[0],
+        created_by: caseData.created_by || creatorId,
+      }
+      const { data, error } = await supabase
+        .from('cases')
+        .insert(fullCase as any)
+        .select()
+        .single()
+      if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
+      setState((prev) => ({ ...prev, cases: [data, ...prev.cases] }))
+      toast({ title: fullCase.parentId ? 'Subprocesso adicionado' : 'Processo adicionado' })
 
-    // Se estiver marcado para não gerar honorários, não gera lançamentos no financeiro
-    if (fullCase.noFees) {
-      return
-    }
+      // Executa regras de automação customizadas adicionais no cadastro de processo
+      await executeAutomationRules('case_created', {
+        caseId: data.id,
+        clientId: data.clientId,
+        responsibleId: data.responsibleId,
+        targetName: data.number,
+      })
 
-    if (feeConfig && feeConfig.hasFees) {
-      const isNonFinancial = isNonFinancialFeeType(feeConfig.feeType || '')
-      const isSuccessFee = isSuccessFeeType(feeConfig.feeType || '')
-      if (isNonFinancial) {
-        toast({ title: 'Honorário não financeiro registrado (sem lançamentos no financeiro).' })
+      // Se estiver marcado para não gerar honorários, não gera lançamentos no financeiro
+      if (fullCase.noFees) {
         return
       }
-      const val = parseFloat(feeConfig.feeValue || '0')
-      const inst = parseInt(feeConfig.feeInstallments || '1', 10)
-      if (val > 0 && inst > 0) {
-        const recurringId = inst > 1 ? crypto.randomUUID() : null
-        const transactions = []
-        const dueDateStr = feeConfig.feeFirstDueDate || new Date().toISOString().split('T')[0]
-        const installmentValue = val / inst
 
-        for (let i = 0; i < inst; i++) {
-          const dateStr = calculateInstallmentDate(dueDateStr, i)
-
-          transactions.push({
-            description: `Honorários (${feeConfig.feeType}) - Parcela ${i + 1}/${inst} - Processo ${data.number}`,
-            amount: installmentValue,
-            type: 'income',
-            category: feeConfig.feeType || 'Honorários Contratuais',
-            status: 'Previsto',
-            date: dateStr,
-            processId: data.id,
-            clientId: data.clientId,
-            percentage: feeConfig.feePercentage ? parseFloat(feeConfig.feePercentage) : undefined,
-            sendToFinance: true,
-            bankAccount: feeConfig.bankAccount,
-            ...(recurringId ? { recurring_id: recurringId } : {}),
-          })
+      if (feeConfig && feeConfig.hasFees) {
+        const isNonFinancial = isNonFinancialFeeType(feeConfig.feeType || '')
+        const isSuccessFee = isSuccessFeeType(feeConfig.feeType || '')
+        if (isNonFinancial) {
+          toast({ title: 'Honorário não financeiro registrado (sem lançamentos no financeiro).' })
+          return
         }
+        const val = parseFloat(feeConfig.feeValue || '0')
+        const inst = parseInt(feeConfig.feeInstallments || '1', 10)
+        if (val > 0 && inst > 0) {
+          const recurringId = inst > 1 ? crypto.randomUUID() : null
+          const transactions = []
+          const dueDateStr = feeConfig.feeFirstDueDate || new Date().toISOString().split('T')[0]
+          const installmentValue = val / inst
 
-        const { data: tData, error: tErr } = await supabase
-          .from('transactions')
-          .insert(transactions as any)
-          .select()
-        if (tData && !tErr) {
-          setState((prev) => ({
-            ...prev,
-            transactions: ([...tData, ...prev.transactions] as any[]).sort(
-              (a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime(),
-            ),
-          }))
-          toast({ title: `${inst} parcela(s) de honorários gerada(s).` })
+          for (let i = 0; i < inst; i++) {
+            const dateStr = calculateInstallmentDate(dueDateStr, i)
+
+            transactions.push({
+              description: `Honorários (${feeConfig.feeType}) - Parcela ${i + 1}/${inst} - Processo ${data.number}`,
+              amount: installmentValue,
+              type: 'income',
+              category: feeConfig.feeType || 'Honorários Contratuais',
+              status: 'Previsto',
+              date: dateStr,
+              processId: data.id,
+              clientId: data.clientId,
+              percentage: feeConfig.feePercentage ? parseFloat(feeConfig.feePercentage) : undefined,
+              sendToFinance: true,
+              bankAccount: feeConfig.bankAccount,
+              ...(recurringId ? { recurring_id: recurringId } : {}),
+            })
+          }
+
+          const { data: tData, error: tErr } = await supabase
+            .from('transactions')
+            .insert(transactions as any)
+            .select()
+          if (tData && !tErr) {
+            setState((prev) => ({
+              ...prev,
+              transactions: ([...tData, ...prev.transactions] as any[]).sort(
+                (a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime(),
+              ),
+            }))
+            toast({ title: `${inst} parcela(s) de honorários gerada(s).` })
+          }
         }
       }
-    }
-  }, [])
+    },
+    [executeAutomationRules],
+  )
 
   const addAppointment = useCallback(async (app: Omit<Appointment, 'id'>) => {
     let toInsert = [app]
@@ -1506,6 +1809,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         addLog,
         addClient,
         generateOnboardingTasks,
+        executeAutomationRules,
         addCase,
         addTask,
         addAppointment,
