@@ -1,5 +1,5 @@
 -- Migração: Adicionar coluna "onboardingChecklist" na tabela public.settings
--- Permite configurar o modelo padrão de etapas de Onboarding para novos clientes
+-- Permite configurar o modelo padrão de etapas de Onboarding para novos clientes (com responsável por etapa)
 
 DO $$
 BEGIN
