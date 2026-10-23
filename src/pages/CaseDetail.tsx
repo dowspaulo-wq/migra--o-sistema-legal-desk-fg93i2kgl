@@ -414,6 +414,11 @@ export default function CaseDetail() {
                   🔒
                 </span>
               )}
+              {c.noFees && (
+                <span className="text-2xl" title="Não gera honorários">
+                  🚫
+                </span>
+              )}
             </h1>
             <Button variant="outline" size="sm" onClick={() => setIsCaseOpen(true)}>
               <Edit className="h-4 w-4 mr-2" /> Editar

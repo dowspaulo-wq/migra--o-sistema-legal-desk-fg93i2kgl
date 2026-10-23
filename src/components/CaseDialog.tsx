@@ -277,33 +277,31 @@ export function CaseDialog({
               </div>
             </div>
 
-            {isSubprocess && (
-              <div className="col-span-full border border-slate-200 rounded-lg p-3 bg-slate-50 flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label
-                    htmlFor="noFees"
-                    className="font-semibold text-sm cursor-pointer flex items-center gap-2"
-                  >
-                    <span>🚫</span> Não gera honorários
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    Quando marcado, este subprocesso não gera lançamentos de honorários no
-                    financeiro.
-                  </p>
-                </div>
-                <Checkbox
-                  id="noFees"
-                  checked={!!fd.noFees}
-                  onCheckedChange={(v) => {
-                    const checked = !!v
-                    setFd({ ...fd, noFees: checked })
-                    if (checked) {
-                      setFeeConfig((prev) => ({ ...prev, hasFees: false }))
-                    }
-                  }}
-                />
+            <div className="col-span-full border border-slate-200 rounded-lg p-3 bg-slate-50 flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label
+                  htmlFor="noFees"
+                  className="font-semibold text-sm cursor-pointer flex items-center gap-2"
+                >
+                  <span>🚫</span> Não gera honorários
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Quando marcado, este {isSubprocess ? 'subprocesso' : 'processo'} não gera
+                  lançamentos de honorários no financeiro.
+                </p>
               </div>
-            )}
+              <Checkbox
+                id="noFees"
+                checked={!!fd.noFees}
+                onCheckedChange={(v) => {
+                  const checked = !!v
+                  setFd({ ...fd, noFees: checked })
+                  if (checked) {
+                    setFeeConfig((prev) => ({ ...prev, hasFees: false }))
+                  }
+                }}
+              />
+            </div>
 
             <div className="space-y-2">
               <Label>Cliente *</Label>

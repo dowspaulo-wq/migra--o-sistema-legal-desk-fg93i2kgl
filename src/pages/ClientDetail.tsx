@@ -845,6 +845,11 @@ export default function ClientDetail() {
                               🔒
                             </span>
                           )}
+                          {c.noFees && (
+                            <span className="text-base leading-none" title="Não gera honorários">
+                              🚫
+                            </span>
+                          )}
                           <Badge variant="outline">{c.status}</Badge>
                           <Badge variant="secondary" className="text-[10px]">
                             {c.classification || 'SB'}

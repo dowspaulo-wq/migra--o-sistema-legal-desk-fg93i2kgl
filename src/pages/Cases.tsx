@@ -663,19 +663,14 @@ export default function Cases() {
                               {c.type}
                             </Badge>
                             {c.parentId && (
-                              <>
-                                <Badge variant="secondary" className="text-[10px]">
-                                  Subprocesso
-                                </Badge>
-                                {c.noFees && (
-                                  <span
-                                    className="text-base leading-none"
-                                    title="Não gera honorários"
-                                  >
-                                    🚫
-                                  </span>
-                                )}
-                              </>
+                              <Badge variant="secondary" className="text-[10px]">
+                                Subprocesso
+                              </Badge>
+                            )}
+                            {c.noFees && (
+                              <span className="text-base leading-none" title="Não gera honorários">
+                                🚫
+                              </span>
                             )}
                           </div>
                           {(creator?.name || createdFormatted) && (
@@ -858,19 +853,14 @@ export default function Cases() {
                               {c.type}
                             </Badge>
                             {c.parentId && (
-                              <>
-                                <Badge variant="secondary" className="text-[10px]">
-                                  Subprocesso
-                                </Badge>
-                                {c.noFees && (
-                                  <span
-                                    className="text-base leading-none"
-                                    title="Não gera honorários"
-                                  >
-                                    🚫
-                                  </span>
-                                )}
-                              </>
+                              <Badge variant="secondary" className="text-[10px]">
+                                Subprocesso
+                              </Badge>
+                            )}
+                            {c.noFees && (
+                              <span className="text-base leading-none" title="Não gera honorários">
+                                🚫
+                              </span>
                             )}
                           </div>
                           {(creator?.name || createdFormatted) && (
