@@ -49,6 +49,7 @@ import { ClientFeesDialog } from '@/components/ClientFeesDialog'
 import { TransactionDialog } from '@/components/TransactionDialog'
 import { LinkTransactionToCaseDialog } from '@/components/LinkTransactionToCaseDialog'
 import { PaymentPlanDialog } from '@/components/PaymentPlanDialog'
+import { ClientOnboardingCard } from '@/components/ClientOnboardingCard'
 import { formatSafeLocalDate, formatPhone, getWhatsAppPhone } from '@/lib/utils'
 import { supabase } from '@/lib/supabase/client'
 import {
@@ -660,6 +661,13 @@ export default function ClientDetail() {
           </div>
         </div>
       </div>
+
+      {/* Seção de Onboarding do Cliente Novo */}
+      <ClientOnboardingCard
+        clientId={client.id}
+        clientName={client.name}
+        clientResponsibleId={client.responsibleId}
+      />
 
       <div className="grid gap-6 md:grid-cols-3">
         <Card className="md:col-span-1 shadow-sm">

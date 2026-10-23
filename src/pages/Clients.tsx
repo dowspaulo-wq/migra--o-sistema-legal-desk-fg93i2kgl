@@ -523,6 +523,7 @@ export default function Clients() {
                             )}
                           </div>
                         </TableHead>
+                        <TableHead className="text-center">Onboarding</TableHead>
                         <TableHead className="text-right">Ações</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -531,6 +532,20 @@ export default function Clients() {
                         const resp = state.users.find((u) => u.id === c.responsibleId)
                         const clientCases = state.cases.filter((x) => x.clientId === c.id)
                         const caseCount = clientCases.length
+                        const clientOnboardingTasks = state.tasks.filter(
+                          (t) =>
+                            t.clientId === c.id &&
+                            (t.type === 'Onboarding' ||
+                              (t.type || '').toLowerCase().includes('onboarding')),
+                        )
+                        const totalOnboarding = clientOnboardingTasks.length
+                        const completedOnboarding = clientOnboardingTasks.filter(
+                          (t) =>
+                            (t.status || '').toLowerCase() === 'concluída' ||
+                            (t.status || '').toLowerCase() === 'concluido' ||
+                            (t.status || '').toLowerCase() === 'concluida',
+                        ).length
+
                         return (
                           <TableRow key={c.id}>
                             <TableCell className="font-medium">
@@ -606,6 +621,23 @@ export default function Clients() {
                                 ))}
                               </div>
                             </TableCell>
+                            <TableCell className="text-center">
+                              {totalOnboarding > 0 ? (
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    completedOnboarding === totalOnboarding
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-300 font-semibold text-xs'
+                                      : 'bg-blue-50 text-blue-700 border-blue-300 font-semibold text-xs'
+                                  }
+                                  title={`${completedOnboarding} de ${totalOnboarding} etapas de onboarding concluídas`}
+                                >
+                                  {completedOnboarding}/{totalOnboarding}
+                                </Badge>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
                             <TableCell className="text-right">
                               <div className="flex justify-end gap-2">
                                 <Button variant="ghost" size="icon" asChild title="Abrir">
@@ -669,6 +701,20 @@ export default function Clients() {
                     const clientCases = state.cases.filter((x) => x.clientId === c.id)
                     const caseCount = clientCases.length
                     const resp = state.users.find((u) => u.id === c.responsibleId)
+                    const clientOnboardingTasks = state.tasks.filter(
+                      (t) =>
+                        t.clientId === c.id &&
+                        (t.type === 'Onboarding' ||
+                          (t.type || '').toLowerCase().includes('onboarding')),
+                    )
+                    const totalOnboarding = clientOnboardingTasks.length
+                    const completedOnboarding = clientOnboardingTasks.filter(
+                      (t) =>
+                        (t.status || '').toLowerCase() === 'concluída' ||
+                        (t.status || '').toLowerCase() === 'concluido' ||
+                        (t.status || '').toLowerCase() === 'concluida',
+                    ).length
+
                     return (
                       <Card key={c.id} className="relative overflow-hidden group">
                         <div
@@ -747,6 +793,23 @@ export default function Clients() {
                               {clientCases.map((cs) => (
                                 <CaseFeeBadge key={cs.id} hasFees={casesWithFees.has(cs.id)} />
                               ))}
+                            </p>
+                            <p className="flex items-center gap-2">
+                              <span>Onboarding:</span>
+                              {totalOnboarding > 0 ? (
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    completedOnboarding === totalOnboarding
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-300 font-semibold text-[11px]'
+                                      : 'bg-blue-50 text-blue-700 border-blue-300 font-semibold text-[11px]'
+                                  }
+                                >
+                                  {completedOnboarding}/{totalOnboarding} etapas
+                                </Badge>
+                              ) : (
+                                <span className="text-muted-foreground text-xs">—</span>
+                              )}
                             </p>
                           </div>
                           <div className="mt-4 flex gap-2">

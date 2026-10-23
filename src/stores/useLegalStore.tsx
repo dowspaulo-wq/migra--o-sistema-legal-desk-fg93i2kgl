@@ -63,7 +63,8 @@ interface LegalContextType {
   updateItem: (table: string, id: string, changes: any) => void
   deleteItem: (table: string, id: string) => void
   addLog: (action: string, entity: string, details: string) => void
-  addClient: (client: Omit<Client, 'id'>) => void
+  addClient: (client: Omit<Client, 'id'>) => Promise<Client | null>
+  generateOnboardingTasks: (clientId: string, responsibleId?: string | null) => Promise<Task[]>
   addCase: (newCase: Omit<Case, 'id' | 'updatedAt'>) => void
   addTask: (task: Omit<Task, 'id'>) => void
   addAppointment: (app: Omit<Appointment, 'id'>) => void
@@ -724,28 +725,108 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     [deleteItem],
   )
 
-  const addClient = useCallback(async (client: Omit<Client, 'id'>) => {
-    const { data, error } = await supabase
-      .from('clients')
-      .insert(client as any)
-      .select()
-      .single()
-    if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
+  const generateOnboardingTasks = useCallback(
+    async (clientId: string, responsibleId?: string | null): Promise<Task[]> => {
+      const s = state.settings
+      const steps =
+        Array.isArray(s?.onboardingChecklist) && s.onboardingChecklist.length > 0
+          ? [...s.onboardingChecklist].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+          : [
+              { id: 'step-1', title: 'Cadastrar cliente', order: 1 },
+              { id: 'step-2', title: 'Cadastrar processo(s)', order: 2 },
+              { id: 'step-3', title: 'Coletar documentos', order: 3 },
+              { id: 'step-4', title: 'Tratar documentos (qualidade/PDFs)', order: 4 },
+              { id: 'step-5', title: 'Redigir procuração', order: 5 },
+              { id: 'step-6', title: 'Redigir contrato', order: 6 },
+              { id: 'step-7', title: 'Redigir declaração de hipossuficiência', order: 7 },
+              { id: 'step-8', title: 'Monitorar assinaturas', order: 8 },
+            ]
 
-    // Sincroniza as tarefas automáticas geradas pelo trigger on_client_created
-    const { data: newTasks } = await supabase.from('tasks').select('*').eq('clientId', data.id)
+      const targetResponsible = responsibleId || state.currentUser?.id || user?.id || null
+      const createdBy = state.currentUser?.id || user?.id || null
+      const todayStr = new Date().toISOString().split('T')[0]
 
-    setState((prev) => {
-      const existingTaskIds = new Set(prev.tasks.map((t) => t.id))
-      const freshTasks = (newTasks || []).filter((t: any) => !existingTaskIds.has(t.id))
-      return {
-        ...prev,
-        clients: [data as any, ...prev.clients],
-        tasks: freshTasks.length > 0 ? [...freshTasks, ...prev.tasks] : prev.tasks,
+      const tasksToInsert = steps.map((step, idx) => ({
+        title: step.title,
+        clientId,
+        status: idx === 0 ? 'Concluída' : 'pendente',
+        priority: 'Média',
+        type: 'Onboarding',
+        description: `Etapa ${idx + 1} do Onboarding de Cliente Novo`,
+        responsibleId: targetResponsible,
+        created_by: createdBy,
+        dueDate: todayStr,
+      }))
+
+      const { data, error } = await supabase
+        .from('tasks')
+        .insert(tasksToInsert as any)
+        .select()
+
+      if (error) {
+        console.error('Erro ao gerar tarefas de onboarding:', error)
+        toast({
+          title: 'Aviso de Onboarding',
+          description: 'Cliente criado, mas houve falha ao gerar as etapas de onboarding.',
+          variant: 'destructive',
+        })
+        return []
       }
-    })
-    toast({ title: 'Cliente adicionado' })
-  }, [])
+
+      if (data && data.length > 0) {
+        setState((prev) => {
+          const existingIds = new Set(prev.tasks.map((t) => t.id))
+          const fresh = (data as Task[]).filter((t) => !existingIds.has(t.id))
+          return {
+            ...prev,
+            tasks: [...fresh, ...prev.tasks],
+          }
+        })
+      }
+
+      return (data as Task[]) || []
+    },
+    [state.settings?.onboardingChecklist, state.currentUser?.id, user?.id],
+  )
+
+  const addClient = useCallback(
+    async (client: Omit<Client, 'id'>) => {
+      const { data, error } = await supabase
+        .from('clients')
+        .insert(client as any)
+        .select()
+        .single()
+      if (error) {
+        toast({ title: 'Erro', description: error.message, variant: 'destructive' })
+        return null
+      }
+
+      // Dispara automaticamente as tarefas de onboarding com base no modelo configurado
+      await generateOnboardingTasks(data.id, data.responsibleId)
+
+      // Sincroniza todas as tarefas geradas (triggers do banco + checklist de onboarding)
+      const { data: allClientTasks } = await supabase
+        .from('tasks')
+        .select('*')
+        .eq('clientId', data.id)
+
+      setState((prev) => {
+        const existingTaskIds = new Set(prev.tasks.map((t) => t.id))
+        const freshTasks = (allClientTasks || []).filter((t: any) => !existingTaskIds.has(t.id))
+        return {
+          ...prev,
+          clients: [data as any, ...prev.clients],
+          tasks: freshTasks.length > 0 ? [...freshTasks, ...prev.tasks] : prev.tasks,
+        }
+      })
+      toast({
+        title: 'Cliente adicionado',
+        description: 'Checklist de Onboarding disparado com sucesso!',
+      })
+      return data as Client
+    },
+    [generateOnboardingTasks],
+  )
 
   const addTask = useCallback(
     async (task: Omit<Task, 'id'>) => {
@@ -1335,6 +1416,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         deleteItem,
         addLog,
         addClient,
+        generateOnboardingTasks,
         addCase,
         addTask,
         addAppointment,

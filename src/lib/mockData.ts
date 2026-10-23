@@ -164,6 +164,23 @@ export interface CaseStatusType {
   label: string
   color: string
 }
+export interface OnboardingStep {
+  id: string
+  title: string
+  order: number
+}
+
+export const DEFAULT_ONBOARDING_STEPS: OnboardingStep[] = [
+  { id: 'step-1', title: 'Cadastrar cliente', order: 1 },
+  { id: 'step-2', title: 'Cadastrar processo(s)', order: 2 },
+  { id: 'step-3', title: 'Coletar documentos', order: 3 },
+  { id: 'step-4', title: 'Tratar documentos (qualidade/PDFs)', order: 4 },
+  { id: 'step-5', title: 'Redigir procuração', order: 5 },
+  { id: 'step-6', title: 'Redigir contrato', order: 6 },
+  { id: 'step-7', title: 'Redigir declaração de hipossuficiência', order: 7 },
+  { id: 'step-8', title: 'Monitorar assinaturas', order: 8 },
+]
+
 export interface Settings {
   id: string
   showFinanceDashboard: boolean
@@ -188,6 +205,7 @@ export interface Settings {
   googleServiceAccount?: string | null
   lastAsaasSyncAt?: string | null
   lastSicoobImportAt?: string | null
+  onboardingChecklist?: OnboardingStep[]
 }
 export interface WhatsAppMessage {
   id: string
@@ -268,5 +286,6 @@ export const initialData: LegalState = {
     googleServiceAccount: null,
     lastAsaasSyncAt: null,
     lastSicoobImportAt: null,
+    onboardingChecklist: DEFAULT_ONBOARDING_STEPS,
   },
 }
