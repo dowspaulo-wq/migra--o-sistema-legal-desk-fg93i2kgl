@@ -244,7 +244,11 @@ export default function Cases() {
 
   const handleSave = (fd: any) => {
     if (editingCase) {
-      updateItem('cases', editingCase.id, fd)
+      updateItem('cases', editingCase.id, {
+        ...editingCase,
+        ...fd,
+        noFees: Boolean(fd.noFees ?? editingCase.noFees ?? false),
+      })
       toast({ title: 'Atualizado' })
     } else {
       if (state.cases.some((c) => c.number === fd.number))

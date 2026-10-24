@@ -243,8 +243,10 @@ export default function CaseDetail() {
       <CaseDialog
         open={isCaseOpen}
         onOpenChange={setIsCaseOpen}
-        data={c}
-        onSave={(d: any) => updateItem('cases', d.id, d)}
+        data={c ? { ...c, noFees: Boolean(c.noFees ?? (c as any)?.no_fees ?? false) } : undefined}
+        onSave={(d: any) =>
+          updateItem('cases', d.id, { ...c, ...d, noFees: Boolean(d.noFees ?? c?.noFees ?? false) })
+        }
         users={state.users}
         clients={state.clients}
         settings={state.settings}

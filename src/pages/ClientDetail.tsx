@@ -410,7 +410,11 @@ export default function ClientDetail() {
           if (editingCase?.id) {
             const caseId = editingCase.id
             const { _previousStatus, ...caseData } = d
-            await updateItem('cases', caseId, caseData)
+            await updateItem('cases', caseId, {
+              ...editingCase,
+              ...caseData,
+              noFees: Boolean(caseData.noFees ?? editingCase.noFees ?? false),
+            })
             toast({ title: 'Processo atualizado com sucesso' })
           }
         }}

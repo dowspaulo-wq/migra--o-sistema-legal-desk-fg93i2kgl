@@ -829,16 +829,17 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        if (
-          table === 'cases' &&
-          (finalChanges.noFees !== undefined || finalChanges.no_fees !== undefined)
-        ) {
-          finalChanges.noFees = Boolean(finalChanges.noFees ?? finalChanges.no_fees ?? false)
-        }
-
         setState((prev) => {
           const arr = prev[table as keyof LegalState] as any[]
           originalItem = arr?.find((item) => item.id === id)
+
+          if (table === 'cases') {
+            if (finalChanges.noFees !== undefined || finalChanges.no_fees !== undefined) {
+              finalChanges.noFees = Boolean(finalChanges.noFees ?? finalChanges.no_fees ?? false)
+            } else if (originalItem && originalItem.noFees !== undefined) {
+              finalChanges.noFees = Boolean(originalItem.noFees)
+            }
+          }
 
           if (table === 'cases' && changes.status) {
             const isConcluidoNew = normalizeStr(changes.status).includes('concluido')
