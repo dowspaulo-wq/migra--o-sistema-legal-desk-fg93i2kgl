@@ -422,13 +422,20 @@ export async function downloadTemplateBuffer(filePath: string): Promise<ArrayBuf
   if (error || !data) {
     const second = await supabase.storage.from('document-templates').download(filePath)
     if (second.error || !second.data) {
+      const detail = error?.message || second.error?.message || 'Arquivo não encontrado'
       throw new Error(
-        `Não foi possível baixar o modelo .docx (${filePath}): ${error?.message || second.error?.message}`,
+        `Falha ao baixar o arquivo do modelo (${filePath}): ${detail}. Verifique se o arquivo existe no armazenamento.`,
       )
     }
     data = second.data
   }
-  return await data.arrayBuffer()
+
+  const buffer = await data.arrayBuffer()
+  if (!buffer || buffer.byteLength === 0) {
+    throw new Error('Não foi possível ler o arquivo do modelo — o arquivo está vazio.')
+  }
+
+  return buffer
 }
 
 /**
@@ -738,30 +745,206 @@ export function buildDocumentDataMap(params: {
 }
 
 /**
+ * Traduz erros internos do docxtemplater para mensagens amigáveis em português
+ */
+export function formatDocxtemplaterError(err: any): string {
+  if (!err) return 'Erro desconhecido ao processar o modelo .docx.'
+
+  // Erros de parsing de zip / buffer vazio ou corrompido
+  const rawMsg = typeof err.message === 'string' ? err.message : String(err)
+  if (
+    rawMsg.includes("Can't find end of central directory") ||
+    rawMsg.includes('Corrupted zip') ||
+    rawMsg.includes('not a valid zip') ||
+    rawMsg.includes('end of data reached')
+  ) {
+    return 'Não foi possível ler o arquivo do modelo — ele pode estar corrompido ou vazio (arquivo .docx inválido).'
+  }
+
+  // Verifica se possui lista de erros estruturados (DocxtemplaterMultiError ou properties.errors)
+  const errors: any[] = Array.isArray(err.properties?.errors) ? err.properties.errors : []
+
+  if (errors.length > 0) {
+    const formattedList = errors.map((subErr, idx) => {
+      const id: string = subErr.properties?.id || subErr.name || ''
+      const rawTag: string =
+        subErr.properties?.xtag ||
+        subErr.properties?.tag ||
+        subErr.properties?.context ||
+        subErr.properties?.closingtag ||
+        subErr.properties?.openingtag ||
+        ''
+      const explanation: string = subErr.properties?.explanation || subErr.message || ''
+
+      const cleanTag = rawTag
+        .trim()
+        .replace(/^\{+|\}+$/g, '')
+        .trim()
+      const tagDisplay = cleanTag ? `{{${cleanTag}}}` : rawTag ? `"${rawTag.trim()}"` : ''
+
+      switch (id) {
+        case 'unclosed_tag':
+          return tagDisplay
+            ? `Marcador ${tagDisplay} não fechado (faltou "}}") — corrija no modelo`
+            : `Marcador não fechado (faltou "}}"): ${explanation}`
+
+        case 'unopened_tag':
+          return tagDisplay
+            ? `Marcador ${tagDisplay} não aberto (faltou "{{" antes de "}}") — corrija no modelo`
+            : `Marcador não aberto (faltou "{{"): ${explanation}`
+
+        case 'duplicate_open_tag':
+          return tagDisplay
+            ? `Marcador ${tagDisplay} com abertura duplicada (excesso de "{") — corrija no modelo`
+            : `Marcador com abertura duplicada: ${explanation}`
+
+        case 'duplicate_close_tag':
+          return tagDisplay
+            ? `Marcador ${tagDisplay} com fechamento duplicado (excesso de "}") — corrija no modelo`
+            : `Marcador com fechamento duplicado: ${explanation}`
+
+        case 'closing_tag_does_not_match_opening_tag': {
+          const opening = subErr.properties?.openingtag || ''
+          const closing = subErr.properties?.closingtag || ''
+          return `Tag de fechamento {{/${closing}}} não corresponde à tag de abertura {{#${opening}}} — corrija no modelo`
+        }
+
+        case 'unbalanced_loop_tags':
+          return `Estrutura de repetição/tabela desbalanceada no modelo: ${explanation}`
+
+        case 'loop_position_invalid':
+          return tagDisplay
+            ? `Bloco de repetição ${tagDisplay} em posição inválida (ex.: iniciado dentro de tabela e fechado fora)`
+            : `Bloco de repetição em posição inválida no documento: ${explanation}`
+
+        case 'scopeparser_compilation_failed':
+        case 'scopeparser_execution_failed':
+          return tagDisplay
+            ? `Falha ao interpretar o marcador ${tagDisplay} — sintaxe inválida`
+            : `Sintaxe inválida no marcador: ${explanation}`
+
+        case 'filetype_not_identified':
+          return 'O formato do arquivo não pôde ser identificado como documento Word (.docx válido).'
+
+        case 'filetype_not_handled':
+          return 'Formato de arquivo não suportado. Utilize apenas modelos em formato Word (.docx).'
+
+        case 'invalid_xml_characters':
+          return tagDisplay
+            ? `Caracteres inválidos encontrados no marcador ${tagDisplay}`
+            : `Caracteres inválidos no documento XML: ${explanation}`
+
+        case 'malformed_xml':
+        case 'file_has_invalid_xml':
+          return 'O arquivo do modelo .docx contém XML corrompido ou mal formado.'
+
+        default:
+          if (explanation) {
+            return tagDisplay ? `Erro no marcador ${tagDisplay}: ${explanation}` : explanation
+          }
+          return `Erro no marcador: ${id || 'sintaxe inválida'}`
+      }
+    })
+
+    if (formattedList.length === 1) {
+      return formattedList[0]
+    }
+
+    // Se houver múltiplos erros, lista numerada ou com bullet
+    return formattedList.map((msg, i) => `${i + 1}. ${msg}`).join('\n')
+  }
+
+  // Se não tem array errors, mas o próprio err tem properties.id / explanation
+  if (err.properties?.id) {
+    const id = err.properties.id
+    const rawTag = err.properties.xtag || err.properties.tag || err.properties.context || ''
+    const cleanTag = rawTag
+      .trim()
+      .replace(/^\{+|\}+$/g, '')
+      .trim()
+    const tagDisplay = cleanTag ? `{{${cleanTag}}}` : rawTag ? `"${rawTag.trim()}"` : ''
+    const explanation = err.properties.explanation || err.message || ''
+
+    if (id === 'unclosed_tag') {
+      return tagDisplay
+        ? `Marcador ${tagDisplay} não fechado (faltou "}}") — corrija no modelo`
+        : `Marcador não fechado: ${explanation}`
+    }
+    if (id === 'duplicate_open_tag') {
+      return tagDisplay
+        ? `Marcador ${tagDisplay} com abertura duplicada — corrija no modelo`
+        : `Marcador com abertura duplicada: ${explanation}`
+    }
+    if (id === 'duplicate_close_tag') {
+      return tagDisplay
+        ? `Marcador ${tagDisplay} com fechamento duplicado — corrija no modelo`
+        : `Marcador com fechamento duplicado: ${explanation}`
+    }
+    if (id === 'unopened_tag') {
+      return tagDisplay
+        ? `Marcador ${tagDisplay} não aberto — corrija no modelo`
+        : `Marcador não aberto: ${explanation}`
+    }
+    if (explanation) {
+      return explanation
+    }
+  }
+
+  if (err.message && err.message !== 'Multi error') {
+    return err.message
+  }
+
+  return 'O modelo contém marcadores mal formados ou com erro de sintaxe. Revise as chaves {{...}} no arquivo .docx.'
+}
+
+/**
  * Preenche o template .docx cliente-side com docxtemplater + pizzip preservando 100% da formatação
  */
 export async function generateDocxBlob(
   templateBuffer: ArrayBuffer,
   dataMap: Record<string, any>,
 ): Promise<Blob> {
-  const zip = new PizZip(templateBuffer)
+  let zip: PizZip
+  try {
+    zip = new PizZip(templateBuffer)
+  } catch (zipErr: any) {
+    throw new Error(
+      'Não foi possível ler o arquivo do modelo — ele pode estar corrompido ou vazio (falha ao abrir zip).',
+    )
+  }
 
-  const doc = new Docxtemplater(zip, {
-    paragraphLoop: true,
-    linebreaks: true,
-    nullGetter: () => '', // Garante que tags ausentes virem vazio em vez de erro "undefined"
-  })
+  let doc: Docxtemplater
+  try {
+    doc = new Docxtemplater(zip, {
+      paragraphLoop: true,
+      linebreaks: true,
+      nullGetter: () => '', // Garante que tags ausentes virem vazio em vez de erro "undefined"
+    })
+  } catch (initErr: any) {
+    const friendly = formatDocxtemplaterError(initErr)
+    throw new Error(friendly)
+  }
 
-  // Renderiza aplicando os dados
-  doc.render(dataMap)
+  try {
+    // Renderiza aplicando os dados
+    doc.render(dataMap)
+  } catch (renderErr: any) {
+    const friendly = formatDocxtemplaterError(renderErr)
+    throw new Error(friendly)
+  }
 
-  const outputBlob = doc.getZip().generate({
-    type: 'blob',
-    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    compression: 'DEFLATE',
-  })
-
-  return outputBlob
+  try {
+    const outputBlob = doc.getZip().generate({
+      type: 'blob',
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      compression: 'DEFLATE',
+    })
+    return outputBlob
+  } catch (genErr: any) {
+    throw new Error(
+      `Falha ao gerar o arquivo final: ${genErr?.message || 'erro na compactação do documento'}.`,
+    )
+  }
 }
 
 /**

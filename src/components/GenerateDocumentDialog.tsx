@@ -291,9 +291,13 @@ export function GenerateDocumentDialog({
 
       onOpenChange(false)
     } catch (err: any) {
+      const errorMessage =
+        (typeof err?.message === 'string' && err.message.trim()) ||
+        'Ocorreu um erro ao preencher o modelo .docx.'
+
       toast({
-        title: 'Erro na geração de documentos',
-        description: err.message || 'Ocorreu um erro ao preencher o modelo .docx.',
+        title: 'Erro na geração de documento',
+        description: errorMessage,
         variant: 'destructive',
       })
     } finally {
