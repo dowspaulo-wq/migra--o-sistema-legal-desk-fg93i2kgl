@@ -25,59 +25,144 @@ export interface PlaceholderDocumentation {
   label: string
   example: string
   group: 'Cliente' | 'Processo' | 'Escritório' | 'Data / Sistema' | 'Campos Manuais'
+  aliases?: string[]
   description?: string
 }
 
 export const AVAILABLE_PLACEHOLDERS: PlaceholderDocumentation[] = [
   // Cliente
-  { key: 'cliente.nome', label: 'Nome Completo', example: 'João da Silva', group: 'Cliente' },
-  { key: 'cliente.cpf', label: 'CPF / Documento', example: '123.456.789-00', group: 'Cliente' },
-  { key: 'cliente.rg', label: 'RG', example: '12.345.678-9', group: 'Cliente' },
+  {
+    key: 'cliente.nome',
+    label: 'Nome Completo',
+    example: 'João da Silva',
+    group: 'Cliente',
+    aliases: ['client_name', 'cliente', 'nome_cliente', 'client', 'nome'],
+  },
+  {
+    key: 'cliente.cpf',
+    label: 'CPF',
+    example: '123.456.789-00',
+    group: 'Cliente',
+    aliases: ['cpf', 'cpf_cliente', 'client_cpf'],
+  },
+  {
+    key: 'cliente.rg',
+    label: 'RG',
+    example: '12.345.678-9',
+    group: 'Cliente',
+    aliases: ['rg', 'rg_cliente', 'client_rg'],
+  },
   {
     key: 'cliente.documento',
     label: 'Documento Principal (CPF/CNPJ)',
     example: '123.456.789-00',
     group: 'Cliente',
+    aliases: ['document', 'documento', 'cnpj', 'cnpj_cliente', 'client_cnpj'],
   },
   {
     key: 'cliente.tipo',
     label: 'Tipo de Pessoa (Física/Jurídica)',
     example: 'Pessoa Física',
     group: 'Cliente',
+    aliases: ['client_type', 'tipo_cliente', 'tipo_pessoa'],
   },
-  { key: 'cliente.email', label: 'E-mail', example: 'cliente@exemplo.com', group: 'Cliente' },
+  {
+    key: 'cliente.email',
+    label: 'E-mail',
+    example: 'cliente@exemplo.com',
+    group: 'Cliente',
+    aliases: ['email', 'client_email', 'email_cliente'],
+  },
   {
     key: 'cliente.telefone',
-    label: 'Telefone / WhatsApp',
+    label: 'Telefone / Celular / WhatsApp',
     example: '(11) 98765-4321',
     group: 'Cliente',
+    aliases: ['phone', 'telefone', 'celular', 'whatsapp', 'client_phone', 'telefone_cliente'],
   },
-  { key: 'cliente.estadoCivil', label: 'Estado Civil', example: 'Casado(a)', group: 'Cliente' },
-  { key: 'cliente.profissao', label: 'Profissão', example: 'Engenheiro Civil', group: 'Cliente' },
+  {
+    key: 'cliente.estadoCivil',
+    label: 'Estado Civil',
+    example: 'Casado(a)',
+    group: 'Cliente',
+    aliases: ['marital_status', 'estado_civil', 'estadocivil', 'civil_status'],
+  },
+  {
+    key: 'cliente.profissao',
+    label: 'Profissão',
+    example: 'Engenheiro Civil',
+    group: 'Cliente',
+    aliases: ['profession', 'profissao', 'job', 'ocupacao'],
+  },
   {
     key: 'cliente.dataNascimento',
     label: 'Data de Nascimento',
     example: '15/04/1985',
     group: 'Cliente',
+    aliases: ['birth_date', 'birthdate', 'data_nascimento', 'nascimento', 'birthday'],
   },
   {
     key: 'cliente.endereco',
     label: 'Endereço Completo',
     example: 'Rua das Flores, 123, Apto 45 - Centro, São Paulo - SP, CEP 01234-567',
     group: 'Cliente',
+    aliases: ['address', 'endereco', 'full_address', 'endereco_completo'],
   },
-  { key: 'cliente.rua', label: 'Rua / Logradouro', example: 'Rua das Flores', group: 'Cliente' },
-  { key: 'cliente.numero', label: 'Número', example: '123', group: 'Cliente' },
-  { key: 'cliente.complemento', label: 'Complemento', example: 'Apto 45', group: 'Cliente' },
-  { key: 'cliente.bairro', label: 'Bairro', example: 'Centro', group: 'Cliente' },
-  { key: 'cliente.cidade', label: 'Cidade', example: 'São Paulo', group: 'Cliente' },
-  { key: 'cliente.estado', label: 'UF / Estado', example: 'SP', group: 'Cliente' },
-  { key: 'cliente.cep', label: 'CEP', example: '01234-567', group: 'Cliente' },
+  {
+    key: 'cliente.rua',
+    label: 'Rua / Logradouro',
+    example: 'Rua das Flores',
+    group: 'Cliente',
+    aliases: ['street', 'rua', 'logradouro', 'street_name'],
+  },
+  {
+    key: 'cliente.numero',
+    label: 'Número',
+    example: '123',
+    group: 'Cliente',
+    aliases: ['number', 'numero', 'numero_endereco'],
+  },
+  {
+    key: 'cliente.complemento',
+    label: 'Complemento',
+    example: 'Apto 45',
+    group: 'Cliente',
+    aliases: ['complement', 'complemento'],
+  },
+  {
+    key: 'cliente.bairro',
+    label: 'Bairro',
+    example: 'Centro',
+    group: 'Cliente',
+    aliases: ['neighborhood', 'bairro', 'district'],
+  },
+  {
+    key: 'cliente.cidade',
+    label: 'Cidade',
+    example: 'São Paulo',
+    group: 'Cliente',
+    aliases: ['city', 'cidade'],
+  },
+  {
+    key: 'cliente.estado',
+    label: 'UF / Estado',
+    example: 'SP',
+    group: 'Cliente',
+    aliases: ['state', 'uf', 'estado'],
+  },
+  {
+    key: 'cliente.cep',
+    label: 'CEP / Código Postal',
+    example: '01234-567',
+    group: 'Cliente',
+    aliases: ['cep', 'zip_code', 'zipcode', 'postal_code'],
+  },
   {
     key: 'cliente.nacionalidade',
     label: 'Nacionalidade',
     example: 'Brasileiro(a)',
     group: 'Cliente',
+    aliases: ['nationality', 'nacionalidade'],
   },
 
   // Processo
@@ -86,46 +171,84 @@ export const AVAILABLE_PLACEHOLDERS: PlaceholderDocumentation[] = [
     label: 'Número CNJ do Processo',
     example: '0001234-56.2026.8.26.0100',
     group: 'Processo',
+    aliases: ['process_number', 'numero_processo', 'processo_numero', 'case_number', 'numero_acao'],
   },
   {
     key: 'processo.numeroProcesso',
     label: 'Número do Processo (alias)',
     example: '0001234-56.2026.8.26.0100',
     group: 'Processo',
+    aliases: ['processo'],
   },
   {
     key: 'processo.nome',
     label: 'Nome da Ação / Descrição',
     example: 'Ação Indenizatória por Danos Morais',
     group: 'Processo',
+    aliases: ['action_name', 'nome_acao', 'acao', 'action', 'tipo_acao'],
   },
-  { key: 'processo.tipo', label: 'Tipo de Ação', example: 'Cível', group: 'Processo' },
+  {
+    key: 'processo.tipo',
+    label: 'Tipo de Ação',
+    example: 'Cível',
+    group: 'Processo',
+    aliases: ['action_type', 'tipo_processo'],
+  },
   {
     key: 'processo.status',
     label: 'Status Processual',
     example: 'Em andamento',
     group: 'Processo',
+    aliases: ['process_status', 'status_processo'],
   },
-  { key: 'processo.vara', label: 'Vara / Juízo', example: '2ª Vara Cível', group: 'Processo' },
-  { key: 'processo.comarca', label: 'Comarca', example: 'Sorocaba', group: 'Processo' },
-  { key: 'processo.estado', label: 'UF do Processo', example: 'SP', group: 'Processo' },
+  {
+    key: 'processo.vara',
+    label: 'Vara / Juízo',
+    example: '2ª Vara Cível',
+    group: 'Processo',
+    aliases: ['court', 'vara', 'juizo'],
+  },
+  {
+    key: 'processo.comarca',
+    label: 'Comarca',
+    example: 'Sorocaba',
+    group: 'Processo',
+    aliases: ['comarca', 'jurisdiction'],
+  },
+  {
+    key: 'processo.estado',
+    label: 'UF do Processo',
+    example: 'SP',
+    group: 'Processo',
+    aliases: ['process_state', 'uf_processo'],
+  },
   {
     key: 'processo.sistema',
-    label: 'Sistema Processual',
-    example: 'PJe / esaj',
+    label: 'Sistema Processual (PJe, e-SAJ, etc.)',
+    example: 'PJe / e-SAJ',
     group: 'Processo',
+    aliases: ['process_system', 'sistema_processual', 'sistema'],
   },
   {
     key: 'processo.posicao',
     label: 'Posição do Cliente no Processo',
     example: 'Autor',
     group: 'Processo',
+    aliases: ['client_position', 'posicao_cliente', 'posicao'],
   },
   {
     key: 'processo.parteContraria',
-    label: 'Parte Contrária (Réu/Adverso)',
+    label: 'Parte Contrária (Réu / Adverso)',
     example: 'Banco Exemplo S.A.',
     group: 'Processo',
+    aliases: [
+      'adverse_party',
+      'parte_contraria',
+      'reu',
+      'parte_adversa',
+      'adverseParty',
+      'defendant',
+    ],
   },
   {
     key: 'processo.adverseParty',
@@ -138,42 +261,49 @@ export const AVAILABLE_PLACEHOLDERS: PlaceholderDocumentation[] = [
     label: 'Valor da Causa (formatado R$)',
     example: 'R$ 50.000,00',
     group: 'Processo',
+    aliases: ['valor_causa', 'case_value', 'valor_da_causa', 'cause_value'],
   },
   {
     key: 'processo.valorCausaExtenso',
     label: 'Valor da Causa por Extenso',
     example: 'cinquenta mil reais',
     group: 'Processo',
+    aliases: ['valor_causa_extenso', 'case_value_words'],
   },
   {
     key: 'processo.valorCausaNumero',
     label: 'Valor da Causa (apenas número)',
     example: '50000,00',
     group: 'Processo',
+    aliases: ['valor_causa_num', 'case_value_number'],
   },
   {
     key: 'processo.tipoHonorarios',
     label: 'Tipo de Honorários',
     example: 'Honorários Contratuais',
     group: 'Processo',
+    aliases: ['fee_type', 'tipo_honorarios'],
   },
   {
     key: 'processo.valorHonorarios',
     label: 'Valor dos Honorários (R$)',
     example: 'R$ 5.000,00',
     group: 'Processo',
+    aliases: ['fee_value', 'valor_honorarios', 'honorarios'],
   },
   {
     key: 'processo.percentualHonorarios',
     label: 'Percentual de Honorários / Êxito',
     example: '30%',
     group: 'Processo',
+    aliases: ['fee_percentage', 'percentual_honorarios', 'percentual_exito'],
   },
   {
     key: 'processo.parcelasHonorarios',
     label: 'Qtd de Parcelas de Honorários',
     example: '5',
     group: 'Processo',
+    aliases: ['fee_installments', 'parcelas_honorarios', 'parcelas'],
   },
 
   // Escritório
@@ -182,50 +312,64 @@ export const AVAILABLE_PLACEHOLDERS: PlaceholderDocumentation[] = [
     label: 'Nome do Escritório / Advogado',
     example: 'Douglas Santos Advocacia',
     group: 'Escritório',
+    aliases: ['office_name', 'nome_escritorio', 'escritorio', 'law_firm', 'escritorio_nome'],
   },
   {
     key: 'escritorio.advogado',
     label: 'Advogado Responsável',
     example: 'Douglas Paulino dos Santos',
     group: 'Escritório',
+    aliases: ['lawyer_name', 'advogado', 'advogado_responsavel', 'lawyer'],
   },
   {
     key: 'escritorio.oab',
     label: 'Número da OAB / UF',
-    example: 'OAB/SP 123.456',
+    example: 'OAB/SP 430.509',
     group: 'Escritório',
+    aliases: ['oab', 'oab_advogado', 'lawyer_oab'],
   },
   {
     key: 'escritorio.cnpj',
     label: 'CNPJ do Escritório',
-    example: '00.000.000/0001-00',
+    example: '53.649.030/0001-20',
     group: 'Escritório',
+    aliases: ['office_cnpj', 'cnpj_escritorio'],
   },
   {
     key: 'escritorio.endereco',
     label: 'Endereço do Escritório',
-    example: 'Av. Paulista, 1000 - Bela Vista, São Paulo - SP',
+    example: 'Rua São Bento, 273 - Centro, Sorocaba - SP, CEP 18010-031',
     group: 'Escritório',
+    aliases: ['office_address', 'endereco_escritorio'],
   },
   {
     key: 'escritorio.telefone',
     label: 'Telefone do Escritório',
-    example: '(11) 3333-4444',
+    example: '(15) 3042-1234',
     group: 'Escritório',
+    aliases: ['office_phone', 'telefone_escritorio'],
   },
   {
     key: 'escritorio.email',
     label: 'E-mail do Escritório',
     example: 'contato@advdouglaspsantos.com.br',
     group: 'Escritório',
+    aliases: ['office_email', 'email_escritorio'],
   },
   {
     key: 'escritorio.cidade',
     label: 'Cidade do Escritório',
     example: 'Sorocaba',
     group: 'Escritório',
+    aliases: ['office_city', 'cidade_escritorio'],
   },
-  { key: 'escritorio.estado', label: 'UF do Escritório', example: 'SP', group: 'Escritório' },
+  {
+    key: 'escritorio.estado',
+    label: 'UF do Escritório',
+    example: 'SP',
+    group: 'Escritório',
+    aliases: ['office_state', 'uf_escritorio'],
+  },
 
   // Data / Sistema
   {
@@ -233,21 +377,42 @@ export const AVAILABLE_PLACEHOLDERS: PlaceholderDocumentation[] = [
     label: 'Data Atual (DD/MM/AAAA)',
     example: '24/10/2026',
     group: 'Data / Sistema',
+    aliases: ['current_date', 'data_atual', 'data', 'hoje', 'today'],
   },
   {
     key: 'dataAtualExtenso',
     label: 'Data Atual por Extenso',
     example: '24 de outubro de 2026',
     group: 'Data / Sistema',
+    aliases: ['current_date_full', 'data_extenso', 'data_atual_extenso'],
   },
-  { key: 'diaAtual', label: 'Dia do Mês Atual (DD)', example: '24', group: 'Data / Sistema' },
-  { key: 'mesAtual', label: 'Mês Atual por Extenso', example: 'outubro', group: 'Data / Sistema' },
-  { key: 'anoAtual', label: 'Ano Atual (AAAA)', example: '2026', group: 'Data / Sistema' },
+  {
+    key: 'diaAtual',
+    label: 'Dia do Mês Atual (DD)',
+    example: '24',
+    group: 'Data / Sistema',
+    aliases: ['current_day', 'dia_atual', 'dia'],
+  },
+  {
+    key: 'mesAtual',
+    label: 'Mês Atual por Extenso',
+    example: 'outubro',
+    group: 'Data / Sistema',
+    aliases: ['current_month', 'mes_atual', 'mes'],
+  },
+  {
+    key: 'anoAtual',
+    label: 'Ano Atual (AAAA)',
+    example: '2026',
+    group: 'Data / Sistema',
+    aliases: ['current_year', 'ano_atual', 'ano', 'year'],
+  },
   {
     key: 'cidadeDataAtual',
     label: 'Cidade e Data Atual',
     example: 'Sorocaba/SP, 24 de outubro de 2026',
     group: 'Data / Sistema',
+    aliases: ['city_date', 'cidade_data'],
   },
 
   // Campos Manuais Dinâmicos Comuns
@@ -256,6 +421,7 @@ export const AVAILABLE_PLACEHOLDERS: PlaceholderDocumentation[] = [
     label: 'Valor dos Honorários (manual)',
     example: 'R$ 5.000,00',
     group: 'Campos Manuais',
+    aliases: ['honorarios_valor', 'fee_amount'],
     description: 'Definido no modelo pelo advogado',
   },
   {
@@ -263,6 +429,7 @@ export const AVAILABLE_PLACEHOLDERS: PlaceholderDocumentation[] = [
     label: 'Forma de Pagamento (manual)',
     example: 'Entrada de R$ 1.500,00 + 3 parcelas de R$ 500,00',
     group: 'Campos Manuais',
+    aliases: ['payment_method', 'forma_pagamento', 'condicoes_pagamento'],
     description: 'Texto livre editado na geração',
   },
   {
@@ -270,6 +437,7 @@ export const AVAILABLE_PLACEHOLDERS: PlaceholderDocumentation[] = [
     label: 'Percentual de Êxito (manual)',
     example: '30%',
     group: 'Campos Manuais',
+    aliases: ['success_fee', 'exito_percentual'],
     description: 'Percentual aplicado sobre o proveito econômico',
   },
   {
@@ -277,6 +445,7 @@ export const AVAILABLE_PLACEHOLDERS: PlaceholderDocumentation[] = [
     label: 'Nome Específico da Ação (manual)',
     example: 'Ação de Alimentos c/c Guarda',
     group: 'Campos Manuais',
+    aliases: ['action_title', 'titulo_acao'],
     description: 'Se desejar sobrescrever o nome da ação do processo',
   },
 ]
@@ -741,6 +910,40 @@ export function buildDocumentDataMap(params: {
     }
   })
 
+  // Dicionário de Apelidos Bidirecional:
+  // Propaga valores para apelidos curtos (em inglês e português simples) e vice-versa,
+  // garantindo que {{cliente.nome}} e {{client_name}} tenham exatamente o mesmo valor.
+  AVAILABLE_PLACEHOLDERS.forEach((placeholder) => {
+    const mainKey = placeholder.key
+    const aliases = placeholder.aliases || []
+    if (aliases.length === 0) return
+
+    // Descobre o valor presente na chave canônica ou em algum dos apelidos
+    let foundValue: any = rootMap[mainKey]
+    if (foundValue == null || foundValue === '') {
+      // Tenta achar em algum apelido que já possa ter sido passado em manualValues
+      for (const alias of aliases) {
+        if (rootMap[alias] != null && rootMap[alias] !== '') {
+          foundValue = rootMap[alias]
+          break
+        }
+      }
+    }
+
+    if (foundValue != null) {
+      // Garante na chave canônica
+      if (rootMap[mainKey] == null || rootMap[mainKey] === '') {
+        rootMap[mainKey] = foundValue
+      }
+      // Garante em cada apelido na raiz
+      aliases.forEach((alias) => {
+        if (rootMap[alias] == null || rootMap[alias] === '') {
+          rootMap[alias] = foundValue
+        }
+      })
+    }
+  })
+
   return rootMap
 }
 
@@ -898,12 +1101,55 @@ export function formatDocxtemplaterError(err: any): string {
 }
 
 /**
- * Preenche o template .docx cliente-side com docxtemplater + pizzip preservando 100% da formatação
+ * Extrai todas as tags/marcadores brutos presentes no arquivo .docx
+ * examinando os arquivos XML do zip (document.xml, header*.xml, footer*.xml).
+ */
+export function extractPlaceholdersFromZip(zip: PizZip): string[] {
+  const foundTags = new Set<string>()
+  const tagRegex = /\{\{\s*([#/^>]?)\s*([^{}]+?)\s*\}\}/g
+
+  const files = Object.keys(zip.files || {})
+  for (const fileName of files) {
+    // Foca nos XMLs do documento Word (corpo, cabeçalhos, rodapés)
+    if (!fileName.startsWith('word/') || !fileName.endsWith('.xml')) continue
+    try {
+      const content = zip.file(fileName)?.asText() || ''
+      if (!content.includes('{{')) continue
+
+      // Remove tags XML internas que podem quebrar o marcador dentro do Word
+      // Ex: {{<w:r>cliente</w:r>.<w:r>nome</w:r>}} -> {{cliente.nome}}
+      const cleanContent = content.replace(/<[^>]+>/g, '')
+
+      let match: RegExpExecArray | null
+      while ((match = tagRegex.exec(cleanContent)) !== null) {
+        const prefix = match[1] || ''
+        const rawKey = match[2]?.trim()
+        // Ignora tags de fechamento de bloco ou condicionais puras como /loop
+        if (prefix === '/' || !rawKey) continue
+        foundTags.add(rawKey)
+      }
+    } catch {
+      // Ignora arquivos que não possam ser lidos como texto
+    }
+  }
+
+  return Array.from(foundTags)
+}
+
+export interface GenerateDocxResult {
+  blob: Blob
+  unresolvedPlaceholders: string[]
+}
+
+/**
+ * Preenche o template .docx client-side com docxtemplater + pizzip preservando 100% da formatação.
+ * Fim do vazio silencioso: tags não resolvidas recebem "[PREENCHER: nome_do_marcador]".
+ * Retorna também a lista de marcadores não resolvidos encontrados durante a geração.
  */
 export async function generateDocxBlob(
   templateBuffer: ArrayBuffer,
   dataMap: Record<string, any>,
-): Promise<Blob> {
+): Promise<GenerateDocxResult> {
   let zip: PizZip
   try {
     zip = new PizZip(templateBuffer)
@@ -913,13 +1159,28 @@ export async function generateDocxBlob(
     )
   }
 
+  const unresolvedSet = new Set<string>()
+
   let doc: Docxtemplater
   try {
     doc = new Docxtemplater(zip, {
       paragraphLoop: true,
       linebreaks: true,
       delimiters: { start: '{{', end: '}}' },
-      nullGetter: () => '', // Garante que tags ausentes virem vazio em vez de erro "undefined"
+      nullGetter: (part: any) => {
+        // Docxtemplater passa um objeto part com { value, module, tag }
+        // Se part for string ou tiver raw/value/tag:
+        const rawTag =
+          typeof part === 'string'
+            ? part
+            : part?.raw || part?.value || part?.tag || (part ? String(part) : '')
+        const cleanTag = String(rawTag).trim()
+        if (cleanTag) {
+          unresolvedSet.add(cleanTag)
+          return `[PREENCHER: ${cleanTag}]`
+        }
+        return '[PREENCHER]'
+      },
     })
   } catch (initErr: any) {
     const friendly = formatDocxtemplaterError(initErr)
@@ -940,7 +1201,10 @@ export async function generateDocxBlob(
       mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       compression: 'DEFLATE',
     })
-    return outputBlob
+    return {
+      blob: outputBlob,
+      unresolvedPlaceholders: Array.from(unresolvedSet),
+    }
   } catch (genErr: any) {
     throw new Error(
       `Falha ao gerar o arquivo final: ${genErr?.message || 'erro na compactação do documento'}.`,

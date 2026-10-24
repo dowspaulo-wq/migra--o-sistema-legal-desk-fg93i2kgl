@@ -33,9 +33,11 @@ export function PlaceholdersHelpDialog({ trigger }: PlaceholdersHelpDialogProps)
       if (!matchesGroup) return false
       if (!search.trim()) return true
       const query = search.toLowerCase()
+      const aliasesMatch = (item.aliases || []).some((alias) => alias.toLowerCase().includes(query))
       return (
         item.key.toLowerCase().includes(query) ||
         item.label.toLowerCase().includes(query) ||
+        aliasesMatch ||
         (item.description && item.description.toLowerCase().includes(query)) ||
         item.example.toLowerCase().includes(query)
       )
@@ -143,7 +145,7 @@ export function PlaceholdersHelpDialog({ trigger }: PlaceholdersHelpDialogProps)
                         {item.group}
                       </Badge>
                     </div>
-                    <div className="text-xs text-slate-500 flex items-center gap-2">
+                    <div className="text-xs text-slate-500 flex items-center gap-2 flex-wrap">
                       <span className="text-slate-400">Exemplo:</span>
                       <span className="italic text-slate-600 font-mono text-[11px] bg-slate-50 px-1 rounded">
                         {item.example}
@@ -152,6 +154,28 @@ export function PlaceholdersHelpDialog({ trigger }: PlaceholdersHelpDialogProps)
                         <span className="text-muted-foreground">· {item.description}</span>
                       )}
                     </div>
+
+                    {item.aliases && item.aliases.length > 0 && (
+                      <div className="text-[11px] text-slate-600 flex items-center gap-1.5 flex-wrap pt-0.5">
+                        <span className="text-slate-400 text-[10px] font-medium">
+                          Apelidos aceitos (curtos / inglês):
+                        </span>
+                        {item.aliases.map((alias) => (
+                          <button
+                            key={alias}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              copyToClipboard(alias)
+                            }}
+                            className="font-mono text-[10px] bg-slate-100 hover:bg-primary/10 hover:text-primary text-slate-700 px-1.5 py-0.2 rounded border border-slate-200 transition-colors"
+                            title={`Clique para copiar {{${alias}}}`}
+                          >
+                            {'{{' + alias + '}}'}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   <Button

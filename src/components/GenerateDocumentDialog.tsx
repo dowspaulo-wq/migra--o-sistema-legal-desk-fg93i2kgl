@@ -89,6 +89,11 @@ export function GenerateDocumentDialog({
   const [isGenerating, setIsGenerating] = useState<boolean>(false)
   const [generationProgress, setGenerationProgress] = useState<string>('')
 
+  // Marcadores não resolvidos encontrados na última geração (para aviso visual)
+  const [unresolvedWarnings, setUnresolvedWarnings] = useState<
+    Array<{ templateName: string; placeholders: string[] }>
+  >([])
+
   // Resolve processo e cliente finais
   const currentCase = useMemo(() => {
     if (directCase) return directCase
@@ -210,8 +215,10 @@ export function GenerateDocumentDialog({
     }
 
     setIsGenerating(true)
+    setUnresolvedWarnings([])
     const generatedResults: Array<{ name: string; path?: string }> = []
     const total = selectedTemplates.length
+    const collectedWarnings: Array<{ templateName: string; placeholders: string[] }> = []
 
     try {
       // 1. Constrói o mapa de dados
@@ -231,7 +238,17 @@ export function GenerateDocumentDialog({
         const templateBuffer = await downloadTemplateBuffer(tpl.file_path)
 
         // Preenche client-side com docxtemplater preservando 100% da formatação
-        const docxBlob = await generateDocxBlob(templateBuffer, dataMap)
+        const { blob: docxBlob, unresolvedPlaceholders } = await generateDocxBlob(
+          templateBuffer,
+          dataMap,
+        )
+
+        if (unresolvedPlaceholders && unresolvedPlaceholders.length > 0) {
+          collectedWarnings.push({
+            templateName: tpl.name,
+            placeholders: unresolvedPlaceholders,
+          })
+        }
 
         // Nome padronizado automático
         const finalFileName = formatGeneratedFileName(tpl.name, currentClient?.name || 'Cliente')
@@ -277,19 +294,42 @@ export function GenerateDocumentDialog({
         `Gerados ${total} documento(s) para cliente ${currentClient?.name || '—'}`,
       )
 
-      toast({
-        title: `${total} documento(s) gerado(s) com sucesso!`,
-        description:
-          attachToCase && currentCase
-            ? 'Os arquivos .docx foram baixados e vinculados ao processo.'
-            : 'Os arquivos .docx foram baixados preservando 100% da sua formatação.',
-      })
+      if (collectedWarnings.length > 0) {
+        setUnresolvedWarnings(collectedWarnings)
+
+        const totalUnresolved = collectedWarnings.reduce(
+          (sum, item) => sum + item.placeholders.length,
+          0,
+        )
+        const sampleTags = Array.from(
+          new Set(collectedWarnings.flatMap((w) => w.placeholders)),
+        ).slice(0, 3)
+        const sampleText = sampleTags.map((t) => `{{${t}}}`).join(', ')
+
+        toast({
+          title: `${total} documento(s) gerado(s) com atenção!`,
+          description: `${totalUnresolved} marcador(es) não encontrado(s) (ex: ${sampleText}). Eles saíram marcados como [PREENCHER: ...] no .docx. Revise no painel abaixo.`,
+          duration: 9000,
+        })
+      } else {
+        toast({
+          title: `${total} documento(s) gerado(s) com sucesso!`,
+          description:
+            attachToCase && currentCase
+              ? 'Os arquivos .docx foram baixados e vinculados ao processo.'
+              : 'Os arquivos .docx foram baixados preservando 100% da sua formatação.',
+        })
+      }
 
       if (onSuccess) {
         onSuccess(generatedResults)
       }
 
-      onOpenChange(false)
+      // Se houver avisos de campos não resolvidos, mantemos o modal aberto mostrando o painel de alerta amigável
+      // para o usuário copiar/conferir, mas oferecendo o botão de fechar. Se não houver avisos, fecha automaticamente.
+      if (collectedWarnings.length === 0) {
+        onOpenChange(false)
+      }
     } catch (err: any) {
       const errorMessage =
         (typeof err?.message === 'string' && err.message.trim()) ||
@@ -327,6 +367,73 @@ export function GenerateDocumentDialog({
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto pr-1 space-y-4 pt-2">
+          {/* Painel de Alerta Amigável: Marcadores Não Resolvidos */}
+          {unresolvedWarnings.length > 0 && (
+            <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-lg text-xs space-y-2 text-amber-900 animate-in fade-in">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-amber-950 text-sm">
+                      Atenção: Marcadores não resolvidos no modelo
+                    </span>
+                    <Badge
+                      variant="outline"
+                      className="border-amber-400 bg-amber-100 text-amber-800 text-[10px]"
+                    >
+                      Baixado com [PREENCHER: ...]
+                    </Badge>
+                  </div>
+                  <p className="text-[11px] text-amber-800 mt-0.5">
+                    Os documentos foram gerados e baixados com sucesso! Porém, os marcadores abaixo
+                    não tinham dados correspondentes no sistema e foram preenchidos como{' '}
+                    <strong>[PREENCHER: nome_do_marcador]</strong> no arquivo .docx para não
+                    passarem despercebidos.
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-1.5 pt-1 border-t border-amber-200">
+                {unresolvedWarnings.map((item, idx) => (
+                  <div
+                    key={idx}
+                    className="bg-white/80 p-2 rounded border border-amber-200 text-[11px]"
+                  >
+                    <div className="font-semibold text-slate-800 mb-1 flex items-center gap-1.5">
+                      <FileText className="h-3.5 w-3.5 text-amber-600" />
+                      <span>{item.templateName}:</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {item.placeholders.map((tag, tIdx) => (
+                        <code
+                          key={tIdx}
+                          className="font-mono text-[10px] font-bold bg-amber-100/90 text-amber-900 px-1.5 py-0.5 rounded border border-amber-300"
+                        >
+                          {'{{' + tag + '}}'}
+                        </code>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex items-center justify-between pt-1 text-[11px] text-amber-800">
+                <span>
+                  💡 Dica: Verifique a lista de <strong>Marcadores Disponíveis</strong> acima para
+                  usar a grafia correta ou adicionar os dados no cadastro.
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setUnresolvedWarnings([])}
+                  className="h-6 text-[11px] text-amber-900 hover:bg-amber-100/80 px-2"
+                >
+                  Dispensar aviso
+                </Button>
+              </div>
+            </div>
+          )}
           {/* Dados Vinculados (Cliente e Processo) */}
           <div className="p-3 bg-slate-50 border rounded-lg text-xs space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
