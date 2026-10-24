@@ -1420,11 +1420,94 @@ export function triggerFileDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = filename.endsWith('.docx') ? filename : `${filename}.docx`
+  a.download = filename
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
   setTimeout(() => URL.revokeObjectURL(url), 2000)
+}
+
+/**
+ * Converte um blob DOCX em PDF via endpoint Edge Function 'convert-document'
+ * conectado ao motor Gotenberg/LibreOffice no VPS
+ */
+export async function convertDocxToPdf(
+  docxBlob: Blob,
+  fileName: string,
+): Promise<{ pdfBlob?: Blob; error?: string; requiresScript?: boolean }> {
+  try {
+    // 1. Converter blob para Base64
+    const arrayBuffer = await docxBlob.arrayBuffer()
+    const bytes = new Uint8Array(arrayBuffer)
+    let binary = ''
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i])
+    }
+    const docxBase64 = btoa(binary)
+
+    const { data, error } = await supabase.functions.invoke('convert-document', {
+      body: {
+        docxBase64,
+        fileName: fileName.endsWith('.docx') ? fileName : `${fileName}.docx`,
+      },
+    })
+
+    if (error) {
+      let errorMsg = error.message || 'Erro na conversão de documento'
+      let requiresScript = false
+      try {
+        if (typeof (error as any)?.context?.json === 'function') {
+          const bodyJson = await (error as any).context.json()
+          if (bodyJson?.error) errorMsg = bodyJson.error
+          if (bodyJson?.requiresScript) requiresScript = true
+        }
+      } catch {
+        // ignora erro ao ler context
+      }
+      return { error: errorMsg, requiresScript }
+    }
+
+    if (data?.pdfBase64) {
+      const pdfBin = atob(data.pdfBase64)
+      const pdfBytes = new Uint8Array(pdfBin.length)
+      for (let i = 0; i < pdfBin.length; i++) {
+        pdfBytes[i] = pdfBin.charCodeAt(i)
+      }
+      const pdfBlob = new Blob([pdfBytes], { type: 'application/pdf' })
+      return { pdfBlob }
+    }
+
+    if (data?.error) {
+      return { error: data.error, requiresScript: Boolean(data.requiresScript) }
+    }
+
+    return { error: 'Formato de resposta inesperado do conversor de PDF.' }
+  } catch (err: any) {
+    return { error: err?.message || 'Falha ao acionar serviço de conversão.' }
+  }
+}
+
+/**
+ * Consulta o status do serviço de conversão fiel DOCX -> PDF
+ */
+export async function checkPdfConverterStatus(): Promise<{
+  ready: boolean
+  detail?: string
+}> {
+  try {
+    const { data, error } = await supabase.functions.invoke('convert-document', {
+      body: { action: 'status' },
+    })
+    if (error) {
+      return { ready: false, detail: error.message }
+    }
+    return {
+      ready: data?.status === 'ready' || Boolean(data?.gotenbergOnline),
+      detail: data?.detail,
+    }
+  } catch (e: any) {
+    return { ready: false, detail: e?.message }
+  }
 }
 
 /**

@@ -29,7 +29,9 @@ import {
   Loader2,
   AlertCircle,
   FileCheck,
+  FileType,
 } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from '@/hooks/use-toast'
 import useLegalStore from '@/stores/useLegalStore'
 import {
@@ -42,6 +44,7 @@ import {
   triggerFileDownload,
   formatGeneratedFileName,
   saveGeneratedDocxToStorage,
+  convertDocxToPdf,
 } from '@/services/document-templates'
 import { PlaceholdersHelpDialog } from '@/components/PlaceholdersHelpDialog'
 
@@ -88,6 +91,8 @@ export function GenerateDocumentDialog({
   // Status de geração
   const [isGenerating, setIsGenerating] = useState<boolean>(false)
   const [generationProgress, setGenerationProgress] = useState<string>('')
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState<boolean>(false)
+  const [pdfProgress, setPdfProgress] = useState<string>('')
 
   // Marcadores não resolvidos encontrados na última geração (para aviso visual)
   const [unresolvedWarnings, setUnresolvedWarnings] = useState<
@@ -203,7 +208,122 @@ export function GenerateDocumentDialog({
     setManualValues((prev) => ({ ...prev, [key]: val }))
   }
 
-  // Executa a geração de todos os documentos selecionados
+  // Executa a geração e exportação em PDF fiel dos documentos selecionados
+  const handleGeneratePdf = async () => {
+    if (selectedTemplates.length === 0) {
+      toast({
+        title: 'Nenhum modelo selecionado',
+        description: 'Selecione pelo menos um modelo de documento.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setIsGeneratingPdf(true)
+    setPdfProgress('')
+    const total = selectedTemplates.length
+    let successCount = 0
+
+    try {
+      const dataMap = buildDocumentDataMap({
+        client: currentClient,
+        caseItem: currentCase,
+        settings: state.settings,
+        manualValues,
+        paymentPlans: state.paymentPlans,
+        transactions: state.transactions,
+        transactionCases: (state as any).transactionCases,
+      })
+
+      for (let i = 0; i < total; i++) {
+        const tpl = selectedTemplates[i]
+        setPdfProgress(`Preparando PDF (${i + 1}/${total}): ${tpl.name}...`)
+
+        const templateBuffer = await downloadTemplateBuffer(tpl.file_path)
+        const { blob: docxBlob } = await generateDocxBlob(templateBuffer, dataMap)
+
+        const baseFileName = formatGeneratedFileName(tpl.name, currentClient?.name || 'Cliente')
+
+        setPdfProgress(`Convertendo fielmente via LibreOffice (${i + 1}/${total})...`)
+        const {
+          pdfBlob,
+          error: convError,
+          requiresScript,
+        } = await convertDocxToPdf(docxBlob, baseFileName)
+
+        if (convError || !pdfBlob) {
+          if (requiresScript) {
+            toast({
+              title: 'Conversão PDF requer script no VPS',
+              description:
+                'O serviço Gotenberg/LibreOffice ainda não foi ativado no servidor. Execute o script docs/vps/03-instalar-conversor-pdf-vps.sh no VPS para habilitar a conversão.',
+              variant: 'destructive',
+              duration: 10000,
+            })
+            break
+          } else {
+            toast({
+              title: `Erro ao converter ${tpl.name} em PDF`,
+              description: convError || 'Falha na resposta do conversor de PDF.',
+              variant: 'destructive',
+            })
+            continue
+          }
+        }
+
+        const pdfFileName = baseFileName.replace(/\.docx$/i, '') + '.pdf'
+        triggerFileDownload(pdfBlob, pdfFileName)
+        successCount++
+
+        // Se marcado para anexar ao processo, anexa também o PDF
+        if (attachToCase && currentCase?.id) {
+          const { path: storagePath, error: saveErr } = await saveGeneratedDocxToStorage(
+            pdfBlob,
+            pdfFileName,
+          )
+
+          if (!saveErr && storagePath) {
+            const existingDocs = Array.isArray(currentCase.documents)
+              ? [...currentCase.documents]
+              : []
+            const newDocEntry = {
+              name: pdfFileName,
+              url: storagePath,
+              created_at: new Date().toISOString(),
+              category: tpl.category || 'Contrato/Procuração',
+            }
+            updateItem('cases', currentCase.id, {
+              documents: [...existingDocs, newDocEntry],
+            })
+          }
+        }
+      }
+
+      if (successCount > 0) {
+        toast({
+          title: `${successCount} documento(s) PDF exportado(s)!`,
+          description:
+            'O arquivo PDF foi gerado pelo LibreOffice preservando 100% da formatação e margens do seu modelo.',
+        })
+        addLog(
+          'Documentos',
+          'Exportação PDF',
+          `Exportados ${successCount} PDF(s) para cliente ${currentClient?.name || '—'}`,
+        )
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao gerar PDF',
+        description: err?.message || 'Falha ao processar exportação em PDF.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsGeneratingPdf(false)
+      setPdfProgress('')
+    }
+  }
+
+  // Executa a geração de todos os documentos selecionados (.docx)
   const handleGenerate = async () => {
     if (selectedTemplates.length === 0) {
       toast({
@@ -654,19 +774,53 @@ export function GenerateDocumentDialog({
             )}
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
               size="sm"
               onClick={() => onOpenChange(false)}
-              disabled={isGenerating}
+              disabled={isGenerating || isGeneratingPdf}
             >
               Cancelar
             </Button>
+
+            {/* Botão Adicional: Exportar / Baixar em PDF Fiel */}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleGeneratePdf}
+                    disabled={isGenerating || isGeneratingPdf || selectedTemplates.length === 0}
+                    className="gap-1.5 border-rose-300 text-rose-700 hover:bg-rose-50 hover:text-rose-800 font-medium"
+                  >
+                    {isGeneratingPdf ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin text-rose-600" />
+                        <span className="text-xs">{pdfProgress || 'Convertendo PDF...'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <FileType className="h-4 w-4 text-rose-600" />
+                        <span>Baixar PDF</span>
+                      </>
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs text-xs">
+                  Gera e baixa o documento convertido em PDF com fidelidade 100% de formatação e
+                  margens pelo motor LibreOffice do VPS.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+            {/* Botão Principal .docx (intocado e preservado) */}
             <Button
               size="sm"
               onClick={handleGenerate}
-              disabled={isGenerating || selectedTemplates.length === 0}
+              disabled={isGenerating || isGeneratingPdf || selectedTemplates.length === 0}
               className="gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium"
             >
               {isGenerating ? (
@@ -678,7 +832,7 @@ export function GenerateDocumentDialog({
                 <>
                   <DownloadCloud className="h-4 w-4" />
                   {selectedTemplates.length > 1
-                    ? `Gerar ${selectedTemplates.length} Documentos`
+                    ? `Gerar ${selectedTemplates.length} Documentos (.docx)`
                     : 'Gerar Documento .docx'}
                 </>
               )}

@@ -66,6 +66,7 @@ import {
 
 import { GenerateDocumentDialog } from '@/components/GenerateDocumentDialog'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { supabase } from '@/lib/supabase/client'
 
 const getTaskTypeStyle = (type: string) => {
   const t = (type || '').toLowerCase()
@@ -378,7 +379,7 @@ export default function CaseDetail() {
               onClick={() => setGenerateDocxOpen(true)}
               className="gap-1.5 text-blue-700 bg-blue-50/70 border-blue-200 hover:bg-blue-100/80"
             >
-              <FileUp className="h-4 w-4 text-blue-600" /> Gerar Documento (.docx)
+              <FileUp className="h-4 w-4 text-blue-600" /> Gerar Documento (.docx / PDF)
             </Button>
             <Button variant="outline" size="sm" onClick={() => setIsCaseOpen(true)}>
               <Edit className="h-4 w-4 mr-2" /> Editar
@@ -1235,11 +1236,11 @@ export default function CaseDetail() {
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2 text-blue-900">
                 <FileUp className="h-5 w-5 text-blue-600" /> Gerador de Documentos por Modelos
-                (.docx)
+                (.docx / PDF)
               </CardTitle>
               <CardDescription>
-                Gere contratos, procurações e termos a partir dos seus modelos formatados em .docx
-                com substituição de marcadores e campos manuais.
+                Gere contratos, procurações e termos a partir dos seus modelos com substituição de
+                marcadores e exportação imediata em .docx ou PDF fiel.
               </CardDescription>
             </CardHeader>
             <CardContent className="max-w-md">
@@ -1247,8 +1248,128 @@ export default function CaseDetail() {
                 onClick={() => setGenerateDocxOpen(true)}
                 className="w-full gap-2 bg-blue-600 hover:bg-blue-700 text-white"
               >
-                <FileUp className="h-4 w-4" /> Gerar Contrato / Procuração (.docx)
+                <FileUp className="h-4 w-4" /> Gerar Documentos (.docx / PDF)
               </Button>
+            </CardContent>
+          </Card>
+
+          {/* Lista de Documentos Gerados e Vinculados a este Processo */}
+          <Card className="shadow-sm mt-4">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base flex items-center gap-2 text-slate-800">
+                    <FileText className="h-4 w-4 text-blue-600" /> Documentos Anexados ao Processo
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Arquivos gerados automaticamente e vinculados a esta ficha.
+                  </CardDescription>
+                </div>
+                {Array.isArray(c?.documents) && c.documents.length > 0 && (
+                  <Badge variant="outline" className="text-xs font-mono">
+                    {c.documents.length} arquivo(s)
+                  </Badge>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              {Array.isArray(c?.documents) && c.documents.length > 0 ? (
+                <div className="space-y-2">
+                  {c.documents.map((doc: any, idx: number) => {
+                    const isPdf = String(doc.name || '')
+                      .toLowerCase()
+                      .endsWith('.pdf')
+                    const dateStr = doc.created_at
+                      ? new Date(doc.created_at).toLocaleDateString('pt-BR', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
+                      : '—'
+
+                    return (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between p-3 border rounded-lg hover:bg-slate-50 transition-colors text-xs gap-3"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div
+                            className={`p-2 rounded-md ${
+                              isPdf
+                                ? 'bg-rose-50 text-rose-600 border border-rose-200'
+                                : 'bg-blue-50 text-blue-600 border border-blue-200'
+                            }`}
+                          >
+                            <FileText className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-semibold text-slate-800 truncate" title={doc.name}>
+                              {doc.name}
+                            </p>
+                            <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
+                              <span>{doc.category || 'Documento'}</span>
+                              <span>•</span>
+                              <span>{dateStr}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {doc.url && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs gap-1.5"
+                              onClick={async () => {
+                                try {
+                                  const { data, error } = await supabase.storage
+                                    .from('documents')
+                                    .download(doc.url)
+                                  if (error || !data) {
+                                    toast({
+                                      title: 'Erro ao baixar documento',
+                                      description: error?.message || 'Arquivo não encontrado.',
+                                      variant: 'destructive',
+                                    })
+                                    return
+                                  }
+                                  const downloadUrl = URL.createObjectURL(data)
+                                  const a = document.createElement('a')
+                                  a.href = downloadUrl
+                                  a.download = doc.name
+                                  document.body.appendChild(a)
+                                  a.click()
+                                  document.body.removeChild(a)
+                                  setTimeout(() => URL.revokeObjectURL(downloadUrl), 2000)
+                                } catch (e: any) {
+                                  toast({
+                                    title: 'Falha no download',
+                                    description: e?.message || 'Não foi possível baixar o arquivo.',
+                                    variant: 'destructive',
+                                  })
+                                }
+                              }}
+                            >
+                              <Download className="h-3.5 w-3.5" /> Baixar
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="p-6 text-center border border-dashed rounded-lg text-xs text-muted-foreground space-y-1 bg-slate-50/50">
+                  <FileText className="h-6 w-6 mx-auto text-slate-400" />
+                  <p className="font-medium text-slate-600">Nenhum documento anexado ainda.</p>
+                  <p className="text-[11px]">
+                    Ao gerar contratos e procurações pelo gerador de modelos acima com a opção de
+                    vínculo marcada, eles aparecerão aqui.
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

@@ -39,6 +39,13 @@ export interface Client {
   created_at?: string
   created_by?: string | null
 }
+export interface CaseDocument {
+  name: string
+  url: string
+  created_at: string
+  category?: string
+}
+
 export interface Case {
   id: string
   clientId: string
@@ -66,6 +73,7 @@ export interface Case {
   classification?: string
   created_at?: string
   created_by?: string | null
+  documents?: CaseDocument[]
 }
 export interface Task {
   id: string

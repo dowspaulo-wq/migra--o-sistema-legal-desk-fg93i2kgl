@@ -614,7 +614,7 @@ export default function ClientDetail() {
               onClick={() => setGenerateDocxOpen(true)}
               className="gap-1.5 text-blue-700 bg-blue-50/70 border-blue-200 hover:bg-blue-100/80"
             >
-              <FileText className="h-4 w-4 text-blue-600" /> Gerar Documento (.docx)
+              <FileText className="h-4 w-4 text-blue-600" /> Gerar Documento (.docx / PDF)
             </Button>
             <Button variant="outline" size="sm" onClick={() => setIsEditOpen(true)}>
               <Edit className="h-4 w-4 mr-2" /> Editar

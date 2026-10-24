@@ -9,6 +9,7 @@
     "electronic-signature": 176,
     "zapsign-integration": 176,
     "backup-export": 14,
-    "sync-clients-sheets": 4
+    "sync-clients-sheets": 4,
+    "convert-document": 1
   }
 }
