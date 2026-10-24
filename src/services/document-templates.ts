@@ -918,6 +918,7 @@ export async function generateDocxBlob(
     doc = new Docxtemplater(zip, {
       paragraphLoop: true,
       linebreaks: true,
+      delimiters: { start: '{{', end: '}}' },
       nullGetter: () => '', // Garante que tags ausentes virem vazio em vez de erro "undefined"
     })
   } catch (initErr: any) {
