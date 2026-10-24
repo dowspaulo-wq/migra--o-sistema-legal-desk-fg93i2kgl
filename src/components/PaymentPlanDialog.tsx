@@ -53,6 +53,24 @@ export function PaymentPlanDialog({
   const [notes, setNotes] = useState<string>('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  // Lista dinâmica de contas bancárias de settings.bankAccounts com fallback "Dinheiro Físico"
+  const availableBankAccounts = React.useMemo(() => {
+    const configured = (state?.settings?.bankAccounts || []).filter(
+      (b): b is string => typeof b === 'string' && b.trim().length > 0,
+    )
+    if (configured.length > 0) {
+      return configured
+    }
+    return ['Dinheiro Físico']
+  }, [state?.settings?.bankAccounts])
+
+  // Garante que a conta selecionada seja válida dentro da lista disponível
+  useEffect(() => {
+    if (availableBankAccounts.length > 0 && !availableBankAccounts.includes(bankAccount)) {
+      setBankAccount(availableBankAccounts[0])
+    }
+  }, [availableBankAccounts, bankAccount])
+
   // Atualiza defaultClientId e defaultProcessId quando o modal abrir
   useEffect(() => {
     if (open) {
@@ -320,16 +338,14 @@ export function PaymentPlanDialog({
               <Label htmlFor="plan-bank">Conta de Entrada / Saída</Label>
               <Select value={bankAccount} onValueChange={setBankAccount}>
                 <SelectTrigger id="plan-bank">
-                  <SelectValue />
+                  <SelectValue placeholder="Selecione a conta" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="ASAAS">Asaas (Conta Digital)</SelectItem>
-                  <SelectItem value="Inter">Banco Inter</SelectItem>
-                  <SelectItem value="Nubank">Nubank</SelectItem>
-                  <SelectItem value="Caixa">Caixa Econômica</SelectItem>
-                  <SelectItem value="Bradesco">Bradesco</SelectItem>
-                  <SelectItem value="BB">Banco do Brasil</SelectItem>
-                  <SelectItem value="Dinheiro">Dinheiro Físico</SelectItem>
+                  {availableBankAccounts.map((acc) => (
+                    <SelectItem key={acc} value={acc}>
+                      {acc}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

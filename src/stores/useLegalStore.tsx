@@ -822,16 +822,85 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       } else {
         let finalChanges = { ...changes }
 
-        if (table === 'cases') {
-          delete finalChanges._previousStatus
-          delete finalChanges.feeConfig
-          delete finalChanges.isNew
+        // Sanitização geral contra chaves estranhas/vazamentos de UI
+        delete finalChanges.table
+        delete finalChanges._previousStatus
+        delete finalChanges.feeConfig
+        delete finalChanges.isNew
+
+        if (table === 'payment_plans') {
+          const allowedPaymentPlanColumns = new Set([
+            'id',
+            'clientId',
+            'processId',
+            'title',
+            'installmentAmount',
+            'installmentsCount',
+            'periodicity',
+            'firstDueDate',
+            'feePercentage',
+            'clientPercentage',
+            'feeInstallmentAmount',
+            'clientInstallmentAmount',
+            'totalAmount',
+            'totalFeeAmount',
+            'totalClientAmount',
+            'bankAccount',
+            'paymentMethod',
+            'status',
+            'notes',
+            'created_at',
+            'updated_at',
+          ])
+          const sanitized: Record<string, any> = {}
+          for (const [k, v] of Object.entries(finalChanges)) {
+            if (allowedPaymentPlanColumns.has(k)) {
+              sanitized[k] = v
+            }
+          }
+          finalChanges = sanitized
         }
 
-        if (table === 'transactions' && finalChanges.supplierId && !finalChanges.supplier_group) {
-          const sup = state.suppliers.find((s) => s.id === finalChanges.supplierId)
-          if (sup?.group_name) {
-            finalChanges.supplier_group = sup.group_name
+        if (table === 'transactions') {
+          const allowedTransactionColumns = new Set([
+            'id',
+            'description',
+            'amount',
+            'type',
+            'category',
+            'status',
+            'date',
+            'clientId',
+            'processId',
+            'created_at',
+            'sendToFinance',
+            'bankAccount',
+            'supplierId',
+            'asaas_id',
+            'payment_method',
+            'recurring_id',
+            'percentage',
+            'pendente_vinculo',
+            'origem',
+            'plan_id',
+            'pair_id',
+            'installment_number',
+            'installment_total',
+            'supplier_group',
+          ])
+          const sanitized: Record<string, any> = {}
+          for (const [k, v] of Object.entries(finalChanges)) {
+            if (allowedTransactionColumns.has(k)) {
+              sanitized[k] = v
+            }
+          }
+          finalChanges = sanitized
+
+          if (finalChanges.supplierId && !finalChanges.supplier_group) {
+            const sup = state.suppliers.find((s) => s.id === finalChanges.supplierId)
+            if (sup?.group_name) {
+              finalChanges.supplier_group = sup.group_name
+            }
           }
         }
 
@@ -880,10 +949,34 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           }
         })
 
-        const { error: updateError } = await supabase
+        let { error: updateError } = await supabase
           .from(table as any)
           .update(finalChanges as any)
           .eq('id', id)
+
+        // Retry para erro PGRST204 (schema cache desatualizado)
+        if (
+          updateError &&
+          typeof updateError.message === 'string' &&
+          updateError.message.includes('in the schema cache')
+        ) {
+          console.warn(
+            `PGRST204 detectado ao atualizar ${table}, tentando recarregar schema cache e reenviar...`,
+          )
+          try {
+            if (typeof (supabase as any).rest?.reloadSchema === 'function') {
+              await (supabase as any).rest.reloadSchema()
+            }
+          } catch (rErr) {
+            console.warn('supabase.rest.reloadSchema() falhou ou não existe:', rErr)
+          }
+          await new Promise((resolve) => setTimeout(resolve, 300))
+          const retryRes = await supabase
+            .from(table as any)
+            .update(finalChanges as any)
+            .eq('id', id)
+          updateError = retryRes.error
+        }
 
         if (updateError) {
           console.error(`Erro ao atualizar registro na tabela ${table}:`, updateError)
@@ -1433,7 +1526,11 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       const totalClientAmount = Math.round(clientInstallmentAmount * inst * 100) / 100
 
       const planTitle = planData.title.trim() || `Parcelamento com Repasse (${inst}x)`
-      const planPayload = {
+
+      // Sanitização cirúrgica do payload de payment_plans:
+      // remove chaves que não sejam colunas legítimas (ex.: table, _previousStatus, feeConfig, isNew)
+      const rawPlanPayload: Record<string, any> = {
+        ...(planData as any),
         clientId: planData.clientId,
         processId: planData.processId || null,
         title: planTitle,
@@ -1454,14 +1551,73 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         notes: planData.notes || null,
       }
 
-      // 1. Inserir plano na tabela payment_plans
-      const { data: createdPlan, error: planError } = await (supabase as any)
+      delete rawPlanPayload.table
+      delete rawPlanPayload._previousStatus
+      delete rawPlanPayload.feeConfig
+      delete rawPlanPayload.isNew
+
+      const allowedPlanColumns = new Set([
+        'clientId',
+        'processId',
+        'title',
+        'installmentAmount',
+        'installmentsCount',
+        'periodicity',
+        'firstDueDate',
+        'feePercentage',
+        'clientPercentage',
+        'feeInstallmentAmount',
+        'clientInstallmentAmount',
+        'totalAmount',
+        'totalFeeAmount',
+        'totalClientAmount',
+        'bankAccount',
+        'paymentMethod',
+        'status',
+        'notes',
+      ])
+
+      const planPayload: Record<string, any> = {}
+      for (const [k, v] of Object.entries(rawPlanPayload)) {
+        if (allowedPlanColumns.has(k)) {
+          planPayload[k] = v
+        }
+      }
+
+      // 1. Inserir plano na tabela payment_plans com retry para PGRST204
+      let { data: createdPlan, error: planError } = await (supabase as any)
         .from('payment_plans')
         .insert(planPayload as any)
         .select()
         .single()
 
+      if (
+        planError &&
+        typeof planError.message === 'string' &&
+        planError.message.includes('in the schema cache')
+      ) {
+        console.warn(
+          'PGRST204 detectado ao inserir payment_plans, tentando recarregar schema cache e reenviar...',
+        )
+        try {
+          if (typeof (supabase as any).rest?.reloadSchema === 'function') {
+            await (supabase as any).rest.reloadSchema()
+          }
+        } catch (rErr) {
+          console.warn('supabase.rest.reloadSchema() falhou ou não existe:', rErr)
+        }
+        await new Promise((resolve) => setTimeout(resolve, 300))
+        const retryRes = await (supabase as any)
+          .from('payment_plans')
+          .insert(planPayload as any)
+          .select()
+          .single()
+        createdPlan = retryRes.data
+        planError = retryRes.error
+      }
+
       if (planError || !createdPlan) {
+        console.error('Erro ao criar plano de parcelamento:', planError)
         toast({
           title: 'Erro ao criar plano de parcelamento',
           description: planError?.message || 'Falha ao gravar registro.',
@@ -1527,12 +1683,68 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
 
       const allNewTransactions = [...feeTransactions, ...repasseTransactions]
 
-      const { data: insertedTxns, error: txnsError } = await supabase
+      // Sanitização cirúrgica de cada transação do parcelamento
+      const allowedTxnCols = new Set([
+        'id',
+        'plan_id',
+        'pair_id',
+        'installment_number',
+        'installment_total',
+        'description',
+        'amount',
+        'type',
+        'category',
+        'status',
+        'date',
+        'clientId',
+        'processId',
+        'percentage',
+        'sendToFinance',
+        'bankAccount',
+        'payment_method',
+      ])
+
+      const sanitizedTxns = allNewTransactions.map((tx) => {
+        const cleanTx: Record<string, any> = {}
+        for (const [k, v] of Object.entries(tx)) {
+          if (allowedTxnCols.has(k)) {
+            cleanTx[k] = v
+          }
+        }
+        return cleanTx
+      })
+
+      let { data: insertedTxns, error: txnsError } = await supabase
         .from('transactions')
-        .insert(allNewTransactions as any)
+        .insert(sanitizedTxns as any)
         .select()
 
+      if (
+        txnsError &&
+        typeof txnsError.message === 'string' &&
+        txnsError.message.includes('in the schema cache')
+      ) {
+        console.warn(
+          'PGRST204 detectado ao inserir transactions do parcelamento, tentando recarregar schema cache e reenviar...',
+        )
+        try {
+          if (typeof (supabase as any).rest?.reloadSchema === 'function') {
+            await (supabase as any).rest.reloadSchema()
+          }
+        } catch (rErr) {
+          console.warn('supabase.rest.reloadSchema() falhou ou não existe:', rErr)
+        }
+        await new Promise((resolve) => setTimeout(resolve, 300))
+        const retryTxnRes = await supabase
+          .from('transactions')
+          .insert(sanitizedTxns as any)
+          .select()
+        insertedTxns = retryTxnRes.data
+        txnsError = retryTxnRes.error
+      }
+
       if (txnsError) {
+        console.error('Erro ao gerar lançamentos do parcelamento:', txnsError)
         // Rollback do plano para consistência
         await (supabase as any).from('payment_plans').delete().eq('id', safePlan.id)
         toast({
