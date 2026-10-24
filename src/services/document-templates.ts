@@ -123,6 +123,22 @@ export const AVAILABLE_PLACEHOLDERS: PlaceholderDocumentation[] = [
     aliases: ['number', 'numero', 'numero_endereco'],
   },
   {
+    key: 'cliente.ruaNumero',
+    label: 'Rua e Número (composto)',
+    example: 'Rua das Flores, 123',
+    group: 'Cliente',
+    aliases: ['number_street', 'numberstreet', 'numero_rua', 'rua_numero', 'street_number_br'],
+    description: 'Combina rua e número ("Rua, Nº"). Fallback automático se um deles faltar.',
+  },
+  {
+    key: 'cliente.numeroRua',
+    label: 'Número e Rua (composto invertido)',
+    example: '123, Rua das Flores',
+    group: 'Cliente',
+    aliases: ['street_number'],
+    description: 'Combina número e rua ("Nº, Rua"). Fallback automático se um deles faltar.',
+  },
+  {
     key: 'cliente.complemento',
     label: 'Complemento',
     example: 'Apto 45',
@@ -787,6 +803,14 @@ export function buildDocumentDataMap(params: {
     endereco: enderecoCompleto,
     rua: client.street || client.address || '',
     numero: client.number || '',
+    ruaNumero:
+      (client.street || client.address) && client.number
+        ? `${client.street || client.address}, ${client.number}`
+        : client.street || client.address || client.number || '',
+    numeroRua:
+      client.number && (client.street || client.address)
+        ? `${client.number}, ${client.street || client.address}`
+        : client.number || client.street || client.address || '',
     complemento: client.complement || '',
     bairro: client.neighborhood || '',
     cidade: client.city || '',
@@ -850,6 +874,8 @@ export function buildDocumentDataMap(params: {
     'cliente.endereco': clienteObj.endereco,
     'cliente.rua': clienteObj.rua,
     'cliente.numero': clienteObj.numero,
+    'cliente.ruaNumero': clienteObj.ruaNumero,
+    'cliente.numeroRua': clienteObj.numeroRua,
     'cliente.complemento': clienteObj.complemento,
     'cliente.bairro': clienteObj.bairro,
     'cliente.cidade': clienteObj.cidade,
