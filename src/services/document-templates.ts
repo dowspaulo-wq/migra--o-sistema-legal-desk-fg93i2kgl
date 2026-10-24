@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase/client'
 import PizZip from 'pizzip'
 import Docxtemplater from 'docxtemplater'
+import { isSuccessFeeType } from '@/lib/fee-types'
 
 export interface ManualFieldDefinition {
   key: string
@@ -303,7 +304,7 @@ export const AVAILABLE_PLACEHOLDERS: PlaceholderDocumentation[] = [
   {
     key: 'processo.valorHonorarios',
     label: 'Valor dos Honorários (R$)',
-    example: 'R$ 5.000,00',
+    example: 'R$ 1.000,00',
     group: 'Processo',
     aliases: ['fee_value', 'valor_honorarios', 'honorarios'],
   },
@@ -435,7 +436,7 @@ export const AVAILABLE_PLACEHOLDERS: PlaceholderDocumentation[] = [
   {
     key: 'valorHonorarios',
     label: 'Valor dos Honorários (manual)',
-    example: 'R$ 5.000,00',
+    example: 'R$ 1.000,00',
     group: 'Campos Manuais',
     aliases: ['honorarios_valor', 'fee_amount'],
     description: 'Definido no modelo pelo advogado',
@@ -734,6 +735,160 @@ function numeroPorExtenso(valor: number): string {
 }
 
 /**
+ * Calcula dados de honorários, percentual de êxito e parcelas do processo:
+ * 1. fee_value: soma das parcelas dos planos de pagamento do processo, excluindo êxito. Fallback no campo atual.
+ * 2. fee_percentage: percentual de êxito cadastrado no processo ("30%"). Se não houver, string vazia -> aciona [PREENCHER: ...].
+ * 3. fee_installments: número de parcelas do plano ("5"); vazio se não houver plano.
+ */
+function calculateProcessFees(params: {
+  caseItem?: any
+  paymentPlans?: any[]
+  transactions?: any[]
+  transactionCases?: any[]
+}): {
+  feeValueFormatted: string
+  feePercentageFormatted: string
+  feeInstallments: string
+} {
+  const { caseItem = {}, paymentPlans = [], transactions = [], transactionCases = [] } = params
+  const caseId = caseItem?.id ? String(caseItem.id) : null
+
+  const isTxLinkedToCase = (t: any): boolean => {
+    if (!caseId || !t) return false
+    if (t.processId && String(t.processId) === caseId) return true
+    return transactionCases.some(
+      (tc: any) => String(tc?.case_id) === caseId && String(tc?.transaction_id) === String(t?.id),
+    )
+  }
+
+  const isPlanLinkedToCase = (p: any): boolean => {
+    if (!caseId || !p) return false
+    if (p.processId && String(p.processId) === caseId) return true
+    return transactions.some(
+      (t: any) => t.plan_id && String(t.plan_id) === String(p.id) && isTxLinkedToCase(t),
+    )
+  }
+
+  // 1. Planos de pagamento vinculados ao processo (excluindo registros de êxito)
+  const linkedPlans = paymentPlans.filter(isPlanLinkedToCase)
+  const nonSuccessPlans = linkedPlans.filter(
+    (p: any) => !isSuccessFeeType(p.title) && !isSuccessFeeType(p.notes),
+  )
+
+  let totalParcelasSum = 0
+  let totalInstallmentsCount = 0
+  let hasParcelasFromPlans = false
+
+  const accountedPlanIds = new Set<string>()
+
+  if (nonSuccessPlans.length > 0) {
+    for (const plan of nonSuccessPlans) {
+      accountedPlanIds.add(String(plan.id))
+      const count = Math.max(1, parseInt(String(plan.installmentsCount), 10) || 1)
+      const instAmount = Number(plan.installmentAmount) || 0
+      const planTotal = instAmount > 0 ? instAmount * count : Number(plan.totalAmount) || 0
+
+      if (planTotal > 0 || count > 0) {
+        totalParcelasSum += planTotal
+        totalInstallmentsCount += count
+        hasParcelasFromPlans = true
+      }
+    }
+  }
+
+  // 2. Transações de parcelas vinculadas ao processo não associadas aos planos já computados acima
+  const linkedTxns = transactions.filter(isTxLinkedToCase)
+  const nonSuccessTxns = linkedTxns.filter((t: any) => {
+    if (t.plan_id && accountedPlanIds.has(String(t.plan_id))) return false
+    if (t.type === 'expense') return false
+    const cat = t.category || ''
+    const desc = t.description || ''
+    return !isSuccessFeeType(cat) && !isSuccessFeeType(desc)
+  })
+
+  // Se houver transações de honorários parcelados avulsos (sem payment_plan)
+  if (!hasParcelasFromPlans && nonSuccessTxns.length > 0) {
+    const sumTxns = nonSuccessTxns.reduce((acc: number, t: any) => acc + (Number(t.amount) || 0), 0)
+    if (sumTxns > 0) {
+      totalParcelasSum = sumTxns
+      hasParcelasFromPlans = true
+      const maxInstTotal = Math.max(
+        0,
+        ...nonSuccessTxns.map((t: any) => parseInt(String(t.installment_total || 0), 10) || 0),
+      )
+      totalInstallmentsCount = maxInstTotal > 0 ? maxInstTotal : nonSuccessTxns.length
+    }
+  }
+
+  // 1. {{fee_value}} → soma dos valores das parcelas dos planos; fallback no campo atual do processo
+  let feeValueFormatted = ''
+  if (hasParcelasFromPlans && totalParcelasSum > 0) {
+    feeValueFormatted = formatCurrency(totalParcelasSum)
+  } else if (caseItem.feeValue != null) {
+    feeValueFormatted = formatCurrency(caseItem.feeValue)
+  }
+
+  // 3. {{fee_installments}} → número de parcelas do plano ("5"); vazio se não houver plano
+  let feeInstallments = ''
+  if (hasParcelasFromPlans && totalInstallmentsCount > 0) {
+    feeInstallments = String(totalInstallmentsCount)
+  } else if (caseItem.feeInstallments) {
+    feeInstallments = String(caseItem.feeInstallments)
+  }
+
+  // 2. {{fee_percentage}} → o percentual de êxito cadastrado no processo (ex.: "30%").
+  // Se não houver percentual, string vazia -> aciona o [PREENCHER: ...] padrão existente
+  let foundPercentage: number | null = null
+
+  // A. Do próprio registro do caso (se preenchido e > 0)
+  if (caseItem.feePercentage != null && Number(caseItem.feePercentage) > 0) {
+    foundPercentage = Number(caseItem.feePercentage)
+  } else if (caseItem.fee_percentage != null && Number(caseItem.fee_percentage) > 0) {
+    foundPercentage = Number(caseItem.fee_percentage)
+  }
+
+  // B. De transação de honorários de êxito vinculada ao processo
+  if (foundPercentage == null) {
+    const successTx = linkedTxns.find((t: any) => {
+      const isSucc = isSuccessFeeType(t.category) || isSuccessFeeType(t.description)
+      return isSucc && t.percentage != null && Number(t.percentage) > 0
+    })
+    if (successTx) {
+      foundPercentage = Number(successTx.percentage)
+    }
+  }
+
+  // C. De plano de pagamento vinculado ao processo que tenha feePercentage > 0
+  if (foundPercentage == null) {
+    const planWithPct = linkedPlans.find(
+      (p: any) => p.feePercentage != null && Number(p.feePercentage) > 0,
+    )
+    if (planWithPct) {
+      foundPercentage = Number(planWithPct.feePercentage)
+    }
+  }
+
+  // D. De qualquer transação vinculada com percentage > 0
+  if (foundPercentage == null) {
+    const anyTxWithPct = linkedTxns.find(
+      (t: any) => t.percentage != null && Number(t.percentage) > 0,
+    )
+    if (anyTxWithPct) {
+      foundPercentage = Number(anyTxWithPct.percentage)
+    }
+  }
+
+  const feePercentageFormatted =
+    foundPercentage != null && foundPercentage > 0 ? formatPercentage(foundPercentage) : ''
+
+  return {
+    feeValueFormatted,
+    feePercentageFormatted,
+    feeInstallments,
+  }
+}
+
+/**
  * Constrói o mapa de dados completo a partir do cliente, processo, escritório e inputs manuais
  */
 export function buildDocumentDataMap(params: {
@@ -741,8 +896,19 @@ export function buildDocumentDataMap(params: {
   caseItem?: any
   settings?: any
   manualValues?: Record<string, any>
+  paymentPlans?: any[]
+  transactions?: any[]
+  transactionCases?: any[]
 }): Record<string, any> {
-  const { client = {}, caseItem = {}, settings = {}, manualValues = {} } = params
+  const {
+    client = {},
+    caseItem = {},
+    settings = {},
+    manualValues = {},
+    paymentPlans = [],
+    transactions = [],
+    transactionCases = [],
+  } = params
 
   const hoje = new Date()
   const dia = String(hoje.getDate()).padStart(2, '0')
@@ -781,9 +947,13 @@ export function buildDocumentDataMap(params: {
   const valorCausaFormatado = caseItem.value != null ? formatCurrency(caseItem.value) : ''
   const valorCausaExtenso = valorCausaNum > 0 ? numeroPorExtenso(valorCausaNum) : ''
 
-  const valorHonorariosNum = caseItem.feeValue != null ? Number(caseItem.feeValue) : 0
-  const valorHonorariosFormatado =
-    caseItem.feeValue != null ? formatCurrency(caseItem.feeValue) : ''
+  // Cálculos dinâmicos e precisos de honorários a partir dos registros do processo
+  const { feeValueFormatted, feePercentageFormatted, feeInstallments } = calculateProcessFees({
+    caseItem,
+    paymentPlans,
+    transactions,
+    transactionCases,
+  })
 
   const cidadeEscritorio = 'Sorocaba'
   const estadoEscritorio = 'SP'
@@ -837,9 +1007,9 @@ export function buildDocumentDataMap(params: {
     valorCausaNumero:
       valorCausaNum > 0 ? valorCausaNum.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '',
     tipoHonorarios: caseItem.feeType || '',
-    valorHonorarios: valorHonorariosFormatado,
-    percentualHonorarios: caseItem.feePercentage ? formatPercentage(caseItem.feePercentage) : '',
-    parcelasHonorarios: caseItem.feeInstallments ? String(caseItem.feeInstallments) : '',
+    valorHonorarios: feeValueFormatted,
+    percentualHonorarios: feePercentageFormatted || undefined,
+    parcelasHonorarios: feeInstallments,
   }
 
   const escritorioObj = {
@@ -903,6 +1073,11 @@ export function buildDocumentDataMap(params: {
     'processo.percentualHonorarios': processoObj.percentualHonorarios,
     'processo.parcelasHonorarios': processoObj.parcelasHonorarios,
 
+    // Aliases diretos de honorários na raiz
+    fee_value: processoObj.valorHonorarios,
+    fee_percentage: processoObj.percentualHonorarios,
+    fee_installments: processoObj.parcelasHonorarios,
+
     'escritorio.nome': escritorioObj.nome,
     'escritorio.advogado': escritorioObj.advogado,
     'escritorio.oab': escritorioObj.oab,
@@ -956,7 +1131,7 @@ export function buildDocumentDataMap(params: {
       }
     }
 
-    if (foundValue != null) {
+    if (foundValue != null && foundValue !== '') {
       // Garante na chave canônica
       if (rootMap[mainKey] == null || rootMap[mainKey] === '') {
         rootMap[mainKey] = foundValue

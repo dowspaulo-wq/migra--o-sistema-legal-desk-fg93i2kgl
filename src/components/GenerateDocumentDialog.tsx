@@ -227,6 +227,9 @@ export function GenerateDocumentDialog({
         caseItem: currentCase,
         settings: state.settings,
         manualValues,
+        paymentPlans: state.paymentPlans,
+        transactions: state.transactions,
+        transactionCases: (state as any).transactionCases,
       })
 
       // 2. Loop para preenchimento e download de cada modelo selecionado
