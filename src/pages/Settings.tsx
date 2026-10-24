@@ -27,11 +27,13 @@ import {
   RefreshCw,
   LogOut,
   FileSpreadsheet,
+  FileText,
 } from 'lucide-react'
 import { FinancialEntitiesTab } from '@/components/FinancialEntitiesTab'
 import { SystemManagement } from '@/components/SystemManagement'
 import { OnboardingSettingsTab } from '@/components/OnboardingSettingsTab'
 import { AutomationSettingsTab } from '@/components/AutomationSettingsTab'
+import { DocumentTemplatesTab } from '@/components/DocumentTemplatesTab'
 import { UserCheck, Zap } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
@@ -764,6 +766,9 @@ export default function Settings() {
               <TabsTrigger value="options">
                 <Sliders className="h-4 w-4 mr-2" /> Opções Globais
               </TabsTrigger>
+              <TabsTrigger value="documentos">
+                <FileText className="h-4 w-4 mr-2" /> Modelos de Documentos
+              </TabsTrigger>
               <TabsTrigger value="onboarding">
                 <UserCheck className="h-4 w-4 mr-2" /> Onboarding de Cliente
               </TabsTrigger>
@@ -886,6 +891,10 @@ export default function Settings() {
                   renameType('cases', 'type', oldLabel, newLabel)
                 }
               />
+            </TabsContent>
+
+            <TabsContent value="documentos" className="space-y-6">
+              <DocumentTemplatesTab />
             </TabsContent>
 
             <TabsContent value="onboarding" className="space-y-6">

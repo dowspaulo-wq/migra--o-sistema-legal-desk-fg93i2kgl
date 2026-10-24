@@ -49,6 +49,7 @@ import { ClientFeesDialog } from '@/components/ClientFeesDialog'
 import { TransactionDialog } from '@/components/TransactionDialog'
 import { LinkTransactionToCaseDialog } from '@/components/LinkTransactionToCaseDialog'
 import { PaymentPlanDialog } from '@/components/PaymentPlanDialog'
+import { GenerateDocumentDialog } from '@/components/GenerateDocumentDialog'
 import { ClientOnboardingCard } from '@/components/ClientOnboardingCard'
 import { formatSafeLocalDate, formatPhone, getWhatsAppPhone } from '@/lib/utils'
 import { supabase } from '@/lib/supabase/client'
@@ -87,6 +88,7 @@ export default function ClientDetail() {
   const [feeToDelete, setFeeToDelete] = useState<any>(null)
   const [deletingFee, setDeletingFee] = useState(false)
   const [feeDeleteError, setFeeDeleteError] = useState<string | null>(null)
+  const [generateDocxOpen, setGenerateDocxOpen] = useState(false)
   const [syncingFeeId, setSyncingFeeId] = useState<string | null>(null)
   const [bulkSyncing, setBulkSyncing] = useState(false)
   const [editingCase, setEditingCase] = useState<any>(null)
@@ -543,6 +545,12 @@ export default function ClientDetail() {
         onLink={handleLinkToCase}
       />
 
+      <GenerateDocumentDialog
+        open={generateDocxOpen}
+        onOpenChange={setGenerateDocxOpen}
+        client={client}
+      />
+
       <AlertDialog
         open={!!feeToDelete}
         onOpenChange={(v) => {
@@ -600,6 +608,14 @@ export default function ClientDetail() {
             <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2 text-slate-800 dark:text-slate-100">
               {client.name} {client.isSpecial && <span className="text-yellow-400">★</span>}
             </h1>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setGenerateDocxOpen(true)}
+              className="gap-1.5 text-blue-700 bg-blue-50/70 border-blue-200 hover:bg-blue-100/80"
+            >
+              <FileText className="h-4 w-4 text-blue-600" /> Gerar Documento (.docx)
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setIsEditOpen(true)}>
               <Edit className="h-4 w-4 mr-2" /> Editar
             </Button>

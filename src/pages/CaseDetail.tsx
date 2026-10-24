@@ -64,7 +64,7 @@ import {
   stripHtml,
 } from '@/lib/utils'
 
-import { fetchDocumentTemplates } from '@/services/document-templates'
+import { GenerateDocumentDialog } from '@/components/GenerateDocumentDialog'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 const getTaskTypeStyle = (type: string) => {
@@ -116,11 +116,7 @@ export default function CaseDetail() {
   const [editingTransaction, setEditingTransaction] = useState<any>(null)
   const [creatingTransaction, setCreatingTransaction] = useState(false)
   const [creatingPlan, setCreatingPlan] = useState(false)
-  const [templateDialogOpen, setTemplateDialogOpen] = useState(false)
-  const [templates, setTemplates] = useState<any[]>([])
-  const [templateLoading, setTemplateLoading] = useState(false)
-  const [generatingFromTemplate, setGeneratingFromTemplate] = useState<string | null>(null)
-
+  const [generateDocxOpen, setGenerateDocxOpen] = useState(false)
   const c = state.cases.find((x) => x.id === id)
   const client = state.clients.find((cl) => cl.id === c?.clientId)
   const tasks = state.tasks
@@ -218,24 +214,6 @@ export default function CaseDetail() {
     a.click()
     URL.revokeObjectURL(url)
     toast({ title: 'Sucesso', description: 'Documento gerado e baixado.' })
-  }
-
-  const openTemplateDialog = async () => {
-    setTemplateDialogOpen(true)
-    setTemplateLoading(true)
-    const { data } = await fetchDocumentTemplates()
-    setTemplates(data || [])
-    setTemplateLoading(false)
-  }
-
-  const handleGenerateFromTemplate = async (templateId: string) => {
-    setGeneratingFromTemplate(templateId)
-    setGeneratingFromTemplate(null)
-    toast({
-      title: 'Informação',
-      description: 'Geração a partir de template via serviço externo desativada.',
-    })
-    setTemplateDialogOpen(false)
   }
 
   return (
@@ -342,40 +320,12 @@ export default function CaseDetail() {
         defaultProcessId={c.id}
       />
 
-      <Dialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Gerar Documento</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-2 max-h-96 overflow-y-auto">
-            {templateLoading ? (
-              <p className="text-sm text-muted-foreground text-center py-4">Carregando...</p>
-            ) : templates.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                Nenhum template disponível.
-              </p>
-            ) : (
-              templates.map((t) => (
-                <div
-                  key={t.id}
-                  className="flex items-center justify-between border p-3 rounded-lg hover:bg-slate-50 cursor-pointer transition-colors"
-                  onClick={() => handleGenerateFromTemplate(t.id)}
-                >
-                  <div>
-                    <p className="font-medium text-sm">{t.name}</p>
-                    <Badge variant="outline" className="text-xs mt-1">
-                      {t.category}
-                    </Badge>
-                  </div>
-                  {generatingFromTemplate === t.id && (
-                    <span className="text-xs text-primary animate-pulse">Gerando...</span>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      <GenerateDocumentDialog
+        open={generateDocxOpen}
+        onOpenChange={setGenerateDocxOpen}
+        client={client}
+        caseItem={c}
+      />
 
       <div className="flex items-start gap-4">
         <Button variant="outline" size="icon" asChild>
@@ -422,6 +372,14 @@ export default function CaseDetail() {
                 </span>
               )}
             </h1>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setGenerateDocxOpen(true)}
+              className="gap-1.5 text-blue-700 bg-blue-50/70 border-blue-200 hover:bg-blue-100/80"
+            >
+              <FileUp className="h-4 w-4 text-blue-600" /> Gerar Documento (.docx)
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setIsCaseOpen(true)}>
               <Edit className="h-4 w-4 mr-2" /> Editar
             </Button>
@@ -1273,18 +1231,23 @@ export default function CaseDetail() {
             </CardContent>
           </Card>
 
-          <Card className="shadow-sm border-primary/20 bg-primary/5 mt-4">
+          <Card className="shadow-sm border-blue-200 bg-blue-50/30 mt-4">
             <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2 text-primary">
-                <FileUp className="h-5 w-5" /> Gerar Documento de Template
+              <CardTitle className="text-lg flex items-center gap-2 text-blue-900">
+                <FileUp className="h-5 w-5 text-blue-600" /> Gerador de Documentos por Modelos
+                (.docx)
               </CardTitle>
               <CardDescription>
-                Selecione um template .docx para preenchimento automático.
+                Gere contratos, procurações e termos a partir dos seus modelos formatados em .docx
+                com substituição de marcadores e campos manuais.
               </CardDescription>
             </CardHeader>
             <CardContent className="max-w-md">
-              <Button onClick={openTemplateDialog} className="w-full">
-                <FileUp className="mr-2 h-4 w-4" /> Gerar Documento
+              <Button
+                onClick={() => setGenerateDocxOpen(true)}
+                className="w-full gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                <FileUp className="h-4 w-4" /> Gerar Contrato / Procuração (.docx)
               </Button>
             </CardContent>
           </Card>
