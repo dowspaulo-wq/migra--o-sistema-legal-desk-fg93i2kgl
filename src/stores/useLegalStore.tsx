@@ -822,6 +822,12 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       } else {
         let finalChanges = { ...changes }
 
+        if (table === 'cases') {
+          delete finalChanges._previousStatus
+          delete finalChanges.feeConfig
+          delete finalChanges.isNew
+        }
+
         if (table === 'transactions' && finalChanges.supplierId && !finalChanges.supplier_group) {
           const sup = state.suppliers.find((s) => s.id === finalChanges.supplierId)
           if (sup?.group_name) {
@@ -874,10 +880,20 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           }
         })
 
-        await supabase
+        const { error: updateError } = await supabase
           .from(table as any)
           .update(finalChanges as any)
           .eq('id', id)
+
+        if (updateError) {
+          console.error(`Erro ao atualizar registro na tabela ${table}:`, updateError)
+          toast({
+            title: 'Erro ao salvar',
+            description: updateError.message,
+            variant: 'destructive',
+          })
+          return
+        }
 
         if (table === 'cases' && changes.status && originalItem) {
           const oldStatus = originalItem.status
@@ -1193,7 +1209,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
 
   const addCase = useCallback(
     async (newCasePayload: any) => {
-      const { feeConfig, ...caseData } = newCasePayload
+      const { feeConfig, _previousStatus, isNew, ...caseData } = newCasePayload
       if (feeConfig && feeConfig.hasFees) {
         caseData.feeType = feeConfig.feeType
         caseData.feeValue = parseFloat(feeConfig.feeValue || '0')
