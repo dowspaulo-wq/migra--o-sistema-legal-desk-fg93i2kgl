@@ -239,7 +239,7 @@ export function GenerateDocumentDialog({
         const tpl = selectedTemplates[i]
         setPdfProgress(`Preparando PDF (${i + 1}/${total}): ${tpl.name}...`)
 
-        const templateBuffer = await downloadTemplateBuffer(tpl.file_path)
+        const templateBuffer = await downloadTemplateBuffer(tpl)
         const { blob: docxBlob } = await generateDocxBlob(templateBuffer, dataMap)
 
         const baseFileName = formatGeneratedFileName(tpl.name, currentClient?.name || 'Cliente')
@@ -357,8 +357,8 @@ export function GenerateDocumentDialog({
         const tpl = selectedTemplates[i]
         setGenerationProgress(`Processando (${i + 1}/${total}): ${tpl.name}...`)
 
-        // Baixa o buffer do arquivo original no Storage
-        const templateBuffer = await downloadTemplateBuffer(tpl.file_path)
+        // Baixa o buffer do arquivo original no Storage ou da cópia de segurança em base64
+        const templateBuffer = await downloadTemplateBuffer(tpl)
 
         // Preenche client-side com docxtemplater preservando 100% da formatação
         const { blob: docxBlob, unresolvedPlaceholders } = await generateDocxBlob(

@@ -19,6 +19,8 @@ export interface DocumentTemplate {
   manual_fields?: ManualFieldDefinition[]
   description?: string
   updated_at?: string
+  file_base64?: string | null
+  file_size_bytes?: number | null
 }
 
 export interface PlaceholderDocumentation {
@@ -470,6 +472,60 @@ export const AVAILABLE_PLACEHOLDERS: PlaceholderDocumentation[] = [
 /**
  * Busca a lista de modelos de documentos ordenados por data de criação
  */
+/**
+ * Converte um File ou Blob para Base64
+ */
+function fileToBase64(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const res = reader.result as string
+      // Extrai apenas os bytes Base64 sem o prefixo data:...;base64,
+      const commaIdx = res.indexOf(',')
+      resolve(commaIdx >= 0 ? res.slice(commaIdx + 1) : res)
+    }
+    reader.onerror = (err) => reject(err)
+    reader.readAsDataURL(file)
+  })
+}
+
+/**
+ * Converte string Base64 em ArrayBuffer
+ */
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const clean = base64.replace(/\s+/g, '')
+  const binaryString = window.atob(clean)
+  const len = binaryString.length
+  const bytes = new Uint8Array(len)
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i)
+  }
+  return bytes.buffer
+}
+
+/**
+ * Wrapper de timeout para promessas assíncronas (ex: upload no Supabase Storage)
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, errorMsg: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(errorMsg))
+    }, ms)
+    promise
+      .then((res) => {
+        clearTimeout(timer)
+        resolve(res)
+      })
+      .catch((err) => {
+        clearTimeout(timer)
+        reject(err)
+      })
+  })
+}
+
+/**
+ * Busca a lista de modelos de documentos ordenados por data de criação
+ */
 export async function fetchDocumentTemplates(): Promise<{ data: DocumentTemplate[]; error: any }> {
   try {
     const { data, error } = await supabase
@@ -488,6 +544,8 @@ export async function fetchDocumentTemplates(): Promise<{ data: DocumentTemplate
       manual_fields: Array.isArray(item.manual_fields) ? item.manual_fields : [],
       description: item.description || '',
       updated_at: item.updated_at || item.created_at,
+      file_base64: item.file_base64 || null,
+      file_size_bytes: item.file_size_bytes || null,
     }))
 
     return { data: parsed, error: null }
@@ -497,7 +555,14 @@ export async function fetchDocumentTemplates(): Promise<{ data: DocumentTemplate
 }
 
 /**
- * Upload de novo modelo .docx no Storage e registro no banco
+ * Upload de novo modelo .docx no Storage e registro no banco com dupla camada de resiliência.
+ *
+ * Estratégia de alta disponibilidade:
+ * 1. Converte o arquivo para Base64 no cliente para garantia total de persistência (resiliente a timeouts de upstream/Kong).
+ * 2. Tenta salvar no Supabase Storage (com timeout defensivo de 20s para não travar a UI).
+ * 3. Se o Storage responder timeout ("The upstream server is timing out" / Kong 504), continua sem abortar:
+ *    grava os metadados e o conteúdo Base64 na tabela document_templates.
+ * 4. Ao gerar ou baixar o modelo, o sistema consulta preferencialmente o Storage e usa o Base64 como fallback instantâneo.
  */
 export async function uploadDocumentTemplate(
   file: File,
@@ -513,34 +578,129 @@ export async function uploadDocumentTemplate(
     }
   }
 
-  // Tenta upload no bucket document_templates e fallback para document-templates
-  const fileName = `${Date.now()}_${file.name.replace(/\s+/g, '_')}`
-  let uploadBucket = 'document_templates'
-  let { error: uploadError } = await supabase.storage.from(uploadBucket).upload(fileName, file)
+  // Prepara nome seguro e limpo para o Storage (sem acentos e caracteres especiais)
+  const cleanBaseName = file.name
+    .replace(/\.docx$/i, '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9_\-.]/g, '_')
+  const fileName = `${Date.now()}_${cleanBaseName}.docx`
 
-  if (uploadError) {
-    uploadBucket = 'document-templates'
-    const secondTry = await supabase.storage.from(uploadBucket).upload(fileName, file)
-    if (secondTry.error) {
-      return { data: null, error: secondTry.error }
+  // 1. Gera o Base64 do arquivo de forma rápida para backup resiliente no Postgres
+  let base64Content: string | null = null
+  try {
+    base64Content = await fileToBase64(file)
+  } catch (e) {
+    console.warn('[DPSjur] Aviso: Não foi possível codificar modelo em Base64 pré-upload:', e)
+  }
+
+  // 2. Tenta o upload no Supabase Storage com timeout de 20 segundos
+  // Se o Kong/Storage der timeout ou erro de upstream, não bloqueamos o cadastro do modelo
+  let storageUploaded = false
+  const STORAGE_TIMEOUT_MS = 20000
+
+  try {
+    const uploadPromise = supabase.storage.from('document_templates').upload(fileName, file, {
+      contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      upsert: true,
+    })
+
+    const { error: primaryError } = await withTimeout(
+      uploadPromise,
+      STORAGE_TIMEOUT_MS,
+      'Timeout no bucket principal document_templates',
+    )
+
+    if (!primaryError) {
+      storageUploaded = true
+    } else {
+      console.warn(
+        '[DPSjur] Tentando bucket fallback document-templates após:',
+        primaryError.message,
+      )
+      const fallbackPromise = supabase.storage.from('document-templates').upload(fileName, file, {
+        contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        upsert: true,
+      })
+      const { error: secondError } = await withTimeout(
+        fallbackPromise,
+        15000,
+        'Timeout no bucket fallback document-templates',
+      )
+      if (!secondError) {
+        storageUploaded = true
+      } else {
+        console.warn(
+          '[DPSjur] Storage temporariamente indisponível (upstream timeout). Usando camada de persistência resiliente no banco:',
+          secondError.message,
+        )
+      }
+    }
+  } catch (storageErr: any) {
+    console.warn(
+      '[DPSjur] Upload no Storage atingiu timeout ou erro upstream. Acionando gravação resiliente:',
+      storageErr?.message,
+    )
+  }
+
+  // Se o storage falhou e não conseguimos gerar base64, reporta erro informativo
+  if (!storageUploaded && !base64Content) {
+    return {
+      data: null,
+      error: {
+        message:
+          'O servidor de arquivos (Storage) está temporariamente instável e não foi possível armazenar o modelo. Tente novamente em instantes.',
+      },
     }
   }
 
-  const { data, error } = await supabase
+  // 3. Registra os metadados no Postgres (incluindo file_base64 para redundância à prova de timeout)
+  const insertPayload: Record<string, any> = {
+    name: file.name.replace(/\.docx$/i, ''),
+    file_path: fileName,
+    category: category || 'Geral',
+    manual_fields: manualFields,
+    description,
+    file_base64: base64Content,
+    file_size_bytes: file.size,
+    updated_at: new Date().toISOString(),
+  }
+
+  const { data, error: dbError } = await supabase
     .from('document_templates' as any)
-    .insert({
-      name: file.name.replace(/\.docx$/i, ''),
-      file_path: fileName,
-      category: category || 'Geral',
-      manual_fields: manualFields,
-      description,
-      updated_at: new Date().toISOString(),
-    })
+    .insert(insertPayload)
     .select()
     .single()
 
-  if (error) {
-    return { data: null, error }
+  if (dbError) {
+    // Se o banco falhar por algum motivo de coluna, tenta sem file_base64/file_size_bytes
+    if (dbError.message?.includes('file_base64') || dbError.message?.includes('file_size_bytes')) {
+      delete insertPayload.file_base64
+      delete insertPayload.file_size_bytes
+      const retry = await supabase
+        .from('document_templates' as any)
+        .insert(insertPayload)
+        .select()
+        .single()
+      if (retry.error) {
+        return { data: null, error: retry.error }
+      }
+      return {
+        data: {
+          id: (retry.data as any).id,
+          name: (retry.data as any).name,
+          file_path: (retry.data as any).file_path,
+          category: (retry.data as any).category,
+          created_at: (retry.data as any).created_at,
+          manual_fields: (retry.data as any).manual_fields || [],
+          description: (retry.data as any).description || '',
+          updated_at: (retry.data as any).updated_at,
+        },
+        error: null,
+      }
+    }
+
+    return { data: null, error: dbError }
   }
 
   return {
@@ -553,6 +713,8 @@ export async function uploadDocumentTemplate(
       manual_fields: (data as any).manual_fields || [],
       description: (data as any).description || '',
       updated_at: (data as any).updated_at,
+      file_base64: (data as any).file_base64 || null,
+      file_size_bytes: (data as any).file_size_bytes || null,
     },
     error: null,
   }
@@ -588,8 +750,16 @@ export async function deleteDocumentTemplate(
   id: string,
   filePath: string,
 ): Promise<{ error: any }> {
-  await supabase.storage.from('document_templates').remove([filePath])
-  await supabase.storage.from('document-templates').remove([filePath])
+  try {
+    await supabase.storage.from('document_templates').remove([filePath])
+  } catch {
+    /* silencia caso bucket não esteja respondendo */
+  }
+  try {
+    await supabase.storage.from('document-templates').remove([filePath])
+  } catch {
+    /* silencia */
+  }
 
   const { error } = await supabase
     .from('document_templates' as any)
@@ -600,28 +770,79 @@ export async function deleteDocumentTemplate(
 }
 
 /**
- * Baixa o buffer do modelo .docx a partir dos buckets de storage
+ * Baixa o buffer do modelo .docx a partir dos buckets de storage ou da cópia Base64 de segurança
  */
-export async function downloadTemplateBuffer(filePath: string): Promise<ArrayBuffer> {
-  // Tenta primeiro no bucket document_templates
-  let { data, error } = await supabase.storage.from('document_templates').download(filePath)
-  if (error || !data) {
-    const second = await supabase.storage.from('document-templates').download(filePath)
-    if (second.error || !second.data) {
-      const detail = error?.message || second.error?.message || 'Arquivo não encontrado'
-      throw new Error(
-        `Falha ao baixar o arquivo do modelo (${filePath}): ${detail}. Verifique se o arquivo existe no armazenamento.`,
-      )
+export async function downloadTemplateBuffer(
+  templateOrPath: string | DocumentTemplate,
+): Promise<ArrayBuffer> {
+  const filePath = typeof templateOrPath === 'string' ? templateOrPath : templateOrPath.file_path
+  const fallbackBase64 = typeof templateOrPath === 'object' ? templateOrPath.file_base64 : null
+
+  // 1. Tenta baixar do Supabase Storage com timeout de 8 segundos por tentativa
+  try {
+    const downloadPromise = supabase.storage.from('document_templates').download(filePath)
+    const { data, error } = await withTimeout(
+      downloadPromise,
+      8000,
+      'Timeout Storage document_templates',
+    )
+    if (data && !error) {
+      const buffer = await data.arrayBuffer()
+      if (buffer && buffer.byteLength > 0) {
+        return buffer
+      }
     }
-    data = second.data
+  } catch {
+    // Continua para o segundo bucket ou fallback base64
   }
 
-  const buffer = await data.arrayBuffer()
-  if (!buffer || buffer.byteLength === 0) {
-    throw new Error('Não foi possível ler o arquivo do modelo — o arquivo está vazio.')
+  try {
+    const secondPromise = supabase.storage.from('document-templates').download(filePath)
+    const second = await withTimeout(secondPromise, 8000, 'Timeout Storage document-templates')
+    if (second.data && !second.error) {
+      const buffer = await second.data.arrayBuffer()
+      if (buffer && buffer.byteLength > 0) {
+        return buffer
+      }
+    }
+  } catch {
+    // Segue para fallback
   }
 
-  return buffer
+  // 2. Se o template já tiver file_base64 carregado em memória, usa diretamente
+  if (fallbackBase64 && fallbackBase64.trim().length > 0) {
+    try {
+      const buffer = base64ToArrayBuffer(fallbackBase64)
+      if (buffer.byteLength > 0) {
+        return buffer
+      }
+    } catch (e) {
+      console.warn('[DPSjur] Falha ao decodificar file_base64 em memória:', e)
+    }
+  }
+
+  // 3. Se recebemos apenas a filePath (ou não tinha base64 em memória), tenta consultar no banco por file_base64
+  try {
+    const { data: row } = await supabase
+      .from('document_templates' as any)
+      .select('file_base64')
+      .eq('file_path', filePath)
+      .maybeSingle()
+
+    const dbBase64 = (row as any)?.file_base64
+    if (dbBase64 && dbBase64.trim().length > 0) {
+      const buffer = base64ToArrayBuffer(dbBase64)
+      if (buffer.byteLength > 0) {
+        return buffer
+      }
+    }
+  } catch (dbErr) {
+    console.warn('[DPSjur] Erro ao buscar fallback file_base64 no banco:', dbErr)
+  }
+
+  throw new Error(
+    `Não foi possível carregar o arquivo do modelo (${filePath}). O servidor de armazenamento está demorando para responder. Tente novamente em instantes.`,
+  )
 }
 
 /**

@@ -210,7 +210,7 @@ export function DocumentTemplatesTab() {
   const handleDownloadOriginal = async (t: DocumentTemplate) => {
     try {
       toast({ title: 'Baixando modelo original...', description: 'Aguarde um instante.' })
-      const buffer = await downloadTemplateBuffer(t.file_path)
+      const buffer = await downloadTemplateBuffer(t)
       const blob = new Blob([buffer], {
         type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       })

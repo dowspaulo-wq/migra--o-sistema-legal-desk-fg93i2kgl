@@ -1322,7 +1322,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         .select()
         .single()
       if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
-      setState((prev) => ({ ...prev, cases: [data, ...prev.cases] }))
+      setState((prev) => ({ ...prev, cases: [data as any, ...prev.cases] }))
       toast({ title: fullCase.parentId ? 'Subprocesso adicionado' : 'Processo adicionado' })
 
       // Executa regras de automação customizadas adicionais no cadastro de processo
