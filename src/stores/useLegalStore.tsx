@@ -834,6 +834,13 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         delete finalChanges.feeConfig
         delete finalChanges.isNew
 
+        if (table === 'tasks') {
+          // A tabela tasks no Postgres NÃO possui a coluna updatedAt — apenas created_at.
+          // Previne que updatedAt enviado acidentalmente quebre a atualização via PostgREST.
+          delete finalChanges.updatedAt
+          delete finalChanges.updated_at
+        }
+
         if (table === 'payment_plans') {
           const allowedPaymentPlanColumns = new Set([
             'id',

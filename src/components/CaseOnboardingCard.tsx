@@ -72,6 +72,16 @@ export function CaseOnboardingCard({
         (t.type === 'Onboarding' || (t.type || '').toLowerCase().includes('onboarding')),
     )
     .sort((a, b) => {
+      // Ordenação previsível por número de etapa na descrição (ex: "Etapa 1...") e depois data
+      const extractStepNum = (t: Task) => {
+        const match = (t.description || '').match(/Etapa\s+(\d+)/i)
+        if (match) return parseInt(match[1], 10)
+        return 999
+      }
+      const aStep = extractStepNum(a)
+      const bStep = extractStepNum(b)
+      if (aStep !== bStep) return aStep - bStep
+
       const aCreated = new Date(a.created_at || a.dueDate || 0).getTime()
       const bCreated = new Date(b.created_at || b.dueDate || 0).getTime()
       return aCreated - bCreated
@@ -99,7 +109,6 @@ export function CaseOnboardingCard({
       await updateItem('tasks', task.id, {
         status: nextStatus,
         completed_by: nextStatus === 'Concluída' ? currentUserId || null : null,
-        updatedAt: new Date().toISOString(),
       })
       toast({
         title: nextStatus === 'Concluída' ? 'Etapa concluída!' : 'Etapa reaberta',
