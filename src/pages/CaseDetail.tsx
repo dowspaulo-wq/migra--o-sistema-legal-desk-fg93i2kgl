@@ -48,6 +48,7 @@ import {
   Calculator,
 } from 'lucide-react'
 import { SectionErrorBoundary } from '@/components/SectionErrorBoundary'
+import { CaseOnboardingCard } from '@/components/CaseOnboardingCard'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
@@ -512,6 +513,14 @@ export default function CaseDetail() {
           </div>
         </div>
       </div>
+
+      {/* Seção de Onboarding de Processo */}
+      <CaseOnboardingCard
+        caseId={c.id}
+        caseNumber={c.number}
+        clientId={c.clientId}
+        caseResponsibleId={c.responsibleId}
+      />
 
       <Tabs defaultValue="info" className="w-full">
         <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-6 h-auto max-w-4xl gap-1 p-1">

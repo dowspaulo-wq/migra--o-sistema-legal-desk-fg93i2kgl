@@ -176,11 +176,14 @@ export interface CaseStatusType {
   label: string
   color: string
 }
+export type OnboardingType = 'cliente' | 'processo'
+
 export interface OnboardingStep {
   id: string
   title: string
   order: number
   responsibleId?: string | null
+  type?: OnboardingType
 }
 
 export type AutomationTriggerEvent =
@@ -211,16 +214,28 @@ export interface AutomationRule {
   updatedAt?: string
 }
 
-export const DEFAULT_ONBOARDING_STEPS: OnboardingStep[] = [
-  { id: 'step-1', title: 'Cadastrar cliente', order: 1 },
-  { id: 'step-2', title: 'Cadastrar processo(s)', order: 2 },
-  { id: 'step-3', title: 'Coletar documentos', order: 3 },
-  { id: 'step-4', title: 'Tratar documentos (qualidade/PDFs)', order: 4 },
-  { id: 'step-5', title: 'Redigir procuração', order: 5 },
-  { id: 'step-6', title: 'Redigir contrato', order: 6 },
-  { id: 'step-7', title: 'Redigir declaração de hipossuficiência', order: 7 },
-  { id: 'step-8', title: 'Monitorar assinaturas', order: 8 },
+export const DEFAULT_CLIENT_ONBOARDING_STEPS: OnboardingStep[] = [
+  { id: 'step-client-1', title: 'Cadastrar cliente', order: 1, type: 'cliente' },
+  { id: 'step-client-2', title: 'Cadastrar processo(s)', order: 2, type: 'cliente' },
+  { id: 'step-client-3', title: 'Coletar documentos', order: 3, type: 'cliente' },
 ]
+
+export const DEFAULT_CASE_ONBOARDING_STEPS: OnboardingStep[] = [
+  { id: 'step-case-1', title: 'Redigir procuração', order: 1, type: 'processo' },
+  {
+    id: 'step-case-2',
+    title: 'Redigir declaração de hipossuficiência',
+    order: 2,
+    type: 'processo',
+  },
+  { id: 'step-case-3', title: 'Redigir contrato', order: 3, type: 'processo' },
+  { id: 'step-case-4', title: 'Lançar honorários', order: 4, type: 'processo' },
+  { id: 'step-case-5', title: 'Tratar documentos (qualidade/PDFs)', order: 5, type: 'processo' },
+  { id: 'step-case-6', title: 'Monitorar assinaturas', order: 6, type: 'processo' },
+]
+
+// Compatibilidade retroativa
+export const DEFAULT_ONBOARDING_STEPS: OnboardingStep[] = DEFAULT_CLIENT_ONBOARDING_STEPS
 
 export interface Settings {
   id: string
@@ -247,6 +262,7 @@ export interface Settings {
   lastAsaasSyncAt?: string | null
   lastSicoobImportAt?: string | null
   onboardingChecklist?: OnboardingStep[]
+  caseOnboardingChecklist?: OnboardingStep[]
   automationRules?: AutomationRule[]
 }
 export interface WhatsAppMessage {
@@ -328,7 +344,8 @@ export const initialData: LegalState = {
     googleServiceAccount: null,
     lastAsaasSyncAt: null,
     lastSicoobImportAt: null,
-    onboardingChecklist: DEFAULT_ONBOARDING_STEPS,
+    onboardingChecklist: DEFAULT_CLIENT_ONBOARDING_STEPS,
+    caseOnboardingChecklist: DEFAULT_CASE_ONBOARDING_STEPS,
     automationRules: [],
   },
 }

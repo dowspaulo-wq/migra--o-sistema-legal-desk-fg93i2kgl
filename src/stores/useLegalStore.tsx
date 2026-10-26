@@ -66,6 +66,12 @@ interface LegalContextType {
   addLog: (action: string, entity: string, details: string) => void
   addClient: (client: Omit<Client, 'id'>) => Promise<Client | null>
   generateOnboardingTasks: (clientId: string, responsibleId?: string | null) => Promise<Task[]>
+  generateCaseOnboardingTasks: (
+    caseId: string,
+    clientId: string,
+    responsibleId?: string | null,
+    caseNumber?: string | null,
+  ) => Promise<Task[]>
   addCase: (newCase: Omit<Case, 'id' | 'updatedAt'>) => void
   addTask: (task: Omit<Task, 'id'>) => void
   executeAutomationRules: (
@@ -1087,16 +1093,28 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       const s = state.settings
       const steps =
         Array.isArray(s?.onboardingChecklist) && s.onboardingChecklist.length > 0
-          ? [...s.onboardingChecklist].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+          ? [...s.onboardingChecklist]
+              .filter((st) => !st.type || st.type === 'cliente')
+              .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
           : [
-              { id: 'step-1', title: 'Cadastrar cliente', order: 1 },
-              { id: 'step-2', title: 'Cadastrar processo(s)', order: 2 },
-              { id: 'step-3', title: 'Coletar documentos', order: 3 },
-              { id: 'step-4', title: 'Tratar documentos (qualidade/PDFs)', order: 4 },
-              { id: 'step-5', title: 'Redigir procuração', order: 5 },
-              { id: 'step-6', title: 'Redigir contrato', order: 6 },
-              { id: 'step-7', title: 'Redigir declaração de hipossuficiência', order: 7 },
-              { id: 'step-8', title: 'Monitorar assinaturas', order: 8 },
+              {
+                id: 'step-client-1',
+                title: 'Cadastrar cliente',
+                order: 1,
+                type: 'cliente' as const,
+              },
+              {
+                id: 'step-client-2',
+                title: 'Cadastrar processo(s)',
+                order: 2,
+                type: 'cliente' as const,
+              },
+              {
+                id: 'step-client-3',
+                title: 'Coletar documentos',
+                order: 3,
+                type: 'cliente' as const,
+              },
             ]
 
       const fallbackResponsible = responsibleId || state.currentUser?.id || user?.id || null
@@ -1126,10 +1144,11 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         )
       }
 
-      // Combinar estado em memória + dados frescos do banco
+      // Combinar estado em memória + dados frescos do banco (tarefas de cliente NÃO possuem relatedProcessId)
       const memExisting = (state.tasks || []).filter(
         (t) =>
           t.clientId === clientId &&
+          !t.relatedProcessId &&
           (t.type === 'Onboarding' || (t.type || '').toLowerCase().includes('onboarding')),
       )
       const mergedExisting: Task[] = [...((dbExistingTasks as Task[]) || [])]
@@ -1223,6 +1242,162 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       return (data as Task[]) || []
     },
     [state.settings?.onboardingChecklist, state.currentUser?.id, state.tasks, user?.id],
+  )
+
+  const generateCaseOnboardingTasks = useCallback(
+    async (
+      caseId: string,
+      clientId: string,
+      responsibleId?: string | null,
+      caseNumber?: string | null,
+    ): Promise<Task[]> => {
+      const s = state.settings
+      const steps =
+        Array.isArray(s?.caseOnboardingChecklist) && s.caseOnboardingChecklist.length > 0
+          ? [...s.caseOnboardingChecklist]
+              .filter((st) => !st.type || st.type === 'processo')
+              .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+          : [
+              {
+                id: 'step-case-1',
+                title: 'Redigir procuração',
+                order: 1,
+                type: 'processo' as const,
+              },
+              {
+                id: 'step-case-2',
+                title: 'Redigir declaração de hipossuficiência',
+                order: 2,
+                type: 'processo' as const,
+              },
+              { id: 'step-case-3', title: 'Redigir contrato', order: 3, type: 'processo' as const },
+              {
+                id: 'step-case-4',
+                title: 'Lançar honorários',
+                order: 4,
+                type: 'processo' as const,
+              },
+              {
+                id: 'step-case-5',
+                title: 'Tratar documentos (qualidade/PDFs)',
+                order: 5,
+                type: 'processo' as const,
+              },
+              {
+                id: 'step-case-6',
+                title: 'Monitorar assinaturas',
+                order: 6,
+                type: 'processo' as const,
+              },
+            ]
+
+      const fallbackResponsible = responsibleId || state.currentUser?.id || user?.id || null
+      const createdBy = state.currentUser?.id || user?.id || null
+      const todayStr = new Date().toISOString().split('T')[0]
+
+      const isStatusDone = (status?: string | null) => {
+        const normalized = (status || '').trim().toLowerCase()
+        return (
+          normalized === 'concluída' || normalized === 'concluido' || normalized === 'concluida'
+        )
+      }
+
+      // Buscar tarefas de onboarding já vinculadas a este processo
+      const { data: dbExistingTasks, error: fetchErr } = await supabase
+        .from('tasks')
+        .select('*')
+        .eq('relatedProcessId', caseId)
+        .ilike('type', '%onboarding%')
+
+      if (fetchErr) {
+        console.warn(
+          'Falha ao consultar tarefas de onboarding do processo no banco, usando memória local:',
+          fetchErr,
+        )
+      }
+
+      const memExisting = (state.tasks || []).filter(
+        (t) =>
+          t.relatedProcessId === caseId &&
+          (t.type === 'Onboarding' || (t.type || '').toLowerCase().includes('onboarding')),
+      )
+      const mergedExisting: Task[] = [...((dbExistingTasks as Task[]) || [])]
+      const existingDbIds = new Set(mergedExisting.map((t) => t.id))
+      for (const t of memExisting) {
+        if (!existingDbIds.has(t.id)) {
+          mergedExisting.push(t)
+        }
+      }
+
+      const openTaskTitleKeys = new Set<string>()
+      for (const t of mergedExisting) {
+        const done = isStatusDone(t.status)
+        if (!done) {
+          openTaskTitleKeys.add((t.title || '').trim().toLowerCase())
+        }
+      }
+
+      // Regra anti-duplicidade por etapa aberta
+      const candidateSteps = steps.filter((step) => {
+        const key = (step.title || '').trim().toLowerCase()
+        return !openTaskTitleKeys.has(key)
+      })
+
+      if (candidateSteps.length === 0) {
+        return []
+      }
+
+      const displayNum = caseNumber || 'Processo'
+      const tasksToInsert = candidateSteps.map((step) => {
+        const originalIndex = steps.findIndex(
+          (s) =>
+            s.id === step.id || s.title.trim().toLowerCase() === step.title.trim().toLowerCase(),
+        )
+        const stepNum = originalIndex >= 0 ? originalIndex + 1 : step.order || 1
+
+        return {
+          title: step.title,
+          clientId,
+          relatedProcessId: caseId,
+          status: 'pendente',
+          priority: 'Média',
+          type: 'Onboarding',
+          description: `Etapa ${stepNum} do Onboarding de Processo (${displayNum})`,
+          responsibleId: step.responsibleId || fallbackResponsible,
+          created_by: createdBy,
+          dueDate: todayStr,
+        }
+      })
+
+      const { data, error } = await supabase
+        .from('tasks')
+        .insert(tasksToInsert as any)
+        .select()
+
+      if (error) {
+        console.error('Erro ao gerar tarefas de onboarding do processo:', error)
+        toast({
+          title: 'Aviso de Onboarding de Processo',
+          description: 'Houve falha ao gerar as etapas de onboarding do processo.',
+          variant: 'destructive',
+        })
+        return []
+      }
+
+      if (data && data.length > 0) {
+        setState((prev) => {
+          const existingIds = new Set(prev.tasks.map((t) => t.id))
+          const fresh = (data as Task[]).filter((t) => !existingIds.has(t.id))
+          return {
+            ...prev,
+            tasks: [...fresh, ...prev.tasks],
+          }
+        })
+      }
+
+      return (data as Task[]) || []
+    },
+    [state.settings?.caseOnboardingChecklist, state.currentUser?.id, state.tasks, user?.id],
   )
 
   const addClient = useCallback(
@@ -1325,6 +1500,13 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       setState((prev) => ({ ...prev, cases: [data as any, ...prev.cases] }))
       toast({ title: fullCase.parentId ? 'Subprocesso adicionado' : 'Processo adicionado' })
 
+      // Dispara automaticamente as tarefas de onboarding de PROCESSO vinculadas a este caso
+      try {
+        await generateCaseOnboardingTasks(data.id, data.clientId, data.responsibleId, data.number)
+      } catch (onbErr) {
+        console.error('Erro ao disparar onboarding de processo:', onbErr)
+      }
+
       // Executa regras de automação customizadas adicionais no cadastro de processo
       try {
         await executeAutomationRules('case_created', {
@@ -1393,7 +1575,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [executeAutomationRules],
+    [generateCaseOnboardingTasks, executeAutomationRules],
   )
 
   const addAppointment = useCallback(async (app: Omit<Appointment, 'id'>) => {
@@ -2011,6 +2193,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         addLog,
         addClient,
         generateOnboardingTasks,
+        generateCaseOnboardingTasks,
         executeAutomationRules,
         addCase,
         addTask,

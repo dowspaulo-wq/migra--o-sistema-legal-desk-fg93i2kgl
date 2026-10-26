@@ -62,11 +62,12 @@ export function ClientOnboardingCard({
   // Pode disparar onboarding: cliente novo (qualquer usuário) OU admin (mesmo para clientes antigos)
   const canTriggerOnboarding = isNewClient || isAdmin
 
-  // Filtra as tarefas de onboarding vinculadas a este cliente
+  // Filtra as tarefas de onboarding vinculadas a este cliente (sem processo atrelado)
   const onboardingTasks = state.tasks
     .filter(
       (t) =>
         t.clientId === clientId &&
+        !t.relatedProcessId &&
         (t.type === 'Onboarding' || (t.type || '').toLowerCase().includes('onboarding')),
     )
     .sort((a, b) => {
