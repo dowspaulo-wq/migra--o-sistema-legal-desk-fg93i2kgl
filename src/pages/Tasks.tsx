@@ -54,6 +54,7 @@ import { Download } from 'lucide-react'
 import { DatePicker } from '@/components/ui/date-picker'
 import { MultiSelect } from '@/components/ui/multi-select'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { isTaskDone, canonicalTaskStatus } from '@/lib/taskStatus'
 
 const getTaskTypeStyle = (type: string) => {
   const t = (type || '').toLowerCase()
@@ -210,14 +211,9 @@ export default function Tasks() {
   }
   const handleSave = (fd: any) => {
     if (editingItem) {
-      const isFinishing =
-        fd.status &&
-        (fd.status.toLowerCase() === 'concluída' || fd.status.toLowerCase() === 'concluído')
-      const wasDone =
-        editingItem.status &&
-        (editingItem.status.toLowerCase() === 'concluída' ||
-          editingItem.status.toLowerCase() === 'concluído')
-      const updatePayload: any = { ...fd }
+      const isFinishing = isTaskDone(fd.status)
+      const wasDone = isTaskDone(editingItem.status)
+      const updatePayload: any = { ...fd, status: canonicalTaskStatus(fd.status) }
       if (isFinishing && !wasDone) {
         updatePayload.completed_by = state.currentUser?.id || null
       } else if (!isFinishing && wasDone) {
@@ -476,8 +472,7 @@ export default function Tasks() {
             const completer = t.completed_by
               ? state.users.find((u) => u.id === t.completed_by)
               : null
-            const isDone =
-              t.status.toLowerCase() === 'concluída' || t.status.toLowerCase() === 'concluído'
+            const isDone = isTaskDone(t.status)
 
             const currentUserRole = state.currentUser?.role?.toLowerCase() || ''
             const responsibleUserRole = resp?.role?.toLowerCase() || ''
@@ -503,7 +498,7 @@ export default function Tasks() {
                       <button
                         onClick={() =>
                           updateItem('tasks', t.id, {
-                            status: isDone ? 'Pendente' : 'Concluído',
+                            status: canonicalTaskStatus(isDone ? 'Pendente' : 'Concluída'),
                             completed_by: isDone ? null : state.currentUser?.id || null,
                           })
                         }
@@ -674,8 +669,7 @@ export default function Tasks() {
             renderItem={(t) => {
               const resp = state.users.find((u) => u.id === t.responsibleId)
               const c = state.cases.find((x) => x.id === t.relatedProcessId)
-              const isDone =
-                t.status.toLowerCase() === 'concluída' || t.status.toLowerCase() === 'concluído'
+              const isDone = isTaskDone(t.status)
               const tStyle = getTaskTypeStyle(t.type)
 
               return (

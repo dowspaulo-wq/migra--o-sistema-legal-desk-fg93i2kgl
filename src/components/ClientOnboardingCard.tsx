@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Task } from '@/lib/mockData'
+import { isTaskDone, canonicalTaskStatus } from '@/lib/taskStatus'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -88,29 +89,20 @@ export function ClientOnboardingCard({
 
   // Contagem de progresso
   const totalSteps = onboardingTasks.length
-  const completedSteps = onboardingTasks.filter(
-    (t) =>
-      (t.status || '').toLowerCase() === 'concluída' ||
-      (t.status || '').toLowerCase() === 'concluido' ||
-      (t.status || '').toLowerCase() === 'concluida',
-  ).length
+  const completedSteps = onboardingTasks.filter((t) => isTaskDone(t.status)).length
   const progressPercent = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0
 
   const handleToggleTask = async (task: Task) => {
-    const isCompleted =
-      (task.status || '').toLowerCase() === 'concluída' ||
-      (task.status || '').toLowerCase() === 'concluido' ||
-      (task.status || '').toLowerCase() === 'concluida'
-
-    const nextStatus = isCompleted ? 'pendente' : 'Concluída'
+    const isCompleted = isTaskDone(task.status)
+    const nextStatus = canonicalTaskStatus(isCompleted ? 'Pendente' : 'Concluída')
 
     try {
       await updateItem('tasks', task.id, {
         status: nextStatus,
-        completed_by: nextStatus === 'Concluída' ? currentUserId || null : null,
+        completed_by: isTaskDone(nextStatus) ? currentUserId || null : null,
       })
       toast({
-        title: nextStatus === 'Concluída' ? 'Etapa concluída!' : 'Etapa reaberta',
+        title: isTaskDone(nextStatus) ? 'Etapa concluída!' : 'Etapa reaberta',
         description: `"${task.title}" marcada como ${nextStatus.toLowerCase()}.`,
       })
     } catch (err: any) {
@@ -331,10 +323,7 @@ export function ClientOnboardingCard({
         ) : (
           <div className="grid gap-2 sm:grid-cols-2">
             {onboardingTasks.map((t, idx) => {
-              const isDone =
-                (t.status || '').toLowerCase() === 'concluída' ||
-                (t.status || '').toLowerCase() === 'concluido' ||
-                (t.status || '').toLowerCase() === 'concluida'
+              const isDone = isTaskDone(t.status)
 
               return (
                 <div
