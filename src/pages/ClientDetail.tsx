@@ -12,6 +12,13 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -96,6 +103,7 @@ export default function ClientDetail() {
   const [editingDirectFee, setEditingDirectFee] = useState<any>(null)
   const [linkingTx, setLinkingTx] = useState<any>(null)
   const [isPlanDialogOpen, setIsPlanDialogOpen] = useState(false)
+  const [selectedProcessFilter, setSelectedProcessFilter] = useState<string>('all')
 
   const client = state.clients.find((c) => c.id === id)
   const allCases = state.cases.filter((c) => c.clientId === id)
@@ -174,15 +182,15 @@ export default function ClientDetail() {
       })
   }, [allCases, clientFees, state.transactionCases])
 
-  const totalFeeCount = clientFees.length + caseDirectFees.length
-
-  const allClientTransactions = state.transactions
-    .filter((t) => t.clientId === id)
-    .sort((a, b) => {
-      const timeA = a.date ? new Date(a.date).getTime() : 0
-      const timeB = b.date ? new Date(b.date).getTime() : 0
-      return (Number.isNaN(timeB) ? 0 : timeB) - (Number.isNaN(timeA) ? 0 : timeA)
-    })
+  const allClientTransactions = useMemo(() => {
+    return (state.transactions || [])
+      .filter((t) => t.clientId === id)
+      .sort((a, b) => {
+        const timeA = a.date ? new Date(a.date).getTime() : 0
+        const timeB = b.date ? new Date(b.date).getTime() : 0
+        return (Number.isNaN(timeB) ? 0 : timeB) - (Number.isNaN(timeA) ? 0 : timeA)
+      })
+  }, [state.transactions, id])
 
   const isTransactionLinked = (transactionId: string, processId: string | null) => {
     if (processId) return true
@@ -197,7 +205,93 @@ export default function ClientDetail() {
     return state.cases.filter((c) => allLinkedIds.includes(c.id))
   }
 
-  const unlinkedCount = allClientTransactions.filter(
+  // Lista de processos presentes nos lançamentos de Honorários e Transações Financeiras
+  const processFilterOptions = useMemo(() => {
+    const processIdMap = new Map<string, string>()
+
+    // Honorários diretos de processo
+    for (const df of caseDirectFees) {
+      if (df.caseId) {
+        processIdMap.set(df.caseId, df.caseNumber || 'Processo sem número')
+      }
+    }
+
+    // Honorários via transações
+    for (const t of clientFees) {
+      if (t.processId) {
+        const foundCase = state.cases.find((c) => c.id === t.processId)
+        processIdMap.set(t.processId, foundCase?.number || t.processId)
+      }
+      const linkedTcs = (state.transactionCases || []).filter((tc) => tc.transaction_id === t.id)
+      for (const tc of linkedTcs) {
+        if (tc.case_id) {
+          const foundCase = state.cases.find((c) => c.id === tc.case_id)
+          processIdMap.set(tc.case_id, foundCase?.number || tc.case_id)
+        }
+      }
+    }
+
+    // Transações financeiras do cliente
+    for (const t of allClientTransactions) {
+      if (t.processId) {
+        const foundCase = state.cases.find((c) => c.id === t.processId)
+        processIdMap.set(t.processId, foundCase?.number || t.processId)
+      }
+      const linkedTcs = (state.transactionCases || []).filter((tc) => tc.transaction_id === t.id)
+      for (const tc of linkedTcs) {
+        if (tc.case_id) {
+          const foundCase = state.cases.find((c) => c.id === tc.case_id)
+          processIdMap.set(tc.case_id, foundCase?.number || tc.case_id)
+        }
+      }
+    }
+
+    const options = Array.from(processIdMap.entries()).map(([caseId, caseNumber]) => ({
+      id: caseId,
+      number: caseNumber,
+    }))
+
+    // Ordena pelo número do processo
+    return options.sort((a, b) => a.number.localeCompare(b.number))
+  }, [caseDirectFees, clientFees, allClientTransactions, state.cases, state.transactionCases])
+
+  // Filtragem dos honorários
+  const filteredCaseDirectFees = useMemo(() => {
+    if (selectedProcessFilter === 'all') return caseDirectFees
+    if (selectedProcessFilter === 'none') return []
+    return caseDirectFees.filter((df) => df.caseId === selectedProcessFilter)
+  }, [caseDirectFees, selectedProcessFilter])
+
+  const filteredClientFees = useMemo(() => {
+    if (selectedProcessFilter === 'all') return clientFees
+    if (selectedProcessFilter === 'none') {
+      return clientFees.filter((t) => !isTransactionLinked(t.id, t.processId))
+    }
+    return clientFees.filter((t) => {
+      if (t.processId === selectedProcessFilter) return true
+      return (state.transactionCases || []).some(
+        (tc) => tc.transaction_id === t.id && tc.case_id === selectedProcessFilter,
+      )
+    })
+  }, [clientFees, selectedProcessFilter, state.transactionCases])
+
+  const totalFeeCount = filteredClientFees.length + filteredCaseDirectFees.length
+
+  // Filtragem das transações financeiras
+  const filteredClientTransactions = useMemo(() => {
+    if (selectedProcessFilter === 'all') return allClientTransactions
+    if (selectedProcessFilter === 'none') {
+      return allClientTransactions.filter((t) => !isTransactionLinked(t.id, t.processId))
+    }
+    return allClientTransactions.filter((t) => {
+      if (t.processId === selectedProcessFilter) return true
+      return (state.transactionCases || []).some(
+        (tc) => tc.transaction_id === t.id && tc.case_id === selectedProcessFilter,
+      )
+    })
+  }, [allClientTransactions, selectedProcessFilter, state.transactionCases])
+
+  const unlinkedCount = filteredClientTransactions.filter(
     (t) => !isTransactionLinked(t.id, t.processId),
   ).length
 
@@ -1251,11 +1345,32 @@ export default function ClientDetail() {
 
       <div className="grid gap-6 md:grid-cols-1">
         <Card className="shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <FileText className="h-5 w-5" /> HONORÁRIOS ({totalFeeCount})
-            </CardTitle>
-            <div className="flex items-center gap-2">
+          <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between pb-2 gap-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <FileText className="h-5 w-5" /> HONORÁRIOS ({totalFeeCount})
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                  Filtrar por processo:
+                </span>
+                <Select value={selectedProcessFilter} onValueChange={setSelectedProcessFilter}>
+                  <SelectTrigger className="w-[260px] h-8 text-xs bg-white dark:bg-slate-950">
+                    <SelectValue placeholder="Todos os processos" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72">
+                    <SelectItem value="all">Todos os processos</SelectItem>
+                    <SelectItem value="none">Sem processo vinculado</SelectItem>
+                    {processFilterOptions.map((opt) => (
+                      <SelectItem key={opt.id} value={opt.id}>
+                        {opt.number}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 variant="outline"
                 size="sm"
@@ -1281,12 +1396,12 @@ export default function ClientDetail() {
           <CardContent>
             {totalFeeCount === 0 ? (
               <p className="text-muted-foreground text-sm">
-                Nenhum honorário cadastrado para este cliente.
+                Nenhum honorário encontrado para este filtro.
               </p>
             ) : (
               <div className="space-y-3 mt-2">
                 {/* 1. Honorários registrados diretamente nos processos (ex.: honorários de êxito) */}
-                {caseDirectFees.map((df) => {
+                {filteredCaseDirectFees.map((df) => {
                   const isSuccess = isSuccessFeeType(df.feeType)
                   return (
                     <div
@@ -1382,7 +1497,7 @@ export default function ClientDetail() {
                 })}
 
                 {/* 2. Honorários lançados via transações financeiras */}
-                {clientFees.map((t) => {
+                {filteredClientFees.map((t) => {
                   const linkedNumbers = getLinkedCaseNumbers(t.id)
                   return (
                     <div
@@ -1495,7 +1610,7 @@ export default function ClientDetail() {
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-lg flex items-center gap-2">
               <FileText className="h-5 w-5" /> Transações Financeiras (
-              {allClientTransactions.length})
+              {filteredClientTransactions.length})
               {unlinkedCount > 0 && (
                 <Badge variant="destructive" className="ml-2 text-xs">
                   {unlinkedCount} sem vínculo
@@ -1504,9 +1619,9 @@ export default function ClientDetail() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {allClientTransactions.length === 0 ? (
+            {filteredClientTransactions.length === 0 ? (
               <p className="text-muted-foreground text-sm">
-                Nenhuma transação financeira cadastrada para este cliente.
+                Nenhuma transação financeira encontrada para este filtro.
               </p>
             ) : (
               <div className="rounded-md border">
@@ -1523,7 +1638,7 @@ export default function ClientDetail() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {allClientTransactions.map((t) => {
+                    {filteredClientTransactions.map((t) => {
                       const linked = isTransactionLinked(t.id, t.processId)
                       const linkedCases = getTransactionLinkedCases(t.id, t.processId)
                       return (
