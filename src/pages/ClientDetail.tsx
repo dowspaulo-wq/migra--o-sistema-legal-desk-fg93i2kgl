@@ -58,7 +58,7 @@ import { LinkTransactionToCaseDialog } from '@/components/LinkTransactionToCaseD
 import { PaymentPlanDialog } from '@/components/PaymentPlanDialog'
 import { GenerateDocumentDialog } from '@/components/GenerateDocumentDialog'
 import { ClientOnboardingCard } from '@/components/ClientOnboardingCard'
-import { formatSafeLocalDate, formatPhone, getWhatsAppPhone } from '@/lib/utils'
+import { formatSafeLocalDate, formatPhone, getWhatsAppPhone, cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase/client'
 import {
   getCaseStatusColor,
@@ -198,16 +198,27 @@ export default function ClientDetail() {
   }
 
   const getTransactionLinkedCases = (transactionId: string, processId: string | null) => {
+    const tx = (state.transactions || []).find((x) => x.id === transactionId)
+    const effectiveProcessId = processId || tx?.processId || null
     const linkedCaseIds = (state.transactionCases || [])
       .filter((tc) => tc.transaction_id === transactionId)
       .map((tc) => tc.case_id)
-    const allLinkedIds = processId ? [...linkedCaseIds, processId] : linkedCaseIds
+    const allLinkedIds = Array.from(
+      new Set(effectiveProcessId ? [...linkedCaseIds, effectiveProcessId] : linkedCaseIds),
+    )
     return state.cases.filter((c) => allLinkedIds.includes(c.id))
   }
 
-  // Lista de processos presentes nos lançamentos de Honorários e Transações Financeiras
+  // Lista de processos presentes nos lançamentos de Honorários e Transações Financeiras (inclui processos do cliente)
   const processFilterOptions = useMemo(() => {
     const processIdMap = new Map<string, string>()
+
+    // Processos do cliente
+    for (const c of allCases) {
+      if (c.id) {
+        processIdMap.set(c.id, c.number || (c as any).title || 'Processo sem número')
+      }
+    }
 
     // Honorários diretos de processo
     for (const df of caseDirectFees) {
@@ -253,7 +264,14 @@ export default function ClientDetail() {
 
     // Ordena pelo número do processo
     return options.sort((a, b) => a.number.localeCompare(b.number))
-  }, [caseDirectFees, clientFees, allClientTransactions, state.cases, state.transactionCases])
+  }, [
+    allCases,
+    caseDirectFees,
+    clientFees,
+    allClientTransactions,
+    state.cases,
+    state.transactionCases,
+  ])
 
   // Filtragem dos honorários
   const filteredCaseDirectFees = useMemo(() => {
@@ -295,11 +313,18 @@ export default function ClientDetail() {
     (t) => !isTransactionLinked(t.id, t.processId),
   ).length
 
-  const getLinkedCaseNumbers = (transactionId: string) => {
-    const linkedCaseIds = (state.transactionCases || [])
-      .filter((tc) => tc.transaction_id === transactionId)
-      .map((tc) => tc.case_id)
-    return state.cases.filter((c) => linkedCaseIds.includes(c.id)).map((c) => c.number)
+  const getLinkedCaseNumbers = (transactionId: string, processId?: string | null) => {
+    const cases = getTransactionLinkedCases(transactionId, processId || null)
+    if (cases.length > 0) {
+      return cases.map((c) => c.number || (c as any).title || 'Processo vinculado')
+    }
+    const tx = (state.transactions || []).find((x) => x.id === transactionId)
+    const fallbackId = processId || tx?.processId
+    if (fallbackId) {
+      const found = (state.cases || []).find((c) => c.id === fallbackId)
+      return [found?.number || (found as any)?.title || fallbackId]
+    }
+    return []
   }
 
   if (!client) return <div className="p-8 text-center">Cliente não encontrado.</div>
@@ -542,6 +567,19 @@ export default function ClientDetail() {
           if (feeEditDraft?.feeId) {
             const feeId = feeEditDraft.feeId
             await updateItem('transactions', feeId, d)
+
+            // Sincroniza também na tabela de relacionamento transaction_cases
+            if (d.processId) {
+              await supabase
+                .from('transaction_cases')
+                .upsert(
+                  { transaction_id: feeId, case_id: d.processId },
+                  { onConflict: 'transaction_id,case_id' },
+                )
+            } else if (d.processId === null) {
+              await supabase.from('transaction_cases').delete().eq('transaction_id', feeId)
+            }
+
             if (d.amount !== undefined) {
               const linkedCaseIds = (state.transactionCases || [])
                 .filter((tc: any) => tc.transaction_id === feeId)
@@ -549,6 +587,7 @@ export default function ClientDetail() {
               const allCaseIds = [
                 ...new Set([
                   ...linkedCaseIds,
+                  ...(d.processId ? [d.processId] : []),
                   ...(feeEditDraft.data?.processId ? [feeEditDraft.data.processId] : []),
                 ]),
               ]
@@ -1498,7 +1537,8 @@ export default function ClientDetail() {
 
                 {/* 2. Honorários lançados via transações financeiras */}
                 {filteredClientFees.map((t) => {
-                  const linkedNumbers = getLinkedCaseNumbers(t.id)
+                  const linkedNumbers = getLinkedCaseNumbers(t.id, t.processId)
+                  const hasLink = isTransactionLinked(t.id, t.processId)
                   return (
                     <div
                       key={t.id}
@@ -1509,7 +1549,10 @@ export default function ClientDetail() {
                         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                           <span>Vencimento: {formatSafeLocalDate(t.date)}</span>
                           {linkedNumbers.length > 0 ? (
-                            <span>• Processos: {linkedNumbers.join(', ')}</span>
+                            <span className="text-slate-700 dark:text-slate-300 font-medium">
+                              • 🔗 Processo{linkedNumbers.length > 1 ? 's' : ''}:{' '}
+                              {linkedNumbers.join(', ')}
+                            </span>
                           ) : (
                             <span className="text-amber-600 font-medium">
                               •{' '}
@@ -1564,17 +1607,24 @@ export default function ClientDetail() {
                               : 'ASAAS'
                             : null}
                         </Button>{' '}
-                        {!isTransactionLinked(t.id, t.processId) && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-amber-500 hover:text-amber-700 hover:bg-amber-50"
-                            onClick={() => setLinkingTx(t)}
-                            title="Vincular a um Processo"
-                          >
-                            <Link2 className="h-4 w-4" />
-                          </Button>
-                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={cn(
+                            'h-8 w-8',
+                            hasLink
+                              ? 'text-blue-600 hover:text-blue-700 hover:bg-blue-50'
+                              : 'text-amber-500 hover:text-amber-700 hover:bg-amber-50',
+                          )}
+                          onClick={() => setLinkingTx(t)}
+                          title={
+                            hasLink
+                              ? `Processo vinculado: ${linkedNumbers.join(', ')}. Clique para alterar.`
+                              : 'Vincular a um Processo'
+                          }
+                        >
+                          <Link2 className="h-4 w-4" />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="icon"
