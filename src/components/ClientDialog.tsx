@@ -18,7 +18,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Toggle } from '@/components/ui/toggle'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Star, ScanLine, Loader2, X, CheckCircle2 } from 'lucide-react'
+import { Star } from 'lucide-react'
 import { ProtectedRichText } from '@/components/ProtectedRichText'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
@@ -30,12 +30,6 @@ import {
   getDocumentMaskPlaceholder,
   getDocumentMaxLength,
 } from '@/lib/document-format'
-import {
-  extractTextFromPdfOrScanned,
-  runTesseractOcr,
-  parseDocumentText,
-  ExtractedClientData,
-} from '@/lib/ocr-document-scanner'
 
 function getEmptyForm(users: any[]) {
   const douglasUser = users.find((u: any) => u.name && u.name.toLowerCase().includes('douglas'))
@@ -78,10 +72,6 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [cepLoading, setCepLoading] = useState(false)
-  const [ocrLoading, setOcrLoading] = useState(false)
-  const [ocrProgress, setOcrProgress] = useState(0)
-  const [ocrStatusText, setOcrStatusText] = useState('')
-  const [ocrNotice, setOcrNotice] = useState<string | null>(null)
   const [fd, setFd] = useState(() => {
     if (client) return client
 
@@ -99,8 +89,6 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
 
   useEffect(() => {
     setFormErrors({})
-    setOcrLoading(false)
-    setOcrNotice(null)
     if (client) {
       setFd(client)
     } else if (open) {
@@ -126,198 +114,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
 
   const clearDraft = () => {
     sessionStorage.removeItem('client_form_draft')
-    setOcrNotice(null)
     setFd(getEmptyForm(users))
-  }
-
-  const handleDocumentScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    // Limpa o input imediatamente para que o mesmo arquivo possa ser relido e o ponteiro não seja retido
-    e.target.value = ''
-    if (!file) return
-
-    setOcrLoading(true)
-    setOcrProgress(5)
-    setOcrStatusText('Lendo documento...')
-    setOcrNotice(null)
-
-    try {
-      let rawText = ''
-      const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
-
-      if (isPdf) {
-        rawText = await extractTextFromPdfOrScanned(file, (p, msg) => {
-          setOcrProgress(p)
-          setOcrStatusText(msg)
-        })
-      } else {
-        // Imagem (PNG, JPG, WEBP, etc.)
-        setOcrProgress(15)
-        setOcrStatusText('Carregando imagem em memória...')
-        rawText = await runTesseractOcr(file, (p, msg) => {
-          setOcrProgress(p)
-          setOcrStatusText(msg)
-        })
-      }
-
-      const parsed: ExtractedClientData = parseDocumentText(rawText)
-
-      const appliedFields: string[] = []
-      setFd((prev: any) => {
-        const updated = { ...prev }
-
-        if (parsed.name && !prev.name) {
-          updated.name = parsed.name
-          appliedFields.push('Nome')
-        } else if (parsed.name) {
-          updated.name = parsed.name // Sobrescreve com o documento lido
-          appliedFields.push('Nome')
-        }
-
-        if (parsed.document) {
-          updated.document = parsed.document
-          if (parsed.type) updated.type = parsed.type
-          appliedFields.push(parsed.type === 'PJ' ? 'CNPJ' : 'CPF')
-        }
-
-        if (parsed.birthday) {
-          updated.birthday = parsed.birthday
-          appliedFields.push('Nascimento')
-        }
-
-        if (parsed.email && !prev.email) {
-          updated.email = parsed.email
-          updated.no_email = false
-          appliedFields.push('E-mail')
-        }
-
-        if (parsed.phone && !prev.phone) {
-          updated.phone = parsed.phone
-          updated.no_phone = false
-          appliedFields.push('Celular')
-        }
-
-        if (parsed.cep) {
-          updated.cep = parsed.cep
-          appliedFields.push('CEP')
-        }
-
-        if (parsed.street) {
-          updated.street = parsed.street
-          appliedFields.push('Rua')
-        }
-
-        if (parsed.number) {
-          updated.number = parsed.number
-          appliedFields.push('Número')
-        }
-
-        if (parsed.complement) {
-          updated.complement = parsed.complement
-        }
-
-        if (parsed.neighborhood) {
-          updated.neighborhood = parsed.neighborhood
-          appliedFields.push('Bairro')
-        }
-
-        if (parsed.city) {
-          updated.city = parsed.city
-          appliedFields.push('Cidade')
-        }
-
-        if (parsed.state) {
-          updated.state = parsed.state
-          appliedFields.push('UF')
-        }
-
-        // Se encontrou RG, CNH, categoria ou filiação (mãe/pai), anota nas observações
-        const extraNotes: string[] = []
-        if (parsed.rg) {
-          extraNotes.push(`Doc. Identidade/RG extraído: ${parsed.rg}`)
-          appliedFields.push('RG')
-        }
-        if (parsed.cnhRegister) {
-          extraNotes.push(`CNH Nº Registro: ${parsed.cnhRegister}`)
-          appliedFields.push('Registro CNH')
-        }
-        if (parsed.cnhCategory) {
-          extraNotes.push(`Categoria CNH: ${parsed.cnhCategory}`)
-        }
-        if (parsed.motherName) {
-          extraNotes.push(`Mãe (Filiação): ${parsed.motherName}`)
-          appliedFields.push('Mãe')
-        }
-        if (parsed.fatherName) {
-          extraNotes.push(`Pai (Filiação): ${parsed.fatherName}`)
-          appliedFields.push('Pai')
-        }
-
-        if (extraNotes.length > 0) {
-          const joinedExtra = extraNotes.join('\n')
-          if (!updated.observacoes) {
-            updated.observacoes = joinedExtra
-          } else {
-            // Adiciona apenas as anotações que ainda não estejam presentes
-            const newLines = extraNotes.filter((n) => !updated.observacoes.includes(n))
-            if (newLines.length > 0) {
-              updated.observacoes = `${updated.observacoes}\n\n${newLines.join('\n')}`
-            }
-          }
-        }
-
-        return updated
-      })
-
-      // Se temos CEP extraído mas rua/bairro/cidade faltou, busca via CEP
-      if (parsed.cep && (!parsed.street || !parsed.city)) {
-        const cleanCep = parsed.cep.replace(/\D/g, '')
-        if (cleanCep.length === 8) {
-          fetchCepData(cleanCep).then((cData) => {
-            if (cData) {
-              setFd((curr: any) => ({
-                ...curr,
-                street: curr.street || cData.street,
-                neighborhood: curr.neighborhood || cData.neighborhood,
-                city: curr.city || cData.city,
-                state: curr.state || cData.state,
-              }))
-            }
-          })
-        }
-      }
-
-      if (appliedFields.length > 0) {
-        setOcrNotice(
-          `Campos pré-preenchidos: ${appliedFields.join(', ')}. Confira os dados extraídos antes de salvar.`,
-        )
-        toast({
-          title: 'Documento lido com sucesso',
-          description: `${appliedFields.length} campo(s) pré-preenchido(s). O arquivo foi descartado da memória.`,
-        })
-      } else {
-        setOcrNotice(
-          'Documento lido, mas nenhum campo específico foi reconhecido com certeza. O arquivo foi descartado.',
-        )
-        toast({
-          title: 'Nenhum campo identificado',
-          description:
-            'A leitura terminou mas os campos não foram reconhecidos. Preencha manualmente.',
-          variant: 'default',
-        })
-      }
-    } catch (err: any) {
-      console.error('Erro na leitura de documento OCR:', err)
-      toast({
-        title: 'Falha na leitura do documento',
-        description: err?.message || 'Não foi possível ler o documento no navegador.',
-        variant: 'destructive',
-      })
-    } finally {
-      setOcrLoading(false)
-      setOcrProgress(0)
-      setOcrStatusText('')
-    }
   }
 
   const handleCepChange = async (value: string) => {
@@ -474,85 +271,6 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
           <DialogHeader>
             <DialogTitle>{client ? 'Editar' : 'Cadastrar'} Cliente</DialogTitle>
           </DialogHeader>
-
-          {/* Área de OCR / Leitura de Documento no Navegador (Privacidade total) */}
-          <div className="rounded-lg border border-dashed border-blue-300 bg-blue-50/50 p-3 text-sm transition-colors">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div className="flex items-start sm:items-center gap-2">
-                <ScanLine className="h-4 w-4 text-blue-600 mt-0.5 sm:mt-0 flex-shrink-0" />
-                <div>
-                  <span className="font-medium text-blue-950">
-                    Ler documento (RG / CNH / Comprovante de endereço)
-                  </span>
-                  <p className="text-xs text-blue-700/80">
-                    Processado 100% no seu navegador. O arquivo não é salvo nem enviado a nenhum
-                    servidor.
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <label
-                  className={`inline-flex items-center justify-center rounded-md border border-blue-300 bg-white px-3 py-1.5 text-xs font-medium text-blue-800 shadow-sm transition-colors hover:bg-blue-100 hover:text-blue-900 focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 ${
-                    ocrLoading ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'
-                  }`}
-                >
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/jpg,image/webp,application/pdf"
-                    onChange={handleDocumentScan}
-                    disabled={ocrLoading}
-                    className="sr-only"
-                  />
-                  {ocrLoading ? (
-                    <>
-                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin text-blue-600" />
-                      Lendo...
-                    </>
-                  ) : (
-                    <>
-                      <ScanLine className="mr-1.5 h-3.5 w-3.5 text-blue-600" />
-                      Carregar arquivo
-                    </>
-                  )}
-                </label>
-              </div>
-            </div>
-
-            {ocrLoading && (
-              <div className="mt-2.5 space-y-1.5">
-                <div className="flex justify-between text-xs text-blue-900">
-                  <span className="flex items-center gap-1.5">
-                    <Loader2 className="h-3 w-3 animate-spin text-blue-600" />
-                    {ocrStatusText || 'Lendo documento...'}
-                  </span>
-                  <span className="font-mono text-[11px]">{ocrProgress}%</span>
-                </div>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-blue-200">
-                  <div
-                    className="h-full bg-blue-600 transition-all duration-300"
-                    style={{ width: `${ocrProgress}%` }}
-                  />
-                </div>
-              </div>
-            )}
-
-            {ocrNotice && !ocrLoading && (
-              <div className="mt-2.5 flex items-start justify-between gap-2 rounded bg-white/80 p-2 text-xs text-blue-900 border border-blue-200">
-                <div className="flex items-start gap-1.5">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 mt-0.5 flex-shrink-0" />
-                  <span>{ocrNotice}</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setOcrNotice(null)}
-                  className="text-blue-400 hover:text-blue-600 flex-shrink-0"
-                  title="Fechar aviso"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            )}
-          </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2 flex justify-between items-end gap-4 pb-1">
