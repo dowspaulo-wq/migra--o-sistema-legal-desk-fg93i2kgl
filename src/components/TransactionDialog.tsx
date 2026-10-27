@@ -511,40 +511,6 @@ export function TransactionDialog({
             )}
 
             <div className="space-y-2">
-              <Label>Fornecedor (Opcional)</Label>
-              <Select
-                value={fd.supplierId || 'none'}
-                onValueChange={(v) => {
-                  if (v === 'none') {
-                    setFd({ ...fd, supplierId: null, supplier_group: null })
-                  } else {
-                    const sup = state.suppliers.find((s) => s.id === v)
-                    setFd({
-                      ...fd,
-                      supplierId: v,
-                      supplier_group: sup?.group_name || null,
-                    })
-                  }
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione um fornecedor" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Nenhum</SelectItem>
-                  {[...(state.suppliers || [])]
-                    .filter((s: any) => s.status === 'Ativo')
-                    .sort((a: any, b: any) => (a.name || '').localeCompare(b.name || '', 'pt-BR'))
-                    .map((s: any) => (
-                      <SelectItem key={s.id} value={s.id}>
-                        {s.name} {s.group_name ? `(${s.group_name})` : ''}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
               <Label>Processo (Opcional)</Label>
               <Select
                 value={fd.processId || 'none'}
