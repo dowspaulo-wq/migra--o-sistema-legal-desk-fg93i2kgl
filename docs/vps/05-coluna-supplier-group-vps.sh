@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur / SBJur - Adição da Coluna 'supplier_group' em public.transactions no VPS
 # Script: docs/vps/05-coluna-supplier-group-vps.sh
-# Versão: v1.0.0
+# Versão: v1.1.0
 # Alvo: VPS Hostinger 2.25.181.69 (EasyPanel / Supabase Self-Hosted)
 # ==============================================================================
 # Finalidade:
@@ -11,9 +11,12 @@
 #    public.clients e public.cases (NUNCA hardcodar Doug/dpsjur que é banco vazio).
 # 2. Executar migração SQL via arquivo temporário (docker cp + psql -f) para evitar
 #    qualquer expansão indevida de variáveis ou $ pelo bash:
-#    - Adição idempotente da coluna `supplier_group` TEXT (nullable) na tabela public.transactions
-#    - Preenchimento retroativo de supplier_group a partir de public.suppliers.group_name
-#    - Concessão de permissões GRANT na tabela public.transactions para authenticated e service_role
+#    - Adição idempotente e isolada da coluna `supplier_group` TEXT em public.transactions
+#    - Concessão de permissões GRANT em public.transactions para authenticated e service_role
+#    - Backfill retroativo de supplier_group condicionado à EXISTÊNCIA real da coluna
+#      public.suppliers.group_name via SQL dinâmico (EXECUTE) para não quebrar em compilação
+#      quando suppliers.group_name não existir no Postgres do VPS. Se não existir, emite
+#      aviso claro e pula o backfill com segurança.
 # 3. Recarregar cache do PostgREST via NOTIFY pgrst e restart do contêiner PostgREST
 # 4. Conferência rigorosa e HONESTA com [OK]/[FALHA] consultando o information_schema
 #    do banco eleito, abortando com código 1 caso a coluna não exista.
@@ -25,7 +28,7 @@
 
 set -uo pipefail
 
-SCRIPT_VERSION="v1.0.0"
+SCRIPT_VERSION="v1.1.0"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -224,39 +227,34 @@ SQL_TEMP_HOST=$(mktemp /tmp/transactions_supplier_group_vps_XXXXXX.sql)
 cat << 'EOF_MIGRATION_SQL' > "$SQL_TEMP_HOST"
 BEGIN;
 
+-- 1. Bloco próprio e garantido para a coluna supplier_group em public.transactions
 DO $$
 BEGIN
     IF EXISTS (
         SELECT 1 FROM information_schema.tables 
         WHERE table_schema = 'public' AND table_name = 'transactions'
     ) THEN
-        -- 1. Coluna supplier_group na tabela transactions
         IF NOT EXISTS (
             SELECT 1 FROM information_schema.columns 
             WHERE table_schema = 'public' AND table_name = 'transactions' AND column_name = 'supplier_group'
         ) THEN
             ALTER TABLE public.transactions ADD COLUMN "supplier_group" TEXT;
+            RAISE NOTICE '[OK] Coluna public.transactions.supplier_group adicionada com sucesso.';
+        ELSE
+            RAISE NOTICE '[INFO] Coluna public.transactions.supplier_group já existe.';
         END IF;
 
-        -- 2. Concessão de permissões adequadas
+        -- Concessão de permissões adequadas
         GRANT SELECT, INSERT, UPDATE, DELETE ON public.transactions TO authenticated;
         GRANT ALL ON public.transactions TO service_role;
+    ELSE
+        RAISE NOTICE '[AVISO] Tabela public.transactions não foi encontrada no banco.';
     END IF;
+END $$;
 
-    -- 3. Preencher supplier_group retroativo a partir dos fornecedores já vinculados
-    IF EXISTS (
-        SELECT 1 FROM information_schema.tables 
-        WHERE table_schema = 'public' AND table_name = 'suppliers'
-    ) THEN
-        UPDATE public.transactions t
-        SET supplier_group = s.group_name
-        FROM public.suppliers s
-        WHERE t."supplierId" = s.id 
-          AND t.supplier_group IS NULL 
-          AND s.group_name IS NOT NULL;
-    END IF;
-
-    -- 4. Garantir que a coluna expenseTypes existe em settings
+-- 2. Garantir coluna expenseTypes em public.settings
+DO $$
+BEGIN
     IF EXISTS (
         SELECT 1 FROM information_schema.tables 
         WHERE table_schema = 'public' AND table_name = 'settings'
@@ -266,7 +264,44 @@ BEGIN
             WHERE table_schema = 'public' AND table_name = 'settings' AND column_name = 'expenseTypes'
         ) THEN
             ALTER TABLE public.settings ADD COLUMN "expenseTypes" JSONB DEFAULT '["Aluguel", "Bolsa de Estágio", "Contabilidade", "Custas e Emolumentos", "Energia Elétrica", "Impostos e Tributos", "Internet e Telefonia", "Marketing e Publicidade", "Material de Escritório", "Pró-labore", "Retirada de Lucros", "Seguros", "Software e Tecnologia", "Tarifas Bancárias", "Outros"]'::jsonb;
+            RAISE NOTICE '[OK] Coluna public.settings.expenseTypes adicionada com sucesso.';
+        ELSE
+            RAISE NOTICE '[INFO] Coluna public.settings.expenseTypes já existe.';
         END IF;
+    END IF;
+END $$;
+
+-- 3. Backfill condicionado: só roda se public.suppliers.group_name existir
+-- Usa EXECUTE dinâmico para evitar erro de compilação do PL/pgSQL caso a coluna não exista.
+DO $$
+DECLARE
+    v_suppliers_exists boolean := false;
+    v_group_name_exists boolean := false;
+BEGIN
+    SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables 
+        WHERE table_schema = 'public' AND table_name = 'suppliers'
+    ) INTO v_suppliers_exists;
+
+    IF v_suppliers_exists THEN
+        SELECT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_schema = 'public' AND table_name = 'suppliers' AND column_name = 'group_name'
+        ) INTO v_group_name_exists;
+
+        IF v_group_name_exists THEN
+            EXECUTE 'UPDATE public.transactions t
+                     SET supplier_group = s.group_name
+                     FROM public.suppliers s
+                     WHERE t."supplierId" = s.id 
+                       AND t.supplier_group IS NULL 
+                       AND s.group_name IS NOT NULL';
+            RAISE NOTICE '[OK] Backfill de supplier_group executado a partir de public.suppliers.group_name.';
+        ELSE
+            RAISE NOTICE '[AVISO] Coluna suppliers.group_name não existe neste banco — backfill de grupos pulado (etapa da nuvem; o VPS define grupos pela própria tela).';
+        END IF;
+    ELSE
+        RAISE NOTICE '[AVISO] Tabela public.suppliers não existe — backfill pulado.';
     END IF;
 END $$;
 
@@ -355,5 +390,5 @@ echo -e "Banco eleito:        ${BOLD}${DB_NAME}${NC}"
 echo -e "Coluna adicionada:   ${BOLD}public.transactions.supplier_group (text)${NC}"
 echo -e "PostgREST cache:     ${BOLD}Recarregado [OK]${NC}"
 echo -e "${BOLD}${GREEN}=====================================================================${NC}"
-echo -e "${BOLD}${YELLOW}Próximo passo: No navegador, edite e salve qualquer lançamento sem o erro PGRST204!${NC}"
+echo -e "${BOLD}${YELLOW}Próximo passo: EasyPanel → dpsjur → Implantar → Ctrl+F5${NC}"
 echo -e "${BOLD}${GREEN}=====================================================================${NC}\n"
