@@ -544,6 +544,41 @@ export function TransactionDialog({
               </Select>
             </div>
 
+            <div className="space-y-2">
+              <Label>Processo (Opcional)</Label>
+              <Select
+                value={fd.processId || 'none'}
+                disabled={Boolean(lockedProcessId)}
+                onValueChange={(v) => {
+                  setFd({ ...fd, processId: v === 'none' ? null : v })
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione um processo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Nenhum</SelectItem>
+                  {(() => {
+                    const activeClientId =
+                      fd.clientId || lockedClientId || (data ? resolveClientId(data) : '')
+                    const clientCases = (state?.cases || [])
+                      .filter((c: any) => !activeClientId || c.clientId === activeClientId)
+                      .sort((a: any, b: any) =>
+                        (a.number || a.title || '').localeCompare(
+                          b.number || b.title || '',
+                          'pt-BR',
+                        ),
+                      )
+                    return clientCases.map((c: any) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.number || c.title || c.id}
+                      </SelectItem>
+                    ))
+                  })()}
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Status *</Label>
