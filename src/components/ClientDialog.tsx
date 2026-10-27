@@ -231,17 +231,38 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
           appliedFields.push('UF')
         }
 
-        // Se encontrou RG ou mãe, anota nas observações se não existiam antes
+        // Se encontrou RG, CNH, categoria ou filiação (mãe/pai), anota nas observações
         const extraNotes: string[] = []
-        if (parsed.rg) extraNotes.push(`RG extraído do doc: ${parsed.rg}`)
-        if (parsed.motherName) extraNotes.push(`Mãe (Filiação): ${parsed.motherName}`)
+        if (parsed.rg) {
+          extraNotes.push(`Doc. Identidade/RG extraído: ${parsed.rg}`)
+          appliedFields.push('RG')
+        }
+        if (parsed.cnhRegister) {
+          extraNotes.push(`CNH Nº Registro: ${parsed.cnhRegister}`)
+          appliedFields.push('Registro CNH')
+        }
+        if (parsed.cnhCategory) {
+          extraNotes.push(`Categoria CNH: ${parsed.cnhCategory}`)
+        }
+        if (parsed.motherName) {
+          extraNotes.push(`Mãe (Filiação): ${parsed.motherName}`)
+          appliedFields.push('Mãe')
+        }
+        if (parsed.fatherName) {
+          extraNotes.push(`Pai (Filiação): ${parsed.fatherName}`)
+          appliedFields.push('Pai')
+        }
 
         if (extraNotes.length > 0) {
           const joinedExtra = extraNotes.join('\n')
           if (!updated.observacoes) {
             updated.observacoes = joinedExtra
-          } else if (!updated.observacoes.includes(extraNotes[0])) {
-            updated.observacoes = `${updated.observacoes}\n\n${joinedExtra}`
+          } else {
+            // Adiciona apenas as anotações que ainda não estejam presentes
+            const newLines = extraNotes.filter((n) => !updated.observacoes.includes(n))
+            if (newLines.length > 0) {
+              updated.observacoes = `${updated.observacoes}\n\n${newLines.join('\n')}`
+            }
           }
         }
 

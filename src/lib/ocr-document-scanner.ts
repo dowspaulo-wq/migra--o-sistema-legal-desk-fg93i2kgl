@@ -1,14 +1,17 @@
 import { BRAZILIAN_STATES } from './cep'
 import { formatCPF, formatCNPJ } from './document-format'
-import { sanitizeClientPhone, formatPhone } from './utils'
+import { sanitizeClientPhone } from './utils'
 
 export interface ExtractedClientData {
   name?: string
   document?: string // CPF ou CNPJ formatado
   type?: 'PF' | 'PJ'
   rg?: string
+  cnhRegister?: string // Nº Registro da CNH
+  cnhCategory?: string // Categoria CNH (A, B, AB, C, D, E)
   birthday?: string // YYYY-MM-DD
   motherName?: string
+  fatherName?: string
   email?: string
   phone?: string // dígitos limpos
   cep?: string // 00000-000
@@ -116,6 +119,52 @@ export async function runTesseractOcr(
 }
 
 /**
+ * Aplica filtros no canvas para aumentar o contraste de documentos escaneados e CNHs
+ * (que possuem fundo verde claro, marcas d'água de segurança e texto fino).
+ */
+function preprocessCanvasForOcr(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
+  try {
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+    const data = imgData.data
+    const len = data.length
+
+    // Aumenta contraste e binariza levemente para evidenciar o texto sobre fundos verdes/claros
+    // Fator de contraste (1.35) e limiar adaptativo
+    const contrast = 1.35
+    const factor = (259 * (contrast * 255 + 255)) / (255 * (259 - contrast * 255))
+
+    for (let i = 0; i < len; i += 4) {
+      // Escala de cinza ponderada (luminância perceptiva)
+      const r = data[i]
+      const g = data[i + 1]
+      const b = data[i + 2]
+      const gray = 0.299 * r + 0.587 * g + 0.114 * b
+
+      // Aplica contraste
+      let contrasted = factor * (gray - 128) + 128
+      if (contrasted < 0) contrasted = 0
+      if (contrasted > 255) contrasted = 255
+
+      // Binarização suave: clareia fundos leves e escurece texto
+      if (contrasted > 195) {
+        contrasted = 255
+      } else if (contrasted < 90) {
+        contrasted = 0
+      }
+
+      data[i] = contrasted
+      data[i + 1] = contrasted
+      data[i + 2] = contrasted
+    }
+
+    ctx.putImageData(imgData, 0, 0)
+  } catch (err) {
+    // Se o navegador bloquear getImageData (ex.: canvas taint), prossegue sem travar
+    console.warn('Pré-processamento de canvas omitido:', err)
+  }
+}
+
+/**
  * Extrai texto de PDF: se tiver camada de texto, usa direto;
  * se for escaneado (sem texto suficiente), renderiza as páginas em canvas e roda OCR.
  */
@@ -138,16 +187,40 @@ export async function extractTextFromPdfOrScanned(
     accumulatedDirectText += ' ' + pageStr
   }
 
-  // Se tem pelo menos 40 caracteres legíveis com letras, considera que o PDF já tem camada de texto
+  // Se o PDF tem camada de texto apenas de rodapé de assinatura digital (ex: Serpro/Medida Provisória)
+  // ou pouquíssimo texto útil de documento (sem CPF, sem nascimento, sem nome de cliente),
+  // ele deve cair no fluxo de OCR por imagem para extrair os dados gráficos da CNH/documento.
   const cleanDirect = accumulatedDirectText.replace(/\s+/g, ' ').trim()
-  if (cleanDirect.length >= 40 && /[a-zA-Z]{3,}/.test(cleanDirect)) {
+  const strippedDigitalSignatureFooter = cleanDirect
+    .replace(
+      /Documento assinado com certificado digital[^]+?https:\/\/www\.serpro\.gov\.br\/assinador-digital\.?/gi,
+      '',
+    )
+    .replace(
+      /REP[UÚ]BLICA FEDERATIVA DO BRASIL\s+MINIST[EÉ]RIO DOS TRANSPORTES\s+SECRETARIA NACIONAL DE TR[AÂ]NSITO\s*-\s*SENATRAN/gi,
+      '',
+    )
+    .replace(/Medida Provis[oó]ria\s+n[ºo]?\s*2200-2\/2001/gi, '')
+    .replace(/Assinador\s+Serpro/gi, '')
+    .trim()
+
+  const hasSubstantialNonFooterText =
+    strippedDigitalSignatureFooter.length >= 60 &&
+    /[a-zA-Z]{3,}/.test(strippedDigitalSignatureFooter) &&
+    // Verifica se tem sinais de dados de documento real (CPF, datas, palavras-chave)
+    /\d{3}\.\d{3}\.\d{3}-\d{2}|\b\d{11}\b|\b\d{2}\/\d{2}\/\d{4}\b|NOME|ENDERE[CÇ]O|FILIA[CÇ][AÃ]O|IDENTIDADE/i.test(
+      strippedDigitalSignatureFooter,
+    )
+
+  if (hasSubstantialNonFooterText) {
     onProgress?.(100, 'Texto extraído com sucesso!')
     return cleanDirect
   }
 
-  // Caso seja escaneado: renderiza páginas em canvas e roda OCR com Tesseract
-  onProgress?.(15, 'PDF digitalizado detectado. Renderizando imagem para OCR...')
-  let fullOcrText = ''
+  // Caso seja escaneado ou a camada de texto só contenha a assinatura digital/ruído:
+  // renderiza TODAS as páginas em canvas com resolução aprimorada (escala 2.5x) e pré-processamento de contraste/nitidez
+  onProgress?.(15, 'Documento com imagem detectado. Renderizando páginas para OCR...')
+  let fullOcrText = strippedDigitalSignatureFooter ? `${strippedDigitalSignatureFooter}\n` : ''
 
   for (let pageNum = 1; pageNum <= numPages; pageNum++) {
     onProgress?.(
@@ -155,9 +228,10 @@ export async function extractTextFromPdfOrScanned(
       `Processando página ${pageNum} de ${numPages}...`,
     )
     const page = await pdfDoc.getPage(pageNum)
-    const viewport = page.getViewport({ scale: 2.0 }) // Resolução 2x para melhor precisão de OCR
+    // Escala 2.5x para maior legibilidade de fontes condensadas e pequenas de CNH
+    const viewport = page.getViewport({ scale: 2.5 })
     const canvas = document.createElement('canvas')
-    const context = canvas.getContext('2d')
+    const context = canvas.getContext('2d', { willReadFrequently: true })
     if (!context) continue
 
     canvas.width = viewport.width
@@ -167,6 +241,9 @@ export async function extractTextFromPdfOrScanned(
       canvasContext: context,
       viewport: viewport,
     }).promise
+
+    // Aplica pré-processamento para aumentar contraste de layouts CNH (fundo esverdeado/texturas de segurança)
+    preprocessCanvasForOcr(canvas, context)
 
     const pageText = await runTesseractOcr(canvas, (p, msg) => {
       const stepBase = 20 + ((pageNum - 1) / numPages) * 75
@@ -224,10 +301,21 @@ export function parseDocumentText(rawText: string): ExtractedClientData {
     .map((l) => l.trim())
     .filter(Boolean)
 
+  // 0. Limpeza prévia de ruídos de assinatura digital (Serpro / MP 2200-2/2001) para evitar falso-positivo em nomes e campos
+  const sanitizedText = text
+    .replace(
+      /Documento assinado com certificado digital[^]+?https:\/\/www\.serpro\.gov\.br\/assinador-digital\.?/gi,
+      ' ',
+    )
+    .replace(/Assinador\s+Serpro/gi, ' ')
+    .replace(/Medida Provis[oó]ria\s+n[ºo]?\s*2200-2\/2001/gi, ' ')
+    .replace(/SERPRO\s*\/\s*SENATRAN/gi, ' ')
+    .replace(/QR-CODE/gi, ' ')
+
   // 1. Extração de CPF
-  // Regex busca 000.000.000-00 ou 11 dígitos isolados
-  const formattedCpfMatches = text.match(/\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/g)
+  // Busca CPF formatado 000.000.000-00 ou com label ou 11 dígitos
   let foundCpf = ''
+  const formattedCpfMatches = sanitizedText.match(/\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/g)
   if (formattedCpfMatches) {
     for (const m of formattedCpfMatches) {
       if (isValidCPF(m)) {
@@ -238,14 +326,27 @@ export function parseDocumentText(rawText: string): ExtractedClientData {
   }
 
   if (!foundCpf) {
-    // Busca CPF com labels como "CPF", "CIC", "DOCUMENTO" ou 11 dígitos
-    const labeledCpf = text.match(
-      /(?:CPF|C\.P\.F\.|CIC|CADASTRO DE PESSOAS F[IÍ]SICAS)[^\d]{0,10}(\d{3}[.\s]?\d{3}[.\s]?\d{3}[-\s]?\d{2})/i,
+    // Busca CPF com labels típicas de CNH ("CPF", "C.P.F.", "CIC", etc.) tolerando pequenas falhas de OCR
+    const labeledCpf = sanitizedText.match(
+      /(?:CPF|C\.P\.F\.|CIC|CADASTRO DE PESSOAS F[IÍ]SICAS)[^\d]{0,15}(\d{3}[.\s]?\d{3}[.\s]?\d{3}[-\s]?\d{2}|\d{11})/i,
     )
     if (labeledCpf) {
       const cleanDigits = labeledCpf[1].replace(/\D/g, '')
       if (isValidCPF(cleanDigits)) {
         foundCpf = formatCPF(cleanDigits)
+      }
+    }
+  }
+
+  if (!foundCpf) {
+    // Procura qualquer sequência isolada de 11 dígitos válida como CPF no documento
+    const allElevenDigits = sanitizedText.match(/\b\d{11}\b/g)
+    if (allElevenDigits) {
+      for (const d of allElevenDigits) {
+        if (isValidCPF(d)) {
+          foundCpf = formatCPF(d)
+          break
+        }
       }
     }
   }
@@ -265,93 +366,184 @@ export function parseDocumentText(rawText: string): ExtractedClientData {
     result.type = 'PJ'
   }
 
-  // 3. Extração de RG
-  // Padrões de RG: "RG 12.345.678-9", "DOC IDENTIDADE", "RG / ORG"
-  const rgMatch = text.match(
-    /(?:RG|R\.G\.|REGISTRO GERAL|DOC\.?\s*IDENTIDADE|IDENTIDADE|CARTEIRA DE IDENTIDADE)[^\d]{0,8}([0-9]{1,2}[.\s]?[0-9]{3}[.\s]?[0-9]{3}[-\s]?[0-9Xx]|\b[0-9]{7,10}\b)/i,
+  // 3. Extração de RG e Órgão Emissor (em CNH: "DOC. IDENTIDADE/ÓRG EMISSOR/UF")
+  // Ex: "MG5070513 SSP MG" ou "12.345.678-9 SSP/SP" ou "MG-12.345.678"
+  const cnhDocIdMatch = sanitizedText.match(
+    /(?:DOC\.?\s*IDENTIDADE|DOC\.?\s*DE\s*IDENTIDADE|DOCUMENTO\s*DE\s*IDENTIDADE|RG|R\.G\.)(?:\s*[/\\-]\s*ÓRG[.\s]*EMISSOR(?:\s*[/\\-]\s*UF)?)?[:\s-]*([A-Za-z]{0,3}\s*[\d.-]{5,15}(?:\s+[A-Za-z0-9/]+){0,3})/i,
   )
-  if (
-    rgMatch &&
-    !rgMatch[1].replace(/\D/g, '').includes(result.document?.replace(/\D/g, '') || 'xyz')
-  ) {
-    result.rg = rgMatch[1].trim()
+  if (cnhDocIdMatch) {
+    const candidateRg = cnhDocIdMatch[1].trim()
+    const digitsOnly = candidateRg.replace(/\D/g, '')
+    // Garante que não é o próprio CPF
+    if (digitsOnly !== result.document?.replace(/\D/g, '') && digitsOnly.length >= 4) {
+      result.rg = candidateRg
+    }
+  }
+
+  if (!result.rg) {
+    const generalRgMatch = sanitizedText.match(
+      /(?:RG|R\.G\.|REGISTRO GERAL|DOC\.?\s*IDENTIDADE|IDENTIDADE|CARTEIRA DE IDENTIDADE)[^\d]{0,8}([0-9]{1,2}[.\s]?[0-9]{3}[.\s]?[0-9]{3}[-\s]?[0-9Xx]|\b[0-9]{7,10}\b)/i,
+    )
+    if (
+      generalRgMatch &&
+      !generalRgMatch[1].replace(/\D/g, '').includes(result.document?.replace(/\D/g, '') || 'xyz')
+    ) {
+      result.rg = generalRgMatch[1].trim()
+    }
+  }
+
+  // 3.1 Extração de Registro CNH e Categoria
+  // Ex CNH: "Nº REGISTRO" ou "REGISTRO" seguido de 11 dígitos, ex: 04116202105
+  const cnhRegisterMatch = sanitizedText.match(
+    /(?:N[º°ª.]?\s*REGISTRO|REGISTRO|N[º°ª.]\s*HABILITA[CÇ][AÃ]O|PDI)[:\s-]*([0-9]{9,12})\b/i,
+  )
+  if (cnhRegisterMatch) {
+    result.cnhRegister = cnhRegisterMatch[1].trim()
+  }
+
+  // Categoria CNH: "CAT. HAB.", "CATEGORIA", "CAT" seguido de A, B, AB, C, D, E, etc.
+  const cnhCategoryMatch = sanitizedText.match(
+    /(?:CAT\.?\s*HAB\.?|CATEGORIA(?:\s*HABILITA[CÇ][AÃ]O)?|CAT\.?)[:\s-]*\b([A-E]{1,2})\b/i,
+  )
+  if (cnhCategoryMatch) {
+    result.cnhCategory = cnhCategoryMatch[1].toUpperCase()
   }
 
   // 4. Data de nascimento
-  // Padrões: "NASCIMENTO: 12/03/1985", "DATA NASC", "DATA DE NASCIMENTO"
-  const birthMatch = text.match(
-    /(?:DATA\s+DE\s+NASCIMENTO|DATA\s+NASC|NASCIMENTO|NASC\.?|DT\.?\s*NASC)[^\d]{0,10}(\d{2}\/\d{2}\/\d{4})/i,
+  // Em CNH: "DATA NASCIMENTO", "DT NASC", "NASCIMENTO", "DATA NASC"
+  const birthMatch = sanitizedText.match(
+    /(?:DATA\s*(?:DE)?\s*NASCIMENTO|DT\.?\s*NASC(?:IMENTO)?|DATA\s*NASC|NASCIMENTO|NASC\.?)[:\s-]*(\d{2}\/\d{2}\/\d{4})/i,
   )
   if (birthMatch) {
     const [d, m, y] = birthMatch[1].split('/')
     result.birthday = `${y}-${m}-${d}`
   } else {
-    // Procura qualquer data antiga plausível entre 1920 e 2015 se houver label próxima
-    const dateMatches = Array.from(text.matchAll(/\b(\d{2})\/(\d{2})\/(19\d{2}|20[01]\d)\b/g))
-    for (const match of dateMatches) {
-      const year = parseInt(match[3], 10)
-      if (year >= 1930 && year <= 2012) {
-        result.birthday = `${match[3]}-${match[2]}-${match[1]}`
-        break
+    // Procura linha que contenha NASC e uma data na mesma linha ou logo a seguir
+    const birthLineMatch = sanitizedText.match(
+      /(?:NASC|NASCIMENTO)[^\n]{0,30}\b(\d{2}\/\d{2}\/\d{4})\b/i,
+    )
+    if (birthLineMatch) {
+      const [d, m, y] = birthLineMatch[1].split('/')
+      result.birthday = `${y}-${m}-${d}`
+    } else {
+      // Procura data antiga plausível de nascimento entre 1920 e 2012
+      // Tomando cuidado para NÃO pegar data de emissão ou validade (que são 2020+)
+      const dateMatches = Array.from(
+        sanitizedText.matchAll(/\b(\d{2})\/(\d{2})\/(19\d{2}|20[01]\d)\b/g),
+      )
+      for (const match of dateMatches) {
+        const year = parseInt(match[3], 10)
+        if (year >= 1930 && year <= 2012) {
+          result.birthday = `${match[3]}-${match[2]}-${match[1]}`
+          break
+        }
       }
     }
   }
+  // 5. Nome completo e Filiação (Pai / Mãe)
+  // CNH tem labels específicos: "NOME", "NOME DO CONDUTOR", e bloco "FILIAÇÃO"
+  const sanitizedLines = sanitizedText
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
 
-  // 5. Nome completo e Filiação (Mãe)
-  // Em CNH: "NOME" na linha anterior ou posterior; "FILIAÇÃO" com nome da mãe
-  for (let i = 0; i < lines.length; i++) {
-    const l = lines[i]
+  for (let i = 0; i < sanitizedLines.length; i++) {
+    const l = sanitizedLines[i]
 
     // Nome
     if (!result.name) {
       const nameHeaderMatch = l.match(
-        /^(?:1\s*)?(?:NOME|NOME COMPLETO|CLIENTE|NOME DO TITULAR)\b[:\s-]*(.*)$/i,
+        /^(?:1\s*)?(?:NOME(?:\s+DO\s+CONDUTOR)?|NOME\s+COMPLETO|CLIENTE|NOME\s+DO\s+TITULAR)\b[:\s-]*(.*)$/i,
       )
       if (nameHeaderMatch) {
         const afterLabel = nameHeaderMatch[1]?.trim()
-        if (afterLabel && afterLabel.length > 5 && /^[A-Za-zÀ-ÿ\s]+$/.test(afterLabel)) {
+        if (afterLabel && afterLabel.length > 5 && isLikelyPersonName(afterLabel)) {
           result.name = cleanPersonName(afterLabel)
-        } else if (i + 1 < lines.length) {
-          const nextLine = lines[i + 1].trim()
-          if (
-            nextLine.length > 5 &&
-            /^[A-Za-zÀ-ÿ\s]+$/.test(nextLine) &&
-            !/FILIA|DOC|DATA|CPF|RG/i.test(nextLine)
-          ) {
-            result.name = cleanPersonName(nextLine)
+        } else {
+          // Olha até 2 linhas abaixo se o OCR quebrou linha após o rótulo
+          for (let step = 1; step <= 2 && i + step < sanitizedLines.length; step++) {
+            const nextCandidate = sanitizedLines[i + step].trim()
+            if (
+              nextCandidate.length > 5 &&
+              isLikelyPersonName(nextCandidate) &&
+              !/FILIA|DOC|DATA|CPF|RG|PERMISS|CAT|HABILIT|LOCAL|ASSIN|MINAS|VALIDA|NACIONAL/i.test(
+                nextCandidate,
+              )
+            ) {
+              result.name = cleanPersonName(nextCandidate)
+              break
+            }
           }
         }
       }
     }
 
-    // Filiação / Nome da mãe
-    if (!result.motherName) {
-      const motherHeaderMatch = l.match(/(?:FILIA[CÇ][AÃ]O|M[AÃ]E|NOME DA M[AÃ]E)[:\s-]*(.*)$/i)
-      if (motherHeaderMatch) {
-        const afterLabel = motherHeaderMatch[1]?.trim()
-        if (afterLabel && afterLabel.length > 5 && /^[A-Za-zÀ-ÿ\s]+$/.test(afterLabel)) {
-          result.motherName = cleanPersonName(afterLabel)
-        } else if (i + 1 < lines.length) {
-          const nextLine = lines[i + 1].trim()
+    // Filiação: Na CNH, vem tipicamente Pai e Mãe (duas linhas após FILIAÇÃO)
+    if (!result.motherName || !result.fatherName) {
+      const filiacaoMatch = l.match(/(?:FILIA[CÇ][AÃ]O|FILIACAO)[:\s-]*(.*)$/i)
+      if (filiacaoMatch) {
+        const parentNames: string[] = []
+        const immediate = filiacaoMatch[1]?.trim()
+        if (immediate && isLikelyPersonName(immediate)) {
+          parentNames.push(immediate)
+        }
+        // Olha as linhas seguintes (até 3)
+        for (let step = 1; step <= 3 && i + step < sanitizedLines.length; step++) {
+          const nextL = sanitizedLines[i + step].trim()
           if (
-            nextLine.length > 5 &&
-            /^[A-Za-zÀ-ÿ\s]+$/.test(nextLine) &&
-            !/PAI|DATA|CPF|RG/i.test(nextLine)
+            isLikelyPersonName(nextL) &&
+            !/PERMISS|ACC|CAT|VALIDADE|HABILITA|LOCAL|DATA|EMISS|ASSIN|MINIST/i.test(nextL)
           ) {
-            result.motherName = cleanPersonName(nextLine)
+            parentNames.push(nextL)
+          } else if (/PERMISS|ACC|CAT|VALIDADE|LOCAL|DATA/i.test(nextL)) {
+            break
           }
+        }
+
+        if (parentNames.length === 1) {
+          result.motherName = cleanPersonName(parentNames[0])
+        } else if (parentNames.length >= 2) {
+          result.fatherName = cleanPersonName(parentNames[0])
+          result.motherName = cleanPersonName(parentNames[1])
+        }
+      }
+    }
+
+    // Rótulos explícitos de MÃE ou PAI
+    if (!result.motherName) {
+      const explicitMother = l.match(/(?:M[AÃ]E|NOME\s+DA\s+M[AÃ]E)[:\s-]*(.*)$/i)
+      if (explicitMother) {
+        const mVal = explicitMother[1]?.trim()
+        if (mVal && isLikelyPersonName(mVal)) {
+          result.motherName = cleanPersonName(mVal)
+        } else if (i + 1 < sanitizedLines.length && isLikelyPersonName(sanitizedLines[i + 1])) {
+          result.motherName = cleanPersonName(sanitizedLines[i + 1])
+        }
+      }
+    }
+
+    if (!result.fatherName) {
+      const explicitFather = l.match(/(?:PAI|NOME\s+DO\s+PAI)[:\s-]*(.*)$/i)
+      if (explicitFather) {
+        const pVal = explicitFather[1]?.trim()
+        if (pVal && isLikelyPersonName(pVal)) {
+          result.fatherName = cleanPersonName(pVal)
+        } else if (i + 1 < sanitizedLines.length && isLikelyPersonName(sanitizedLines[i + 1])) {
+          result.fatherName = cleanPersonName(sanitizedLines[i + 1])
         }
       }
     }
   }
 
-  // Se o nome não foi encontrado por label, procura uma linha em CAIXA ALTA com formato de nome (3+ palavras)
+  // Fallback para Nome: se ainda não achou, procura primeira linha em CAIXA ALTA com 2 a 5 palavras
+  // que não seja cabeçalho governamental ou termo jurídico
   if (!result.name) {
-    for (const l of lines) {
+    for (const l of sanitizedLines) {
       if (
-        /^[A-ZÀ-Ý\s]{10,60}$/.test(l) &&
+        isLikelyPersonName(l) &&
         l.split(/\s+/).length >= 2 &&
-        !/REP[UÚ]BLICA|FEDERATIVA|BRASIL|MINIST[EÉ]RIO|CARTEIRA|NACIONAL|HABILITA[CÇ][AÃ]O|IDENTIDADE|REGISTRO|INSTITUTO|V[AÁ]LIDA|TERRIT[OÓ]RIO/i.test(
+        l.split(/\s+/).length <= 6 &&
+        !/REP[UÚ]BLICA|FEDERATIVA|BRASIL|MINIST[EÉ]RIO|CARTEIRA|NACIONAL|HABILITA[CÇ][AÃ]O|IDENTIDADE|REGISTRO|INSTITUTO|V[AÁ]LIDA|TERRIT[OÓ]RIO|SECRETARIA|DEPARTAMENTO|TR[AÂ]NSITO|SENATRAN|CONTRAN|DENATRAN|ESTADUAL|DETRAN|ASSINADO|DIGITALMENTE|DOCUMENTO|CERTIFICADO|MEDIDA|PROVIS[OÓ]RIA/i.test(
           l,
         )
       ) {
@@ -399,49 +591,108 @@ export function parseDocumentText(rawText: string): ExtractedClientData {
     }
   }
 
-  // 10. Endereço: Rua / Logradouro, Número, Bairro, Cidade
-  // Busca padrões como "RUA DAS FLORES, 123", "AV. BRASIL, Nº 450", "ENDEREÇO:"
-  const streetRegex =
-    /(?:RUA|AVENIDA|AV\.|TRAVESSA|TRAV\.|ALAMEDA|AL\.|RODOVIA|ROD\.|ESTRADA|ESTR\.|PRA[CÇ]A|PC\.)\s+([A-Za-zÀ-ÿ0-9\s.,º°ª-]+)/i
-  const streetMatch = text.match(streetRegex)
-  if (streetMatch) {
-    const fullStreetLine = streetMatch[0].split('\n')[0].trim()
-    // Tenta separar Rua e Número
-    const numSubMatch = fullStreetLine.match(
-      /^(.*?)(?:,\s*|\s+(?:N[º°ª.]|N[UÚ]MERO|N)\s*|\s+)(\d+[A-Za-z]?)(?:[,\s]+(.*))?$/i,
-    )
-    if (numSubMatch) {
-      result.street = numSubMatch[1].replace(/,\s*$/, '').trim()
-      result.number = numSubMatch[2].trim()
-      if (numSubMatch[3]) {
-        // Possível complemento ou bairro
-        const rest = numSubMatch[3].trim()
-        if (/^(APTO|APT|BLOCO|BL|SALA|CASA|LOTE|QD)\b/i.test(rest)) {
-          result.complement = rest
-        } else if (!result.neighborhood && rest.length > 3) {
-          result.neighborhood = rest
-        }
-      }
-    } else {
-      result.street = fullStreetLine
+  // 10. Endereço: CNH (bloco LOCAL / ENDEREÇO) e comprovantes de endereço
+  // Em CNH antiga e nova: campo "LOCAL" pode conter "CIDADE, UF" ou "CIDADE - UF" (ex: "RIBEIRAO DAS NEVES, MG")
+  const cnhLocalMatch = sanitizedText.match(
+    /(?:LOCAL|MUNIC[IÍ]PIO\/UF|CIDADE\/UF)[:\s-]*([A-Za-zÀ-ÿ\s]+?)(?:,\s*|\s*-\s*|\s*\/\s*)([A-Z]{2})\b/i,
+  )
+  if (cnhLocalMatch) {
+    const candCity = cnhLocalMatch[1].trim()
+    const candUf = cnhLocalMatch[2].toUpperCase()
+    if (
+      candCity.length > 2 &&
+      !/ASSINAD|SECRETAR|DETRAN|DEPARTAMENTO|TERRIT/i.test(candCity) &&
+      !result.city
+    ) {
+      result.city = cleanCityName(candCity)
+    }
+    if (!result.state && BRAZILIAN_STATES.includes(candUf as any)) {
+      result.state = candUf
+    }
+  }
+
+  // Rótulos de ENDEREÇO / END / LOGRADOURO
+  const addressLabelMatch = sanitizedText.match(
+    /(?:ENDERE[CÇ]O|END\.?|LOGRADOURO)[:\s-]*([A-Za-zÀ-ÿ0-9\s.,º°ª-]+)/i,
+  )
+  if (addressLabelMatch) {
+    const rawAddrLine = addressLabelMatch[1].split('\n')[0].trim()
+    parseStreetAndNumber(rawAddrLine, result)
+  }
+
+  // Padrões de vias urbanas (RUA, R., AV., AVENIDA, TRAVESSA, ALAMEDA, etc.)
+  if (!result.street) {
+    const streetRegex =
+      /(?:RUA|R\.|AVENIDA|AV\.|TRAVESSA|TRAV\.|ALAMEDA|AL\.|RODOVIA|ROD\.|ESTRADA|ESTR\.|PRA[CÇ]A|PC\.)\s+([A-Za-zÀ-ÿ0-9\s.,º°ª-]+)/i
+    const streetMatch = sanitizedText.match(streetRegex)
+    if (streetMatch) {
+      const fullStreetLine = streetMatch[0].split('\n')[0].trim()
+      parseStreetAndNumber(fullStreetLine, result)
     }
   }
 
   // Bairro
-  const neighborhoodMatch = text.match(/(?:BAIRRO|BAIRRO:)\s*([A-Za-zÀ-ÿ0-9\s-]+?)(?:[,\n]|$)/i)
-  if (neighborhoodMatch && neighborhoodMatch[1].trim().length > 2) {
-    result.neighborhood = neighborhoodMatch[1].trim()
+  if (!result.neighborhood) {
+    const neighborhoodMatch = sanitizedText.match(
+      /(?:BAIRRO|BAIRRO:)\s*([A-Za-zÀ-ÿ0-9\s-]+?)(?:[,\n]|$)/i,
+    )
+    if (neighborhoodMatch && neighborhoodMatch[1].trim().length > 2) {
+      result.neighborhood = neighborhoodMatch[1].trim()
+    }
   }
 
   // Cidade
-  const cityMatch = text.match(
-    /(?:CIDADE|MUNIC[IÍ]PIO|MUN\.)[:\s-]*([A-Za-zÀ-ÿ\s]+?)(?:[,/\n-]|$)/i,
-  )
-  if (cityMatch && cityMatch[1].trim().length > 2) {
-    result.city = cityMatch[1].trim()
+  if (!result.city) {
+    const cityMatch = sanitizedText.match(
+      /(?:CIDADE|MUNIC[IÍ]PIO|MUN\.)[:\s-]*([A-Za-zÀ-ÿ\s]+?)(?:[,/\n-]|$)/i,
+    )
+    if (cityMatch && cityMatch[1].trim().length > 2) {
+      result.city = cleanCityName(cityMatch[1])
+    }
   }
 
   return result
+}
+
+function parseStreetAndNumber(line: string, result: ExtractedClientData) {
+  // Limpa prefixos
+  const cleanedLine = line.replace(/^(?:ENDERE[CÇ]O|END\.?|LOGRADOURO)[:\s-]*/i, '').trim()
+  const numSubMatch = cleanedLine.match(
+    /^(.*?)(?:,\s*|\s+(?:N[º°ª.]|N[UÚ]MERO|N)\s*|\s+)(\d+[A-Za-z]?)(?:[,\s]+(.*))?$/i,
+  )
+  if (numSubMatch) {
+    result.street = numSubMatch[1].replace(/,\s*$/, '').trim()
+    result.number = numSubMatch[2].trim()
+    if (numSubMatch[3]) {
+      const rest = numSubMatch[3].trim()
+      if (/^(APTO|APT|BLOCO|BL|SALA|CASA|LOTE|QD|CONJ)\b/i.test(rest)) {
+        result.complement = rest
+      } else if (!result.neighborhood && rest.length > 3) {
+        result.neighborhood = rest
+      }
+    }
+  } else {
+    result.street = cleanedLine
+  }
+}
+
+function isLikelyPersonName(candidate: string): boolean {
+  const c = candidate.trim()
+  if (c.length < 5 || c.length > 60) return false
+  // Não pode conter dígitos ou símbolos estranhos de código/assinatura
+  if (/[0-9@_#$%&*=+/\\<>{}[\]|]/.test(c)) return false
+  // Deve ter letras válidas e pelo menos 2 partes
+  const words = c.split(/\s+/).filter(Boolean)
+  if (words.length < 2) return false
+  // Não pode ser rótulo ou termo governamental conhecido
+  if (
+    /^(VALIDA|TERRITORIO|REPUBLICA|MINISTERIO|SECRETARIA|DEPARTAMENTO|CARTEIRA|HABILITACAO|LOCAL|DATA|PERMISSAO|SENATRAN|DENATRAN|CONTRAN|SERPRO|ASSINADOR|DOCUMENTO|CERTIFICADO|MEDIDA|PROVISORIA|ASSINADO|DIGITALMENTE|OBSERVACOES|ASSINATURA)/i.test(
+      c,
+    )
+  ) {
+    return false
+  }
+  return true
 }
 
 function cleanPersonName(name: string): string {
@@ -453,6 +704,22 @@ function cleanPersonName(name: string): string {
     .map((word) => {
       const lower = word.toLowerCase()
       if (['de', 'da', 'do', 'dos', 'das', 'e'].includes(lower)) {
+        return lower
+      }
+      return lower.charAt(0).toUpperCase() + lower.slice(1)
+    })
+    .join(' ')
+}
+
+function cleanCityName(city: string): string {
+  return city
+    .replace(/\s+/g, ' ')
+    .replace(/[^\w\sÀ-ÿ]/g, '')
+    .trim()
+    .split(' ')
+    .map((word) => {
+      const lower = word.toLowerCase()
+      if (['de', 'da', 'do', 'dos', 'das'].includes(lower)) {
         return lower
       }
       return lower.charAt(0).toUpperCase() + lower.slice(1)
