@@ -558,8 +558,13 @@ export default function Tasks() {
                         )}
                       </p>
                       <div className="flex flex-wrap gap-2 text-xs mt-2 items-center">
-                        <Badge variant="secondary" className="text-[10px] bg-white">
-                          {t.status}
+                        <Badge
+                          variant="secondary"
+                          className={`text-[10px] bg-white ${
+                            isDone ? 'bg-green-50 text-green-700 border-green-200' : ''
+                          }`}
+                        >
+                          {canonicalTaskStatus(t.status)}
                         </Badge>
                         <Badge
                           variant="outline"

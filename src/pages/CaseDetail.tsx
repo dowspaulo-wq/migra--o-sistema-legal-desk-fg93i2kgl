@@ -64,6 +64,7 @@ import {
   normalizeStr,
   stripHtml,
 } from '@/lib/utils'
+import { isTaskDone, canonicalTaskStatus } from '@/lib/taskStatus'
 
 import { GenerateDocumentDialog } from '@/components/GenerateDocumentDialog'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -246,14 +247,9 @@ export default function CaseDetail() {
         onOpenChange={(v: boolean) => !v && setEditingTask(null)}
         data={editingTask}
         onSave={(d: any) => {
-          const isFinishing =
-            d.status &&
-            (d.status.toLowerCase() === 'concluída' || d.status.toLowerCase() === 'concluído')
-          const wasDone =
-            editingTask?.status &&
-            (editingTask.status.toLowerCase() === 'concluída' ||
-              editingTask.status.toLowerCase() === 'concluído')
-          const updatePayload: any = { ...d }
+          const isFinishing = isTaskDone(d.status)
+          const wasDone = isTaskDone(editingTask?.status)
+          const updatePayload: any = { ...d, status: canonicalTaskStatus(d.status) }
           if (isFinishing && !wasDone) {
             updatePayload.completed_by = state.currentUser?.id || null
           } else if (!isFinishing && wasDone) {
@@ -820,9 +816,7 @@ export default function CaseDetail() {
                     const completer = t.completed_by
                       ? state.users.find((u) => u.id === t.completed_by)
                       : null
-                    const isDone =
-                      t.status.toLowerCase() === 'concluída' ||
-                      t.status.toLowerCase() === 'concluído'
+                    const isDone = isTaskDone(t.status)
 
                     const currentUserRole = state.currentUser?.role?.toLowerCase() || ''
                     const responsibleUserRole = resp?.role?.toLowerCase() || ''
@@ -878,7 +872,7 @@ export default function CaseDetail() {
                             </div>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
-                            {t.status !== 'Concluído' &&
+                            {!isDone &&
                               (canComplete ? (
                                 <Button
                                   variant="outline"
@@ -887,7 +881,7 @@ export default function CaseDetail() {
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     updateItem('tasks', t.id, {
-                                      status: 'Concluído',
+                                      status: canonicalTaskStatus('Concluída'),
                                       completed_by: state.currentUser?.id || null,
                                     })
                                     toast({
@@ -924,12 +918,10 @@ export default function CaseDetail() {
                             <Badge
                               variant="outline"
                               className={
-                                t.status === 'Concluído'
-                                  ? 'bg-green-50 text-green-700 border-green-200'
-                                  : 'bg-white'
+                                isDone ? 'bg-green-50 text-green-700 border-green-200' : 'bg-white'
                               }
                             >
-                              {t.status}
+                              {canonicalTaskStatus(t.status)}
                             </Badge>
                           </div>
                         </div>
