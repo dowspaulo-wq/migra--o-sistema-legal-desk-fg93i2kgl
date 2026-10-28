@@ -41,6 +41,7 @@ import {
   X,
   CheckCircle2,
   Circle,
+  Ban,
 } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -65,6 +66,7 @@ const initialFilters = {
   responsavelId: 'Todos',
   clienteId: 'Todos',
   processoId: 'Todos',
+  status: 'Todos',
 }
 
 export default function Agenda() {
@@ -73,6 +75,7 @@ export default function Agenda() {
   const [filters, setFilters] = useState(initialFilters)
   const [appliedFilters, setAppliedFilters] = useState(initialFilters)
   const [quickSearch, setQuickSearch] = useState('')
+  const [showCanceled, setShowCanceled] = useState(true)
   const [searchOpen, setSearchOpen] = useState(false)
   const [open, setOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<any>(null)
@@ -396,6 +399,10 @@ export default function Agenda() {
     if (f.responsavelId !== 'Todos' && (i as any).responsibleId !== f.responsavelId) return false
     if (f.clienteId !== 'Todos' && (i as any).clientId !== f.clienteId) return false
     if (f.processoId !== 'Todos' && (i as any).processId !== f.processoId) return false
+    if (f.status !== 'Todos' && (i as any).status !== f.status) return false
+
+    const isCanceled = (i as any).status === 'Cancelado'
+    if (!showCanceled && isCanceled) return false
 
     return true
   })
@@ -625,6 +632,23 @@ export default function Agenda() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">Status</Label>
+              <Select
+                value={filters.status}
+                onValueChange={(v) => setFilters({ ...filters, status: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Todos">Todos os status</SelectItem>
+                  <SelectItem value="Pendente">Pendente</SelectItem>
+                  <SelectItem value="Concluído">Concluído</SelectItem>
+                  <SelectItem value="Cancelado">Cancelado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <div className="flex justify-end gap-2 pt-4 mt-4 border-t">
             <Button
@@ -649,9 +673,20 @@ export default function Agenda() {
 
       <Tabs defaultValue="calendar">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
-          <p className="text-sm font-medium text-muted-foreground">
-            {filtered.length} compromisso(s) encontrado(s)
-          </p>
+          <div className="flex items-center gap-4 flex-wrap">
+            <p className="text-sm font-medium text-muted-foreground">
+              {filtered.length} compromisso(s) encontrado(s)
+            </p>
+            <label className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300 cursor-pointer bg-muted/40 hover:bg-muted/70 px-2.5 py-1.5 rounded-md border transition-colors select-none">
+              <input
+                type="checkbox"
+                checked={showCanceled}
+                onChange={(e) => setShowCanceled(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-gray-300 text-primary focus:ring-primary"
+              />
+              <span>Mostrar cancelados</span>
+            </label>
+          </div>
           <TabsList className="w-full md:w-auto">
             <TabsTrigger value="list" className="flex-1 md:flex-none">
               <List className="h-4 w-4 mr-2" /> Lista
@@ -695,8 +730,12 @@ export default function Agenda() {
                 typeColor = tObj.color
               }
 
-              const bgColor = typeColor || (isFeriado ? '#ef4444' : resp?.color || '#cbd5e1')
+              const isCanceled = item.status === 'Cancelado'
               const isDone = item.status === 'Concluído'
+
+              const bgColor = isCanceled
+                ? '#94a3b8'
+                : typeColor || (isFeriado ? '#ef4444' : resp?.color || '#cbd5e1')
 
               const clientName = item.client?.name || 'Sem cliente'
               const respName = resp?.name.split(' ')[0] || ''
@@ -718,19 +757,28 @@ export default function Agenda() {
                     e.stopPropagation()
                     handleOpen(item)
                   }}
-                  className={`text-[10px] p-1.5 flex flex-col rounded cursor-pointer mb-1 truncate ${isFeriado ? 'text-white font-bold' : ''} ${isDone ? 'opacity-60' : ''}`}
+                  className={`text-[10px] p-1.5 flex flex-col rounded cursor-pointer mb-1 truncate ${
+                    isFeriado ? 'text-white font-bold' : ''
+                  } ${isCanceled ? 'opacity-50 bg-slate-100 dark:bg-slate-800' : isDone ? 'opacity-60' : ''}`}
                   style={{
-                    backgroundColor: isFeriado ? bgColor : `${bgColor}20`,
+                    backgroundColor: isCanceled ? '#f1f5f9' : isFeriado ? bgColor : `${bgColor}20`,
                     borderLeft: `3px solid ${bgColor}`,
-                    color: isFeriado ? '#fff' : '#333',
+                    color: isCanceled ? '#64748b' : isFeriado ? '#fff' : '#333',
                   }}
-                  title={titleFull}
+                  title={isCanceled ? `[CANCELADO] ${titleFull}` : titleFull}
                 >
                   <div className="flex justify-between items-start gap-1 w-full">
                     <span
-                      className={`font-semibold shrink-0 flex items-center gap-1 ${isDone ? 'line-through' : ''}`}
+                      className={`font-semibold shrink-0 flex items-center gap-1 ${
+                        isCanceled || isDone ? 'line-through' : ''
+                      }`}
                     >
                       {(item as any).time}
+                      {isCanceled && (
+                        <span className="text-[9px] font-bold text-rose-700 bg-rose-100 px-1 py-0.2 rounded">
+                          CANCELADO
+                        </span>
+                      )}
                       {(item as any).modality === 'Presencial' && (
                         <span title="Presencial">
                           <MapPin className="h-2.5 w-2.5 text-green-600" />
@@ -744,7 +792,13 @@ export default function Agenda() {
                     </span>
                   </div>
                   <span
-                    className={`truncate mt-0.5 ${isDone ? 'line-through text-muted-foreground' : ''}`}
+                    className={`truncate mt-0.5 ${
+                      isCanceled
+                        ? 'line-through italic text-muted-foreground'
+                        : isDone
+                          ? 'line-through text-muted-foreground'
+                          : ''
+                    }`}
                   >
                     {titleFull}
                   </span>
@@ -765,6 +819,7 @@ export default function Agenda() {
               const client = state.clients.find((c) => c.id === a.clientId)
               const process = state.cases.find((c) => c.id === a.processId)
               const localDate = parseSafeLocalDate(a.date)
+              const isCanceled = a.status === 'Cancelado'
               const isDone = a.status === 'Concluído'
               const isBirthday = a.type === 'Aniversário'
 
@@ -780,13 +835,21 @@ export default function Agenda() {
               return (
                 <Card
                   key={a.id}
-                  className={`shadow-sm hover:opacity-80 cursor-pointer ${isDone ? 'opacity-60 border-l-4' : 'border-l-4'}`}
-                  style={
-                    typeColor && !isDone
-                      ? { borderLeftColor: typeColor }
+                  className={`shadow-sm hover:opacity-80 cursor-pointer ${
+                    isCanceled
+                      ? 'opacity-60 bg-slate-50/70 dark:bg-slate-900/30 border-l-4'
                       : isDone
-                        ? { borderLeftColor: '#22c55e' }
-                        : { borderLeftColor: 'hsl(var(--primary))' }
+                        ? 'opacity-60 border-l-4'
+                        : 'border-l-4'
+                  }`}
+                  style={
+                    isCanceled
+                      ? { borderLeftColor: '#f43f5e' }
+                      : typeColor && !isDone
+                        ? { borderLeftColor: typeColor }
+                        : isDone
+                          ? { borderLeftColor: '#22c55e' }
+                          : { borderLeftColor: 'hsl(var(--primary))' }
                   }
                   onClick={() => handleOpen(a)}
                 >
@@ -796,13 +859,26 @@ export default function Agenda() {
                         <button
                           onClick={(e) => {
                             e.stopPropagation()
-                            updateItem('appointments', a.id, {
-                              status: isDone ? 'Pendente' : 'Concluído',
-                            })
+                            if (isCanceled) {
+                              updateItem('appointments', a.id, { status: 'Pendente' })
+                            } else {
+                              updateItem('appointments', a.id, {
+                                status: isDone ? 'Pendente' : 'Concluído',
+                              })
+                            }
                           }}
                           className="mt-1 text-muted-foreground hover:text-primary transition-colors"
+                          title={
+                            isCanceled
+                              ? 'Compromisso cancelado. Clique para reabrir.'
+                              : isDone
+                                ? 'Compromisso concluído. Clique para reabrir.'
+                                : 'Marcar como concluído'
+                          }
                         >
-                          {isDone ? (
+                          {isCanceled ? (
+                            <Ban className="h-5 w-5 text-rose-500" />
+                          ) : isDone ? (
                             <CheckCircle2 className="h-5 w-5 text-green-500" />
                           ) : (
                             <Circle className="h-5 w-5" />
@@ -819,10 +895,24 @@ export default function Agenda() {
 
                       <div className="flex-1 w-full">
                         <div
-                          className={`font-bold text-lg flex items-center gap-2 flex-wrap ${isDone ? 'line-through text-muted-foreground' : ''}`}
+                          className={`font-bold text-lg flex items-center gap-2 flex-wrap ${
+                            isCanceled
+                              ? 'line-through text-muted-foreground italic'
+                              : isDone
+                                ? 'line-through text-muted-foreground'
+                                : ''
+                          }`}
                         >
                           {a.title}
                           {isBirthday && <Gift className="h-4 w-4 text-pink-500" />}
+                          {isCanceled && (
+                            <Badge
+                              variant="outline"
+                              className="bg-rose-50 text-rose-700 border-rose-300 font-semibold"
+                            >
+                              Cancelado
+                            </Badge>
+                          )}
                           {a.modality === 'Presencial' && (
                             <span title="Presencial">
                               <MapPin className="h-4 w-4 text-green-600" />
@@ -850,6 +940,14 @@ export default function Agenda() {
                           {a.modality && (
                             <Badge variant="secondary" className="bg-muted text-muted-foreground">
                               {a.modality}
+                            </Badge>
+                          )}
+                          {isDone && !isCanceled && (
+                            <Badge
+                              variant="outline"
+                              className="bg-green-50 text-green-700 border-green-200"
+                            >
+                              Concluído
                             </Badge>
                           )}
                         </div>

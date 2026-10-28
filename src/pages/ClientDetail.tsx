@@ -1379,7 +1379,15 @@ export default function ClientDetail() {
                       </span>
                     </div>
                     <div className="flex items-center gap-3">
-                      <Badge variant={a.status === 'Concluído' ? 'secondary' : 'default'}>
+                      <Badge
+                        variant={
+                          a.status === 'Cancelado'
+                            ? 'destructive'
+                            : a.status === 'Concluído'
+                              ? 'secondary'
+                              : 'default'
+                        }
+                      >
                         {a.status}
                       </Badge>
                       <Button

@@ -1010,7 +1010,7 @@ export default function CaseDetail() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
-                          {a.status !== 'Concluído' && (
+                          {a.status !== 'Concluído' && a.status !== 'Cancelado' && (
                             <Button
                               variant="outline"
                               size="sm"
@@ -1031,9 +1031,11 @@ export default function CaseDetail() {
                           <Badge
                             variant="outline"
                             className={
-                              a.status === 'Concluído'
-                                ? 'bg-green-50 text-green-700 border-green-200'
-                                : ''
+                              a.status === 'Cancelado'
+                                ? 'bg-rose-50 text-rose-700 border-rose-300 font-semibold'
+                                : a.status === 'Concluído'
+                                  ? 'bg-green-50 text-green-700 border-green-200'
+                                  : ''
                             }
                           >
                             {a.status}

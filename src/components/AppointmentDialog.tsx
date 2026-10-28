@@ -20,7 +20,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/hooks/use-toast'
 import { DatePicker } from '@/components/ui/date-picker'
 
-import { Trash, CheckCircle2 } from 'lucide-react'
+import { Trash, CheckCircle2, Ban, RotateCcw } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 
 export function AppointmentDialog({
@@ -300,32 +300,75 @@ export function AppointmentDialog({
               />
             </div>
           </div>
-          <DialogFooter className="sm:justify-between w-full mt-4">
-            {data?.id && onDelete && data.itemType !== 'birthday' && isAdmin ? (
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={() => {
-                  onDelete(data)
-                  onOpenChange(false)
-                }}
-              >
-                <Trash className="h-4 w-4 mr-2" /> Excluir
-              </Button>
-            ) : (
-              <div />
-            )}
-            <div className="flex gap-2">
-              {data?.id && data.itemType !== 'birthday' && data.status !== 'Concluído' && (
+          <DialogFooter className="sm:justify-between w-full mt-4 gap-2 flex-wrap sm:flex-nowrap">
+            <div className="flex items-center gap-2">
+              {data?.id && onDelete && data.itemType !== 'birthday' && isAdmin && (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={() => {
+                    onDelete(data)
+                    onOpenChange(false)
+                  }}
+                >
+                  <Trash className="h-4 w-4 mr-2" /> Excluir
+                </Button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+              {data?.id && data.itemType !== 'birthday' && (
+                <>
+                  {data.status === 'Cancelado' ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-300"
+                      onClick={() => handleSubmit(undefined, 'Pendente')}
+                      title="Reabrir compromisso e voltar ao estado ativo (Pendente)"
+                    >
+                      <RotateCcw className="h-4 w-4 mr-2" /> Reabrir Compromisso
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-300"
+                      onClick={() => handleSubmit(undefined, 'Cancelado')}
+                      title="Marcar compromisso como cancelado preservando histórico"
+                    >
+                      <Ban className="h-4 w-4 mr-2" /> Cancelar Compromisso
+                    </Button>
+                  )}
+                </>
+              )}
+
+              {data?.id &&
+                data.itemType !== 'birthday' &&
+                data.status !== 'Concluído' &&
+                data.status !== 'Cancelado' && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="bg-green-50 hover:bg-green-100 text-green-600 border-green-200"
+                    onClick={() => handleSubmit(undefined, 'Concluído')}
+                  >
+                    <CheckCircle2 className="h-4 w-4 mr-2" /> Concluir
+                  </Button>
+                )}
+
+              {data?.id && data.itemType !== 'birthday' && data.status === 'Concluído' && (
                 <Button
                   type="button"
                   variant="outline"
-                  className="bg-green-50 hover:bg-green-100 text-green-600 border-green-200"
-                  onClick={() => handleSubmit(undefined, 'Concluído')}
+                  className="bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-300"
+                  onClick={() => handleSubmit(undefined, 'Pendente')}
+                  title="Reabrir compromisso concluído"
                 >
-                  <CheckCircle2 className="h-4 w-4 mr-2" /> Concluir
+                  <RotateCcw className="h-4 w-4 mr-2" /> Reabrir
                 </Button>
               )}
+
               <Button type="submit">Salvar na Agenda</Button>
             </div>
           </DialogFooter>
