@@ -46,10 +46,11 @@ import useLegalStore from '@/stores/useLegalStore'
 import { Navigate } from 'react-router-dom'
 import { downloadCSV } from '@/lib/export'
 import { TransactionDialog } from '@/components/TransactionDialog'
-import { formatSafeLocalDate, formatSafeDateTime, calculateInstallmentDate } from '@/lib/utils'
+import { cn, formatSafeLocalDate, formatSafeDateTime, calculateInstallmentDate } from '@/lib/utils'
 import { SupplierDialog } from '@/components/SupplierDialog'
 import { syncChargeWithAsaas, cancelChargeWithAsaas, syncHistoryWithAsaas } from '@/services/asaas'
 import { LinkTransactionToCaseDialog } from '@/components/LinkTransactionToCaseDialog'
+import { useFinancePermissions } from '@/hooks/use-finance-permissions'
 import { supabase } from '@/lib/supabase/client'
 import { toast } from '@/hooks/use-toast'
 import { Link2 } from 'lucide-react'
@@ -71,6 +72,8 @@ export default function Finance() {
     markRepasseAsDone,
     deletePaymentPlan,
   } = useLegalStore() as any
+  const { canManageAsaas, canEditFinance, canDeleteFinance, canManagePaymentPlans } =
+    useFinancePermissions()
 
   const now = new Date()
   const firstDay = new Date(now.getFullYear(), now.getMonth(), 1)
@@ -466,6 +469,7 @@ export default function Finance() {
   }, [baseTransactions, state.settings?.bankAccounts])
 
   const handleAsaasChargeSync = async (transactionId: string) => {
+    if (!canManageAsaas) return
     setSyncingAsaasId(transactionId)
     const { data, error } = await syncChargeWithAsaas(transactionId)
     setSyncingAsaasId(null)
@@ -489,6 +493,7 @@ export default function Finance() {
   }
 
   const handleSyncHistory = async () => {
+    if (!canManageAsaas) return
     setSyncingHistory(true)
     const { data, error } = await syncHistoryWithAsaas()
     setSyncingHistory(false)
@@ -592,6 +597,15 @@ export default function Finance() {
   }
 
   const handleTxDelete = async (forceLocal = false) => {
+    if (!canDeleteFinance) {
+      toast({
+        title: 'Acesso negado',
+        description: 'Usuários colaboradores não têm permissão para excluir lançamentos.',
+        variant: 'destructive',
+      })
+      setTxToDelete(null)
+      return
+    }
     if (!txToDelete) return
     setDeletingTx(true)
     setTxDeleteError(null)
@@ -880,23 +894,25 @@ export default function Finance() {
           <p className="text-muted-foreground">Controle de honorários e despesas.</p>
         </div>
         <div className="flex flex-wrap gap-3 items-start">
-          {/* Botão Sincronizar com Asaas + Timestamp */}
-          <div className="flex flex-col items-center">
-            <Button
-              variant="outline"
-              onClick={handleSyncHistory}
-              disabled={syncingHistory}
-              className="border-blue-200 text-blue-700 hover:bg-blue-50"
-            >
-              <Send className={`mr-2 h-4 w-4 ${syncingHistory ? 'animate-pulse' : ''}`} />
-              {syncingHistory ? 'Sincronizando...' : 'Sincronizar com Asaas'}
-            </Button>
-            <span className="text-[11px] text-muted-foreground mt-1">
-              {state.settings?.lastAsaasSyncAt
-                ? `Última sincronização: ${formatSafeDateTime(state.settings.lastAsaasSyncAt)}`
-                : 'Última sincronização: Nunca'}
-            </span>
-          </div>
+          {/* Botão Sincronizar com Asaas + Timestamp (somente Douglas/Admin) */}
+          {canManageAsaas && (
+            <div className="flex flex-col items-center">
+              <Button
+                variant="outline"
+                onClick={handleSyncHistory}
+                disabled={syncingHistory}
+                className="border-blue-200 text-blue-700 hover:bg-blue-50"
+              >
+                <Send className={`mr-2 h-4 w-4 ${syncingHistory ? 'animate-pulse' : ''}`} />
+                {syncingHistory ? 'Sincronizando...' : 'Sincronizar com Asaas'}
+              </Button>
+              <span className="text-[11px] text-muted-foreground mt-1">
+                {state.settings?.lastAsaasSyncAt
+                  ? `Última sincronização: ${formatSafeDateTime(state.settings.lastAsaasSyncAt)}`
+                  : 'Última sincronização: Nunca'}
+              </span>
+            </div>
+          )}
 
           {/* Botão Importar Extrato SICOOB / Cartões + Timestamp */}
           <div className="flex flex-col items-center">
@@ -971,13 +987,15 @@ export default function Finance() {
           >
             <Download className="mr-2 h-4 w-4" /> Exportar
           </Button>
-          <Button
-            variant="outline"
-            onClick={() => setCreatingPaymentPlan(true)}
-            className="border-blue-300 text-blue-800 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-950/40"
-          >
-            <Calculator className="mr-2 h-4 w-4 text-blue-600" /> Novo Parcelamento
-          </Button>
+          {canManagePaymentPlans && (
+            <Button
+              variant="outline"
+              onClick={() => setCreatingPaymentPlan(true)}
+              className="border-blue-300 text-blue-800 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-950/40"
+            >
+              <Calculator className="mr-2 h-4 w-4 text-blue-600" /> Novo Parcelamento
+            </Button>
+          )}
           <Button
             variant="outline"
             onClick={() => setCreatingExpenseTransaction(true)}
@@ -1353,8 +1371,13 @@ export default function Finance() {
                     {filtered.map((t) => (
                       <TableRow
                         key={t.id}
-                        className="cursor-pointer hover:bg-slate-50 group"
-                        onClick={() => setEditingTransaction(t)}
+                        className={cn(
+                          'group',
+                          canEditFinance && 'cursor-pointer hover:bg-slate-50',
+                        )}
+                        onClick={() => {
+                          if (canEditFinance) setEditingTransaction(t)
+                        }}
                       >
                         <TableCell>{formatSafeLocalDate(t.date)}</TableCell>
                         <TableCell className="font-medium">
@@ -1499,60 +1522,70 @@ export default function Finance() {
                                 Marcar Pago
                               </Button>
                             )}
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-slate-500 hover:text-slate-700 hover:bg-slate-100 opacity-0 group-hover:opacity-100 transition-opacity"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setEditingTransaction(t)
-                              }}
-                              title="Editar Lançamento"
-                            >
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-purple-500 hover:text-purple-700 hover:bg-purple-50 opacity-0 group-hover:opacity-100 transition-opacity"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setLinkingTx(t)
-                              }}
-                              title="Vincular a Processo"
-                            >
-                              <Link2 className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className={`h-8 w-8 ${t.asaas_id ? 'text-blue-600 font-medium' : 'text-blue-500'} hover:text-blue-700 hover:bg-blue-50 opacity-0 group-hover:opacity-100 transition-opacity`}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleAsaasChargeSync(t.id)
-                              }}
-                              disabled={syncingAsaasId === t.id}
-                              title={
-                                t.asaas_id ? 'Sincronizar/Atualizar com ASAAS' : 'Enviar para ASAAS'
-                              }
-                            >
-                              <Send
-                                className={`h-4 w-4 ${syncingAsaasId === t.id ? 'animate-pulse' : ''}`}
-                              />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setTxToDelete(t)
-                                setTxDeleteError(null)
-                              }}
-                              title="Excluir"
-                            >
-                              <Trash className="h-4 w-4" />
-                            </Button>
+                            {canEditFinance && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-slate-500 hover:text-slate-700 hover:bg-slate-100 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setEditingTransaction(t)
+                                }}
+                                title="Editar Lançamento"
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {canEditFinance && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-purple-500 hover:text-purple-700 hover:bg-purple-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setLinkingTx(t)
+                                }}
+                                title="Vincular a Processo"
+                              >
+                                <Link2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {canManageAsaas && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className={`h-8 w-8 ${t.asaas_id ? 'text-blue-600 font-medium' : 'text-blue-500'} hover:text-blue-700 hover:bg-blue-50 opacity-0 group-hover:opacity-100 transition-opacity`}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleAsaasChargeSync(t.id)
+                                }}
+                                disabled={syncingAsaasId === t.id}
+                                title={
+                                  t.asaas_id
+                                    ? 'Sincronizar/Atualizar com ASAAS'
+                                    : 'Enviar para ASAAS'
+                                }
+                              >
+                                <Send
+                                  className={`h-4 w-4 ${syncingAsaasId === t.id ? 'animate-pulse' : ''}`}
+                                />
+                              </Button>
+                            )}
+                            {canDeleteFinance && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setTxToDelete(t)
+                                  setTxDeleteError(null)
+                                }}
+                                title="Excluir"
+                              >
+                                <Trash className="h-4 w-4" />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1680,14 +1713,16 @@ export default function Finance() {
                                   </Badge>
                                 </TableCell>
                                 <TableCell className="text-right">
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-8 text-xs border-green-300 text-green-700 hover:bg-green-50"
-                                    onClick={() => setConvertingSuccessCase(fee)}
-                                  >
-                                    Marcar como Pago →
-                                  </Button>
+                                  {canEditFinance && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-8 text-xs border-green-300 text-green-700 hover:bg-green-50"
+                                      onClick={() => setConvertingSuccessCase(fee)}
+                                    >
+                                      Marcar como Pago →
+                                    </Button>
+                                  )}
                                 </TableCell>
                               </TableRow>
                             ))}
@@ -1731,12 +1766,14 @@ export default function Finance() {
                   apurada e repasses efetuados.
                 </p>
               </div>
-              <Button
-                onClick={() => setCreatingPaymentPlan(true)}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
-              >
-                <Plus className="mr-2 h-4 w-4" /> Novo Parcelamento
-              </Button>
+              {canManagePaymentPlans && (
+                <Button
+                  onClick={() => setCreatingPaymentPlan(true)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  <Plus className="mr-2 h-4 w-4" /> Novo Parcelamento
+                </Button>
+              )}
             </div>
 
             {!state.paymentPlans || state.paymentPlans.length === 0 ? (
@@ -1747,9 +1784,11 @@ export default function Finance() {
                   Crie parcelamentos longos (ex: 18x de R$ 500) com divisão automática entre seus
                   honorários (30%) e o repasse ao cliente (70%).
                 </p>
-                <Button onClick={() => setCreatingPaymentPlan(true)}>
-                  <Plus className="mr-2 h-4 w-4" /> Criar Primeiro Parcelamento
-                </Button>
+                {canManagePaymentPlans && (
+                  <Button onClick={() => setCreatingPaymentPlan(true)}>
+                    <Plus className="mr-2 h-4 w-4" /> Criar Primeiro Parcelamento
+                  </Button>
+                )}
               </Card>
             ) : (
               state.paymentPlans.map((plan: any) => {
@@ -1823,23 +1862,25 @@ export default function Finance() {
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => {
-                              if (
-                                confirm(
-                                  `Deseja excluir o parcelamento "${plan.title}" e todos os seus ${planTxns.length} lançamentos vinculados?`,
-                                )
-                              ) {
-                                deletePaymentPlan(plan.id)
-                              }
-                            }}
-                          >
-                            <Trash className="h-4 w-4 mr-1.5" /> Excluir Plano
-                          </Button>
-                        </div>
+                        {canManagePaymentPlans && (
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => {
+                                if (
+                                  confirm(
+                                    `Deseja excluir o parcelamento "${plan.title}" e todos os seus ${planTxns.length} lançamentos vinculados?`,
+                                  )
+                                ) {
+                                  deletePaymentPlan(plan.id)
+                                }
+                              }}
+                            >
+                              <Trash className="h-4 w-4 mr-1.5" /> Excluir Plano
+                            </Button>
+                          </div>
+                        )}
                       </div>
 
                       {/* Resumo de Indicadores por Plano */}
@@ -2001,7 +2042,7 @@ export default function Finance() {
                                 {/* Ações */}
                                 <TableCell className="text-right">
                                   <div className="flex items-center justify-end gap-1.5">
-                                    {!isFeePaid && feeTx && (
+                                    {!isFeePaid && feeTx && canEditFinance && (
                                       <Button
                                         size="sm"
                                         variant="outline"
@@ -2021,7 +2062,7 @@ export default function Finance() {
                                       </Button>
                                     )}
 
-                                    {!isRepassePaid && repasseTx && (
+                                    {!isRepassePaid && repasseTx && canEditFinance && (
                                       <Button
                                         size="sm"
                                         variant="outline"

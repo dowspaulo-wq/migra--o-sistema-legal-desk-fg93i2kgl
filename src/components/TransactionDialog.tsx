@@ -38,6 +38,7 @@ import {
   getOfficeExpenseOptions,
 } from '@/lib/fee-types'
 import { syncChargeWithAsaas } from '@/services/asaas'
+import { useFinancePermissions } from '@/hooks/use-finance-permissions'
 
 const DEFAULT_CATEGORIES = [
   'Acordo',
@@ -64,6 +65,7 @@ export function TransactionDialog({
   lockedClientId,
 }: any) {
   const { state } = useLegalStore() as any
+  const { canEditFinance, canCreateFinance } = useFinancePermissions()
 
   const rawCategories = (state?.settings?.transactionCategories as string[]) || DEFAULT_CATEGORIES
   const feeCategories = getFeeTypeOptions(rawCategories, false)
@@ -236,6 +238,27 @@ export function TransactionDialog({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+
+    const isEditing = Boolean(data && data.id)
+    if (isEditing && !canEditFinance) {
+      toast({
+        title: 'Acesso negado',
+        description: 'Usuários colaboradores não têm permissão para editar lançamentos.',
+        variant: 'destructive',
+      })
+      onOpenChange(false)
+      return
+    }
+
+    if (!isEditing && !canCreateFinance) {
+      toast({
+        title: 'Acesso negado',
+        description: 'Usuários colaboradores não têm permissão para criar lançamentos.',
+        variant: 'destructive',
+      })
+      onOpenChange(false)
+      return
+    }
 
     if (fd.type === 'office_expense' && (!fd.category || !fd.category.trim())) {
       toast({

@@ -22,6 +22,7 @@ import { Badge } from '@/components/ui/badge'
 import { Calculator, Calendar, Percent, DollarSign, AlertCircle, ArrowRight } from 'lucide-react'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
+import { useFinancePermissions } from '@/hooks/use-finance-permissions'
 
 interface PaymentPlanDialogProps {
   open: boolean
@@ -37,6 +38,7 @@ export function PaymentPlanDialog({
   defaultProcessId,
 }: PaymentPlanDialogProps) {
   const { state, addPaymentPlan } = useLegalStore()
+  const { canManagePaymentPlans } = useFinancePermissions()
 
   const [clientId, setClientId] = useState<string>(defaultClientId || '')
   const [processId, setProcessId] = useState<string>(defaultProcessId || '')
@@ -63,6 +65,19 @@ export function PaymentPlanDialog({
     }
     return ['Dinheiro Físico']
   }, [state?.settings?.bankAccounts])
+
+  // Fecha imediatamente o diálogo se colaborador tentar abrir
+  useEffect(() => {
+    if (open && !canManagePaymentPlans) {
+      toast({
+        title: 'Acesso negado',
+        description:
+          'Usuários colaboradores não têm permissão para criar ou gerenciar parcelamentos.',
+        variant: 'destructive',
+      })
+      onOpenChange(false)
+    }
+  }, [open, canManagePaymentPlans, onOpenChange])
 
   // Garante que a conta selecionada seja válida dentro da lista disponível
   useEffect(() => {
@@ -108,6 +123,16 @@ export function PaymentPlanDialog({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (!canManagePaymentPlans) {
+      toast({
+        title: 'Acesso negado',
+        description: 'Ação de parcelamento bloqueada para colaborador.',
+        variant: 'destructive',
+      })
+      onOpenChange(false)
+      return
+    }
 
     if (!clientId) {
       toast({
@@ -167,6 +192,10 @@ export function PaymentPlanDialog({
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  if (!canManagePaymentPlans) {
+    return null
   }
 
   return (

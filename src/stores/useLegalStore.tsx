@@ -1701,6 +1701,22 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       paymentMethod?: string
       notes?: string
     }) => {
+      const currentRole = (state.currentUser?.role || '').toLowerCase()
+      const currentEmail = (state.currentUser?.email || '').toLowerCase()
+      const isDouglas =
+        currentEmail === 'advdouglaspsantos@gmail.com' ||
+        currentEmail === 'dowspaulo@gmail.com' ||
+        state.currentUser?.id === '6501af65-cd6c-43c3-958a-3091ce93ba78'
+      const isAdmin = isDouglas || currentRole === 'admin' || currentRole === 'adm'
+      if (!isAdmin) {
+        toast({
+          title: 'Acesso negado',
+          description: 'Apenas administradores podem criar parcelamentos.',
+          variant: 'destructive',
+        })
+        return null
+      }
+
       const inst = Math.max(1, planData.installmentsCount || 1)
       const installmentAmount = Math.max(0, planData.installmentAmount || 0)
       const feePct = Math.max(0, Math.min(100, planData.feePercentage || 0))
@@ -2017,6 +2033,22 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const deletePaymentPlan = useCallback(async (id: string) => {
+    const currentRole = (state.currentUser?.role || '').toLowerCase()
+    const currentEmail = (state.currentUser?.email || '').toLowerCase()
+    const isDouglas =
+      currentEmail === 'advdouglaspsantos@gmail.com' ||
+      currentEmail === 'dowspaulo@gmail.com' ||
+      state.currentUser?.id === '6501af65-cd6c-43c3-958a-3091ce93ba78'
+    const isAdmin = isDouglas || currentRole === 'admin' || currentRole === 'adm'
+    if (!isAdmin) {
+      toast({
+        title: 'Acesso negado',
+        description: 'Apenas administradores podem excluir parcelamentos.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     // Ao deletar o plano, o banco com ON DELETE CASCADE remove as transactions associadas
     const { error } = await (supabase as any).from('payment_plans').delete().eq('id', id)
     if (error) {

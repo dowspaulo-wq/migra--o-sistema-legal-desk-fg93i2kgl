@@ -70,11 +70,14 @@ import { getDetailedDuration, stripHtml, normalizeStr } from '@/lib/utils'
 import { useClientFeesFormStore } from '@/stores/useClientFeesFormStore'
 import { buildCasesWithFeesSet, CaseFeeBadge, isFeeCategory } from '@/components/CaseFeeBadge'
 import { isSuccessFeeType } from '@/lib/fee-types'
+import { useFinancePermissions } from '@/hooks/use-finance-permissions'
 
 export default function ClientDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { state, updateItem, deleteItem, addCase, addAppointment, addTransaction } = useLegalStore()
+  const { canManageAsaas, canEditFinance, canDeleteFinance, canManagePaymentPlans } =
+    useFinancePermissions()
   const {
     isCreateOpen: isFeeOpen,
     activeClientId: feeActiveClientId,
@@ -344,6 +347,7 @@ export default function ClientDetail() {
   }
 
   const handleAsaasSync = async () => {
+    if (!canManageAsaas) return
     setSyncingAsaas(true)
     const { data, error } = await syncClientWithAsaas(client.id)
     setSyncingAsaas(false)
@@ -375,6 +379,15 @@ export default function ClientDetail() {
   }
 
   const handleFeeDelete = async (forceLocal = false) => {
+    if (!canDeleteFinance) {
+      toast({
+        title: 'Acesso negado',
+        description: 'Usuários colaboradores não têm permissão para excluir honorários.',
+        variant: 'destructive',
+      })
+      setFeeToDelete(null)
+      return
+    }
     if (!feeToDelete) return
     setDeletingFee(true)
     setFeeDeleteError(null)
@@ -396,6 +409,7 @@ export default function ClientDetail() {
   }
 
   const handleFeeAsaasSync = async (transactionId: string) => {
+    if (!canManageAsaas) return
     setSyncingFeeId(transactionId)
     const { data, error } = await syncChargeWithAsaas(transactionId)
     setSyncingFeeId(null)
@@ -417,6 +431,7 @@ export default function ClientDetail() {
   }
 
   const handleBulkAsaasSync = async () => {
+    if (!canManageAsaas) return
     const pendingFees = clientFees.filter((t) => !t.asaas_id)
     if (pendingFees.length === 0) {
       toast({ title: 'Todas as cobranças já foram sincronizadas com o ASAAS.' })
@@ -755,10 +770,12 @@ export default function ClientDetail() {
             <Button variant="default" size="sm" onClick={() => setIsCreatingCase(true)}>
               <Plus className="h-4 w-4 mr-2" /> Cadastrar novo processo
             </Button>
-            <Button variant="outline" size="sm" onClick={handleAsaasSync} disabled={syncingAsaas}>
-              <RefreshCw className={`h-4 w-4 mr-2 ${syncingAsaas ? 'animate-spin' : ''}`} />
-              {syncingAsaas ? 'Sincronizando...' : 'Sincronizar com ASAAS'}
-            </Button>
+            {canManageAsaas && (
+              <Button variant="outline" size="sm" onClick={handleAsaasSync} disabled={syncingAsaas}>
+                <RefreshCw className={`h-4 w-4 mr-2 ${syncingAsaas ? 'animate-spin' : ''}`} />
+                {syncingAsaas ? 'Sincronizando...' : 'Sincronizar com ASAAS'}
+              </Button>
+            )}
             {state.currentUser.role === 'Admin' && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
@@ -924,10 +941,12 @@ export default function ClientDetail() {
               <p className="font-mono text-xs font-medium text-slate-700 dark:text-slate-300">
                 {client.asaas_id ? (
                   <span className="text-emerald-700 font-semibold">{client.asaas_id}</span>
-                ) : (
+                ) : canManageAsaas ? (
                   <span className="text-muted-foreground italic">
                     Não vinculado (clique em 'Sincronizar com ASAAS')
                   </span>
+                ) : (
+                  <span className="text-muted-foreground italic">Não vinculado</span>
                 )}
               </p>
             </div>
@@ -1410,26 +1429,30 @@ export default function ClientDetail() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleBulkAsaasSync}
-                disabled={bulkSyncing || !clientFees.some((t) => !t.asaas_id)}
-              >
-                <Send className={`h-4 w-4 mr-2 ${bulkSyncing ? 'animate-pulse' : ''}`} />
-                {bulkSyncing ? 'Enviando...' : 'Enviar todas para o ASSAS'}
-              </Button>
+              {canManageAsaas && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleBulkAsaasSync}
+                  disabled={bulkSyncing || !clientFees.some((t) => !t.asaas_id)}
+                >
+                  <Send className={`h-4 w-4 mr-2 ${bulkSyncing ? 'animate-pulse' : ''}`} />
+                  {bulkSyncing ? 'Enviando...' : 'Enviar todas para o ASSAS'}
+                </Button>
+              )}
               <Button variant="outline" size="sm" onClick={() => openCreateFee(client.id)}>
                 <Plus className="h-4 w-4 mr-2" /> Novo Honorário
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="border-blue-600/30 text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/30"
-                onClick={() => setIsPlanDialogOpen(true)}
-              >
-                <Plus className="h-4 w-4 mr-2 text-blue-600" /> Novo Parcelamento
-              </Button>
+              {canManagePaymentPlans && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-blue-600/30 text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/30"
+                  onClick={() => setIsPlanDialogOpen(true)}
+                >
+                  <Plus className="h-4 w-4 mr-2 text-blue-600" /> Novo Parcelamento
+                </Button>
+              )}
             </div>
           </CardHeader>
           <CardContent>
@@ -1494,42 +1517,46 @@ export default function ClientDetail() {
                         >
                           Registrado no Processo
                         </Badge>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-slate-500 hover:text-slate-700"
-                          onClick={() => {
-                            setEditingDirectFee(df)
-                          }}
-                          title="Editar Honorário do Processo"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50"
-                          onClick={async () => {
-                            if (
-                              confirm(
-                                `Deseja remover os honorários de êxito do processo ${df.caseNumber}? (Caso a ação tenha sido perdida, nenhum lançamento será gerado)`,
-                              )
-                            ) {
-                              await updateItem('cases', df.caseId, {
-                                feeType: null,
-                                feeValue: 0,
-                                feePercentage: null,
-                              })
-                              toast({
-                                title: 'Honorário removido',
-                                description: 'Nenhum lançamento financeiro foi gerado.',
-                              })
-                            }
-                          }}
-                          title="Excluir Honorário (Perdeu a ação)"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {canEditFinance && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-slate-500 hover:text-slate-700"
+                            onClick={() => {
+                              setEditingDirectFee(df)
+                            }}
+                            title="Editar Honorário do Processo"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {canDeleteFinance && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50"
+                            onClick={async () => {
+                              if (
+                                confirm(
+                                  `Deseja remover os honorários de êxito do processo ${df.caseNumber}? (Caso a ação tenha sido perdida, nenhum lançamento será gerado)`,
+                                )
+                              ) {
+                                await updateItem('cases', df.caseId, {
+                                  feeType: null,
+                                  feeValue: 0,
+                                  feePercentage: null,
+                                })
+                                toast({
+                                  title: 'Honorário removido',
+                                  description: 'Nenhum lançamento financeiro foi gerado.',
+                                })
+                              }
+                            }}
+                            title="Excluir Honorário (Perdeu a ação)"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   )
@@ -1584,67 +1611,76 @@ export default function ClientDetail() {
                         >
                           {t.status}
                         </Badge>
-                        <Button
-                          variant={t.asaas_id ? 'outline' : 'ghost'}
-                          size={t.asaas_id ? 'sm' : 'icon'}
-                          className={
-                            t.asaas_id
-                              ? 'text-xs h-7 bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
-                              : 'h-8 w-8 text-blue-500 hover:text-blue-700 hover:bg-blue-50'
-                          }
-                          onClick={() => handleFeeAsaasSync(t.id)}
-                          disabled={syncingFeeId === t.id}
-                          title={
-                            t.asaas_id ? 'Sincronizar/Atualizar no Asaas' : 'Enviar para o Asaas'
-                          }
-                        >
-                          <Send
-                            className={`h-3.5 w-3.5 ${t.asaas_id ? 'mr-1' : ''} ${syncingFeeId === t.id ? 'animate-pulse' : ''}`}
-                          />
-                          {t.asaas_id
-                            ? syncingFeeId === t.id
-                              ? 'Sincronizando...'
-                              : 'ASAAS'
-                            : null}
-                        </Button>{' '}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className={cn(
-                            'h-8 w-8',
-                            hasLink
-                              ? 'text-blue-600 hover:text-blue-700 hover:bg-blue-50'
-                              : 'text-amber-500 hover:text-amber-700 hover:bg-amber-50',
-                          )}
-                          onClick={() => setLinkingTx(t)}
-                          title={
-                            hasLink
-                              ? `Processo vinculado: ${linkedNumbers.join(', ')}. Clique para alterar.`
-                              : 'Vincular a um Processo'
-                          }
-                        >
-                          <Link2 className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-slate-500 hover:text-slate-700"
-                          onClick={() => openEditFee(client.id, t)}
-                          title="Editar"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50"
-                          onClick={() => {
-                            setFeeToDelete(t)
-                            setFeeDeleteError(null)
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {canManageAsaas && (
+                          <Button
+                            variant={t.asaas_id ? 'outline' : 'ghost'}
+                            size={t.asaas_id ? 'sm' : 'icon'}
+                            className={
+                              t.asaas_id
+                                ? 'text-xs h-7 bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                                : 'h-8 w-8 text-blue-500 hover:text-blue-700 hover:bg-blue-50'
+                            }
+                            onClick={() => handleFeeAsaasSync(t.id)}
+                            disabled={syncingFeeId === t.id}
+                            title={
+                              t.asaas_id ? 'Sincronizar/Atualizar no Asaas' : 'Enviar para o Asaas'
+                            }
+                          >
+                            <Send
+                              className={`h-3.5 w-3.5 ${t.asaas_id ? 'mr-1' : ''} ${syncingFeeId === t.id ? 'animate-pulse' : ''}`}
+                            />
+                            {t.asaas_id
+                              ? syncingFeeId === t.id
+                                ? 'Sincronizando...'
+                                : 'ASAAS'
+                              : null}
+                          </Button>
+                        )}{' '}
+                        {canEditFinance && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className={cn(
+                              'h-8 w-8',
+                              hasLink
+                                ? 'text-blue-600 hover:text-blue-700 hover:bg-blue-50'
+                                : 'text-amber-500 hover:text-amber-700 hover:bg-amber-50',
+                            )}
+                            onClick={() => setLinkingTx(t)}
+                            title={
+                              hasLink
+                                ? `Processo vinculado: ${linkedNumbers.join(', ')}. Clique para alterar.`
+                                : 'Vincular a um Processo'
+                            }
+                          >
+                            <Link2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {canEditFinance && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-slate-500 hover:text-slate-700"
+                            onClick={() => openEditFee(client.id, t)}
+                            title="Editar"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {canDeleteFinance && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => {
+                              setFeeToDelete(t)
+                              setFeeDeleteError(null)
+                            }}
+                            title="Excluir"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   )
@@ -1766,7 +1802,7 @@ export default function ClientDetail() {
                           </TableCell>{' '}
                           <TableCell>
                             <div className="flex items-center justify-end gap-1">
-                              {!linked && (
+                              {!linked && canEditFinance && (
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -1777,27 +1813,31 @@ export default function ClientDetail() {
                                   Vincular a um Processo
                                 </Button>
                               )}
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7 text-slate-500 hover:text-slate-700"
-                                onClick={() => openEditFee(client.id, t)}
-                                title="Editar"
-                              >
-                                <Edit className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50"
-                                onClick={() => {
-                                  setFeeToDelete(t)
-                                  setFeeDeleteError(null)
-                                }}
-                                title="Excluir"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
+                              {canEditFinance && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-slate-500 hover:text-slate-700"
+                                  onClick={() => openEditFee(client.id, t)}
+                                  title="Editar"
+                                >
+                                  <Edit className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+                              {canDeleteFinance && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                  onClick={() => {
+                                    setFeeToDelete(t)
+                                    setFeeDeleteError(null)
+                                  }}
+                                  title="Excluir"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>

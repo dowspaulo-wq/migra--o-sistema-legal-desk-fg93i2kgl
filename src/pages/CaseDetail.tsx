@@ -101,10 +101,13 @@ const getAlertLabel = (alert: string) => {
   return trimmed
 }
 
+import { useFinancePermissions } from '@/hooks/use-finance-permissions'
+
 export default function CaseDetail() {
   const { id } = useParams<{ id: string }>()
   const { state, updateItem, deleteItem, addCase, addTask, addAppointment, addTransaction } =
     useLegalStore()
+  const { canEditFinance, canDeleteFinance, canManagePaymentPlans } = useFinancePermissions()
   const [selectedTpl, setSelectedTpl] = useState<string>('')
   const [isCaseOpen, setIsCaseOpen] = useState(false)
 
@@ -1098,9 +1101,11 @@ export default function CaseDetail() {
                   {processTransactions.length})
                 </CardTitle>
                 <div className="flex items-center gap-2">
-                  <Button size="sm" variant="outline" onClick={() => setCreatingPlan(true)}>
-                    <Calculator className="h-4 w-4 mr-2 text-blue-600" /> Novo Parcelamento
-                  </Button>
+                  {canManagePaymentPlans && (
+                    <Button size="sm" variant="outline" onClick={() => setCreatingPlan(true)}>
+                      <Calculator className="h-4 w-4 mr-2 text-blue-600" /> Novo Parcelamento
+                    </Button>
+                  )}
                   <Button size="sm" onClick={() => setCreatingTransaction(true)}>
                     <Plus className="h-4 w-4 mr-2" /> Novo Lançamento
                   </Button>
@@ -1165,28 +1170,32 @@ export default function CaseDetail() {
                             </TableCell>
                             <TableCell className="text-right">
                               <div className="flex items-center justify-end gap-1">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-slate-500 hover:text-slate-700"
-                                  onClick={() => setEditingTransaction(t)}
-                                  title="Editar"
-                                >
-                                  <Edit className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50"
-                                  onClick={() => {
-                                    if (confirm('Deseja excluir esta transação?')) {
-                                      deleteItem('transactions', t.id)
-                                    }
-                                  }}
-                                  title="Excluir"
-                                >
-                                  <Trash className="h-4 w-4" />
-                                </Button>
+                                {canEditFinance && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-slate-500 hover:text-slate-700"
+                                    onClick={() => setEditingTransaction(t)}
+                                    title="Editar"
+                                  >
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                )}
+                                {canDeleteFinance && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                    onClick={() => {
+                                      if (confirm('Deseja excluir esta transação?')) {
+                                        deleteItem('transactions', t.id)
+                                      }
+                                    }}
+                                    title="Excluir"
+                                  >
+                                    <Trash className="h-4 w-4" />
+                                  </Button>
+                                )}
                               </div>
                             </TableCell>
                           </TableRow>
