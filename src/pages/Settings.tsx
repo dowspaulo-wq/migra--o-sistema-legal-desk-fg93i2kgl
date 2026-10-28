@@ -856,7 +856,7 @@ export default function Settings() {
                 }
               />
               <EditableColorList
-                title="Tipos de Agendamento (Com Cores)"
+                title="Tipos de Compromisso (Agenda)"
                 items={s.appointmentTypes || []}
                 onSave={(items: any[]) => updateItem('settings', s.id, { appointmentTypes: items })}
                 onRename={(oldLabel: string, newLabel: string) =>

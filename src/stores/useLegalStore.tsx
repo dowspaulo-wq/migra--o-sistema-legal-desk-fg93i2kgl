@@ -124,6 +124,7 @@ interface LegalContextType {
   updateUser: (id: string, changes: Partial<User>) => void
   addUser: (user: any) => void
   renameType: (table: string, column: string, oldVal: string, newVal: string) => void
+  setAppointmentTypes: (types: string[]) => Promise<void>
 }
 
 const LegalContext = createContext<LegalContextType | undefined>(undefined)
@@ -2220,6 +2221,14 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     [],
   )
 
+  const setAppointmentTypes = useCallback(
+    async (types: string[]) => {
+      const cleanTypes = types.map((t) => t.trim()).filter(Boolean)
+      await updateItem('settings', state.settings.id, { appointmentTypes: cleanTypes })
+    },
+    [state.settings.id, updateItem],
+  )
+
   return (
     <LegalContext.Provider
       value={{
@@ -2244,6 +2253,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         updateUser,
         addUser,
         renameType,
+        setAppointmentTypes,
         reloadTransactions: async () => {
           try {
             const allRows: any[] = []

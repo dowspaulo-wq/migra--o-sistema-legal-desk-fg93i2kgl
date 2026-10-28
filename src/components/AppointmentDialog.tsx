@@ -38,11 +38,14 @@ export function AppointmentDialog({
   const isAdmin = state.currentUser?.role === 'Admin'
   const sortedUsers = [...users].sort((a: any, b: any) => a.name.localeCompare(b.name))
   const sortedClients = [...clients].sort((a: any, b: any) => a.name.localeCompare(b.name))
-  const sortedTypes = [...(settings.appointmentTypes || [])].sort((a: any, b: any) => {
-    const labelA = typeof a === 'string' ? a : a.label
-    const labelB = typeof b === 'string' ? b : b.label
-    return labelA.localeCompare(labelB)
-  })
+  const DEFAULT_APPOINTMENT_TYPES = [
+    'Reunião',
+    'Aud.conciliação',
+    'Diligência',
+    'Feriado',
+    'Outro',
+    'AIJ',
+  ]
 
   const getInitial = () => ({
     title: '',
@@ -63,6 +66,30 @@ export function AppointmentDialog({
       ? { ...data, clientId: data.clientId || '', processId: data.processId || '' }
       : getInitial(),
   )
+
+  const configuredTypes =
+    state.settings?.appointmentTypes && state.settings.appointmentTypes.length > 0
+      ? state.settings.appointmentTypes
+      : settings?.appointmentTypes && settings.appointmentTypes.length > 0
+        ? settings.appointmentTypes
+        : DEFAULT_APPOINTMENT_TYPES
+
+  const sortedTypes = (() => {
+    const labels = new Set<string>()
+    configuredTypes.forEach((t: any) => {
+      const label = typeof t === 'string' ? t : t?.label
+      if (label && typeof label === 'string' && label.trim()) {
+        labels.add(label.trim())
+      }
+    })
+
+    // Se o compromisso atual tiver um tipo gravado que não está mais na lista, mantém para não perder
+    if (fd.type && fd.type.trim() && !labels.has(fd.type.trim())) {
+      labels.add(fd.type.trim())
+    }
+
+    return Array.from(labels).sort((a, b) => a.localeCompare(b))
+  })()
 
   const sortedCases = [...cases]
     .filter((c: any) => !fd.clientId || c.clientId === fd.clientId)
@@ -175,14 +202,11 @@ export function AppointmentDialog({
                   <SelectValue placeholder="Selecione o Tipo" />
                 </SelectTrigger>
                 <SelectContent>
-                  {sortedTypes.map((t: any) => {
-                    const label = typeof t === 'string' ? t : t.label
-                    return (
-                      <SelectItem key={label} value={label}>
-                        {label}
-                      </SelectItem>
-                    )
-                  })}
+                  {sortedTypes.map((label: string) => (
+                    <SelectItem key={label} value={label}>
+                      {label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
