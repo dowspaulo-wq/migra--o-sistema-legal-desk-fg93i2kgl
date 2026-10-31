@@ -513,13 +513,20 @@ export default function CaseDetail() {
         </div>
       </div>
 
-      {/* Seção de Onboarding de Processo */}
-      <CaseOnboardingCard
-        caseId={c.id}
-        caseNumber={c.number}
-        clientId={c.clientId}
-        caseResponsibleId={c.responsibleId}
-      />
+      {/* Seção de Onboarding de Processo (exibido apenas se for processo principal ou se o usuário disparou manualmente para o subprocesso) */}
+      {(!c.parentId ||
+        tasks.some(
+          (t) =>
+            t.relatedProcessId === c.id &&
+            (t.type === 'Onboarding' || (t.type || '').toLowerCase().includes('onboarding')),
+        )) && (
+        <CaseOnboardingCard
+          caseId={c.id}
+          caseNumber={c.number}
+          clientId={c.clientId}
+          caseResponsibleId={c.responsibleId}
+        />
+      )}
 
       <Tabs defaultValue="info" className="w-full">
         <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-6 h-auto max-w-4xl gap-1 p-1">

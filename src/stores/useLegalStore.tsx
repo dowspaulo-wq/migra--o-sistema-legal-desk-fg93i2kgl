@@ -1211,7 +1211,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           title: step.title,
           clientId,
           relatedProcessId: null,
-          status: initialStatus,
+          status: 'Pendente',
           priority: 'Média',
           type: 'Onboarding',
           description: `Etapa ${stepNum} do Onboarding de Cliente Novo`,
@@ -1367,7 +1367,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           title: step.title,
           clientId,
           relatedProcessId: caseId,
-          status: 'pendente',
+          status: 'Pendente',
           priority: 'Média',
           type: 'Onboarding',
           description: `Etapa ${stepNum} do Onboarding de Processo (${displayNum})`,
@@ -1508,11 +1508,14 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
       setState((prev) => ({ ...prev, cases: [data as any, ...prev.cases] }))
       toast({ title: fullCase.parentId ? 'Subprocesso adicionado' : 'Processo adicionado' })
 
-      // Dispara automaticamente as tarefas de onboarding de PROCESSO vinculadas a este caso
-      try {
-        await generateCaseOnboardingTasks(data.id, data.clientId, data.responsibleId, data.number)
-      } catch (onbErr) {
-        console.error('Erro ao disparar onboarding de processo:', onbErr)
+      // Dispara automaticamente as tarefas de onboarding de PROCESSO apenas para processos principais (não subprocessos)
+      // Subprocessos (com parentId) NÃO devem gerar tarefas de onboarding automaticamente (requisito v0.0.637)
+      if (!fullCase.parentId) {
+        try {
+          await generateCaseOnboardingTasks(data.id, data.clientId, data.responsibleId, data.number)
+        } catch (onbErr) {
+          console.error('Erro ao disparar onboarding de processo:', onbErr)
+        }
       }
 
       // Executa regras de automação customizadas adicionais no cadastro de processo

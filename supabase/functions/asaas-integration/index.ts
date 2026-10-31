@@ -429,6 +429,183 @@ Deno.serve(async (req: Request) => {
     }
 
     // -------------------------------------------------------------
+    // ACTION: issueInvoice (Emissão de NFS-e avulsa ou vinculada a cobrança)
+    // -------------------------------------------------------------
+    if (action === 'issueInvoice' || action === 'issue-invoice') {
+      const { data: transaction, error: txErr } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('id', transactionId)
+        .single()
+
+      if (txErr || !transaction) {
+        throw new Error('Transação/Recebível não encontrado.')
+      }
+
+      const txAmount = Number(transaction.amount || 0)
+      if (txAmount <= 0) {
+        throw new Error('O valor do recebível deve ser maior que zero para emissão de Nota Fiscal.')
+      }
+
+      if (!transaction.clientId) {
+        throw new Error(
+          'O recebível precisa estar vinculado a um cliente para emitir a Nota Fiscal. Vincule o cliente antes de emitir.',
+        )
+      }
+
+      const { data: client, error: clientErr } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('id', transaction.clientId)
+        .single()
+
+      if (clientErr || !client) {
+        throw new Error('Cliente vinculado ao recebível não foi encontrado.')
+      }
+
+      const normalizedDoc = normalizeDocument(client.document)
+      if (!normalizedDoc) {
+        throw new Error(
+          'O cliente não possui CPF/CNPJ válido cadastrado. O documento é obrigatório para emissão de NFS-e no Asaas.',
+        )
+      }
+
+      let clientAsaasId = (client as any).asaas_id
+
+      // Se o cliente ainda não tem asaas_id, garantir o cadastro dele no Asaas
+      if (!clientAsaasId) {
+        // Tentar buscar por CPF/CNPJ primeiro no Asaas
+        try {
+          const findRes = await fetch(
+            `${asaasBaseUrl}/customers?cpfCnpj=${encodeURIComponent(normalizedDoc)}`,
+            {
+              method: 'GET',
+              headers: { access_token: apiKey, 'Content-Type': 'application/json' },
+            },
+          )
+          if (findRes.ok) {
+            const findData = await findRes.json()
+            if (findData.data && findData.data.length > 0) {
+              clientAsaasId = findData.data[0].id
+              await supabase.from('clients').update({ asaas_id: clientAsaasId }).eq('id', client.id)
+            }
+          }
+        } catch (findErr) {
+          console.warn('Erro ao consultar cliente por CPF no Asaas:', findErr)
+        }
+
+        // Se ainda não achou, criar no Asaas
+        if (!clientAsaasId) {
+          const customerPayload: any = {
+            name: client.name,
+            cpfCnpj: normalizedDoc,
+            email: client.email || undefined,
+            phone: client.phone || undefined,
+            mobilePhone: client.phone || undefined,
+            address: (client as any).street || client.address || undefined,
+            addressNumber: (client as any).number || undefined,
+            complement: (client as any).complement || undefined,
+            province: (client as any).neighborhood || undefined,
+            postalCode: (client as any).cep ? (client as any).cep.replace(/\D/g, '') : undefined,
+          }
+
+          const createCustRes = await fetch(`${asaasBaseUrl}/customers`, {
+            method: 'POST',
+            headers: { access_token: apiKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify(customerPayload),
+          })
+
+          if (!createCustRes.ok) {
+            const custErr = await createCustRes.json().catch(() => ({}))
+            const msg = (custErr as any)?.errors?.[0]?.description || createCustRes.statusText
+            throw new Error(`Erro ao cadastrar cliente no Asaas para a NF: ${msg}`)
+          }
+
+          const createdCust = await createCustRes.json()
+          clientAsaasId = createdCust.id
+          await supabase.from('clients').update({ asaas_id: clientAsaasId }).eq('id', client.id)
+        }
+      }
+
+      // Preparar payload de emissão de NFS-e (POST /v3/invoices)
+      const serviceDescription =
+        transaction.description || `Honorários advocatícios prestados a ${client.name}`
+      const todayIso = new Date().toISOString().split('T')[0]
+      const effectiveDate = transaction.date || todayIso
+
+      const invoicePayload: any = {
+        serviceDescription,
+        observations: `Ref. recebível SBJUR #${transaction.id.substring(0, 8)}`,
+        value: txAmount,
+        deductions: 0,
+        effectiveDate,
+        taxes: {
+          retainIss: false,
+        },
+      }
+
+      // Se a transação já tem cobrança Asaas vinculada (asaas_id começando com pay_), vincula pelo payment
+      if (transaction.asaas_id && String(transaction.asaas_id).startsWith('pay_')) {
+        invoicePayload.payment = transaction.asaas_id
+      } else {
+        // Recebíveis do SICOOB ou outras vias: emissão avulsa para o customer
+        invoicePayload.customer = clientAsaasId
+        invoicePayload.externalReference = transaction.id
+      }
+
+      // Se houver código de serviço municipal padrão nas configurações, inclui
+      const municipalServiceCode =
+        (settings as any)?.asaasMunicipalServiceCode || (settings as any)?.municipalServiceCode
+      const municipalServiceId =
+        (settings as any)?.asaasMunicipalServiceId || (settings as any)?.municipalServiceId
+      if (municipalServiceId) {
+        invoicePayload.municipalServiceId = municipalServiceId
+      } else if (municipalServiceCode) {
+        invoicePayload.municipalServiceCode = municipalServiceCode
+      }
+
+      const invoiceRes = await fetch(`${asaasBaseUrl}/invoices`, {
+        method: 'POST',
+        headers: { access_token: apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify(invoicePayload),
+      })
+
+      if (!invoiceRes.ok) {
+        const invErr = await invoiceRes.json().catch(() => ({}))
+        const msg = (invErr as any)?.errors?.[0]?.description || invoiceRes.statusText
+        throw new Error(`Erro do Asaas ao agendar emissão da NF: ${msg}`)
+      }
+
+      const invoiceData = await invoiceRes.json()
+      const invoiceId = invoiceData.id
+      const invoiceStatus = invoiceData.status || 'SCHEDULED'
+      const invoicePdfUrl = invoiceData.pdfUrl || invoiceData.xmlUrl || null
+      const invoiceNumber = invoiceData.number || null
+
+      // Gravar no lançamento financeiro
+      await supabase
+        .from('transactions')
+        .update({
+          asaas_invoice_id: invoiceId,
+          asaas_invoice_status: invoiceStatus,
+          asaas_invoice_url: invoicePdfUrl,
+          asaas_invoice_number: invoiceNumber,
+        })
+        .eq('id', transaction.id)
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: 'Nota Fiscal enviada para emissão no Asaas com sucesso.',
+          invoice: invoiceData,
+          asaas_invoice_id: invoiceId,
+          asaas_invoice_status: invoiceStatus,
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
+    // -------------------------------------------------------------
     // ACTION: cancelPayment
     // -------------------------------------------------------------
     if (action === 'cancelPayment') {

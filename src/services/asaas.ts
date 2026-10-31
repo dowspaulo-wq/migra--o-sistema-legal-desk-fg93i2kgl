@@ -128,6 +128,10 @@ export async function syncChargeWithAsaas(transactionId: string) {
   return invokeAsaasFunction({ action: 'syncCharge', transactionId })
 }
 
+export async function issueInvoiceWithAsaas(transactionId: string) {
+  return invokeAsaasFunction({ action: 'issueInvoice', transactionId })
+}
+
 export async function cancelChargeWithAsaas(transactionId: string) {
   return invokeAsaasFunction({ action: 'cancelPayment', transactionId })
 }

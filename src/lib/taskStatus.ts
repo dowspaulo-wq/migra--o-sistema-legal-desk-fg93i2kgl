@@ -16,7 +16,7 @@ export function isTaskDone(status?: string | null): boolean {
 }
 
 export function canonicalTaskStatus(status?: string | null): string {
-  if (!status) return 'Pendente'
+  if (!status || !status.trim()) return 'Pendente'
   if (isTaskDone(status)) {
     return 'Concluída'
   }
