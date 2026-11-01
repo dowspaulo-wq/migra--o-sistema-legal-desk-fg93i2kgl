@@ -34,6 +34,7 @@ import { formatSafeLocalDate, cn } from '@/lib/utils'
 import { LinkConciliationDialog } from '@/components/LinkConciliationDialog'
 import { supabase } from '@/lib/supabase/client'
 import { toast } from '@/hooks/use-toast'
+import type { Transaction } from '@/lib/mockData'
 
 interface ConciliationTabProps {
   transactions: any[]
