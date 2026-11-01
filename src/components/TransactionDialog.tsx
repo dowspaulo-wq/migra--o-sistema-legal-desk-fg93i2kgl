@@ -6,6 +6,16 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import {
@@ -39,6 +49,9 @@ import {
 } from '@/lib/fee-types'
 import { syncChargeWithAsaas } from '@/services/asaas'
 import { useFinancePermissions } from '@/hooks/use-finance-permissions'
+import { findDuplicateTransaction } from '@/lib/anti-duplicate'
+import { formatSafeLocalDate } from '@/lib/utils'
+import type { Transaction } from '@/lib/mockData'
 
 const DEFAULT_CATEGORIES = [
   'Acordo',
@@ -171,6 +184,12 @@ export function TransactionDialog({
   const [isRecurring, setIsRecurring] = useState(false)
   const [installments, setInstallments] = useState('2')
   const [clientSearchOpen, setClientSearchOpen] = useState(false)
+  const [duplicateWarning, setDuplicateWarning] = useState<{
+    matched: Transaction
+    pendingPayload: any
+    isRecurring: boolean
+    installments: number
+  } | null>(null)
 
   const lastInitializedIdRef = useState<{ id: string | null }>({ id: null })[0]
 
@@ -340,384 +359,483 @@ export function TransactionDialog({
       }
     }
 
-    onSave(payload, isRecurring, parseInt(installments, 10))
+    const parsedInstallments = parseInt(installments, 10) || 1
+
+    // Verificação anti-duplicidade contra lançamentos existentes
+    const existingList = (state?.transactions || []) as Transaction[]
+    const duplicateMatch = findDuplicateTransaction(
+      {
+        date: payload.date,
+        amount: payload.amount,
+        description: payload.description,
+        bankAccount: payload.bankAccount,
+        clientId: payload.clientId,
+      },
+      existingList,
+      data?.id || null,
+    )
+
+    if (duplicateMatch) {
+      setDuplicateWarning({
+        matched: duplicateMatch,
+        pendingPayload: payload,
+        isRecurring,
+        installments: parsedInstallments,
+      })
+      return
+    }
+
+    onSave(payload, isRecurring, parsedInstallments)
+    onOpenChange(false)
+  }
+
+  const handleConfirmDuplicateSave = () => {
+    if (!duplicateWarning) return
+    const { pendingPayload, isRecurring: rec, installments: inst } = duplicateWarning
+    setDuplicateWarning(null)
+    onSave(pendingPayload, rec, inst)
     onOpenChange(false)
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
-        <form onSubmit={handleSubmit} className="grid gap-4">
-          <DialogHeader>
-            <DialogTitle>{data ? 'Editar' : 'Novo'} Lançamento</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Tipo *</Label>
-                <Select
-                  value={fd.type}
-                  onValueChange={(v) => {
-                    let newDefaultCat = 'Custas Iniciais'
-                    if (v === 'income') {
-                      newDefaultCat = 'Honorários Contratuais'
-                    } else if (v === 'office_expense') {
-                      newDefaultCat = officeExpenseCategories[0] || 'Aluguel'
-                    }
-                    setFd({ ...fd, type: v, category: newDefaultCat })
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Tipo" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="expense">Despesa do Cliente / Custa</SelectItem>
-                    <SelectItem value="office_expense">Despesas do escritório</SelectItem>
-                    <SelectItem value="income">Honorário / Receita</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Valor (R$) {isSuccessFee ? '(Opcional se %)' : '*'}</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  required={!isSuccessFee}
-                  placeholder={isSuccessFee ? 'A apurar ou informe R$' : '0,00'}
-                  value={fd.amount}
-                  onChange={(e) => setFd({ ...fd, amount: e.target.value })}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>{fd.type === 'income' ? 'Tipo de Honorário *' : 'Tipo de Despesa *'}</Label>
-                <Select
-                  value={fd.category}
-                  onValueChange={(v) => {
-                    const isSucc = isCategorySuccessFee(v)
-                    setFd((prev: any) => ({
-                      ...prev,
-                      category: v,
-                      date: isSucc ? prev.date || defaultSuccessDueDate : prev.date,
-                    }))
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {currentCategoryList.map((c) => (
-                      <SelectItem key={c} value={c}>
-                        {c}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Data / Vencimento {isSuccessFee ? '(Padrão 31/12)' : '*'}</Label>
-                <Input
-                  type="date"
-                  required
-                  value={fd.date || ''}
-                  onChange={(e) => setFd({ ...fd, date: e.target.value })}
-                />
-              </div>
-            </div>
-
-            {/* Seletor de Cliente com busca para Honorários Avulsos */}
-            {fd.category === 'Honorários Avulsos' && (
-              <div className="space-y-2 bg-blue-50/50 p-3 rounded-lg border border-blue-200">
-                <Label className="text-blue-950 font-semibold">Cliente *</Label>
-                <Popover open={clientSearchOpen} onOpenChange={setClientSearchOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      role="combobox"
-                      aria-expanded={clientSearchOpen}
-                      disabled={Boolean(lockedClientId)}
-                      className="w-full justify-between font-normal bg-white"
-                    >
-                      <span className="truncate">
-                        {(() => {
-                          const selected = (state?.clients || []).find(
-                            (c: any) => c.id === fd.clientId,
-                          )
-                          return selected ? selected.name : 'Selecione ou busque um cliente...'
-                        })()}
-                      </span>
-                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                    <Command>
-                      <CommandInput placeholder="Buscar cliente por nome..." />
-                      <CommandList className="max-h-60">
-                        <CommandEmpty>Nenhum cliente encontrado.</CommandEmpty>
-                        <CommandGroup>
-                          {[...(state?.clients || [])]
-                            .sort((a: any, b: any) =>
-                              (a.name || '').localeCompare(b.name || '', 'pt-BR'),
-                            )
-                            .map((client: any) => (
-                              <CommandItem
-                                key={client.id}
-                                value={client.name}
-                                onSelect={() => {
-                                  setFd((prev: any) => ({ ...prev, clientId: client.id }))
-                                  setClientSearchOpen(false)
-                                }}
-                              >
-                                <Check
-                                  className={cn(
-                                    'mr-2 h-4 w-4',
-                                    fd.clientId === client.id ? 'opacity-100' : 'opacity-0',
-                                  )}
-                                />
-                                <span className="truncate">{client.name}</span>
-                                {client.document && (
-                                  <span className="ml-2 text-xs text-muted-foreground">
-                                    ({client.document})
-                                  </span>
-                                )}
-                              </CommandItem>
-                            ))}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-                {fd.processId && (
-                  <p className="text-[11px] text-muted-foreground">
-                    Processo vinculado:{' '}
-                    {(state?.cases || []).find((c: any) => c.id === fd.processId)?.number ||
-                      fd.processId}
-                  </p>
-                )}
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label>
-                {fd.category === 'Honorários Avulsos' ? 'Descrição do serviço *' : 'Descrição *'}
-              </Label>
-              <Input
-                required
-                placeholder={
-                  fd.category === 'Honorários Avulsos'
-                    ? 'Ex: Redação de contrato à parte'
-                    : 'Ex: Honorários contratuais ou Guia de custas'
-                }
-                value={fd.description}
-                onChange={(e) =>
-                  setFd({ ...fd, description: capitalizeFirstLetter(e.target.value) })
-                }
-              />
-            </div>
-
-            {isSuccessFee && (
-              <div className="space-y-2">
-                <Label>Percentual (%) (Opcional)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  max="100"
-                  placeholder="Ex: 30"
-                  value={fd.percentage || ''}
-                  onChange={(e) => setFd({ ...fd, percentage: e.target.value })}
-                />
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label>Processo (Opcional)</Label>
-              <Select
-                value={fd.processId || 'none'}
-                disabled={Boolean(lockedProcessId)}
-                onValueChange={(v) => {
-                  setFd({ ...fd, processId: v === 'none' ? null : v })
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione um processo" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Nenhum</SelectItem>
-                  {(() => {
-                    const activeClientId =
-                      fd.clientId || lockedClientId || (data ? resolveClientId(data) : '')
-                    const clientCases = (state?.cases || [])
-                      .filter((c: any) => !activeClientId || c.clientId === activeClientId)
-                      .sort((a: any, b: any) =>
-                        (a.number || a.title || '').localeCompare(
-                          b.number || b.title || '',
-                          'pt-BR',
-                        ),
-                      )
-                    return clientCases.map((c: any) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.number || c.title || c.id}
-                      </SelectItem>
-                    ))
-                  })()}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Status *</Label>
-                <Select value={fd.status} onValueChange={(v) => setFd({ ...fd, status: v })}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Previsto">Previsto</SelectItem>
-                    <SelectItem value="Pago">Pago</SelectItem>
-                    <SelectItem value="Pendente">Pendente</SelectItem>
-                    <SelectItem value="Atrasado">Atrasado</SelectItem>
-                    <SelectItem value="Cancelado">Cancelado</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Banco / Conta</Label>
-                <Select
-                  value={fd.bankAccount}
-                  onValueChange={(v) => setFd({ ...fd, bankAccount: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Conta" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {bankOptions.map((b) => (
-                      <SelectItem key={b} value={b}>
-                        {b}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Forma de Pagamento</Label>
-              <Select
-                value={fd.payment_method || 'PIX'}
-                onValueChange={(v) => setFd({ ...fd, payment_method: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Forma de Pagamento" />
-                </SelectTrigger>
-                <SelectContent>
-                  {paymentMethodOptions.map((m) => (
-                    <SelectItem key={m} value={m}>
-                      {m}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {lockedProcessId && (
-              <div className="flex items-center space-x-2 pt-3 border-t mt-2">
-                <Checkbox
-                  id="sendToFinance"
-                  checked={fd.sendToFinance}
-                  onCheckedChange={(v) => setFd({ ...fd, sendToFinance: !!v })}
-                />
-                <Label htmlFor="sendToFinance" className="text-sm font-medium cursor-pointer">
-                  Lançar também no Módulo Financeiro Global
-                </Label>
-              </div>
-            )}
-
-            {!data && (
-              <div className="pt-3 border-t mt-2 space-y-4">
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="isRecurring"
-                    checked={isRecurring}
-                    onCheckedChange={(v) => setIsRecurring(!!v)}
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+          <form onSubmit={handleSubmit} className="grid gap-4">
+            <DialogHeader>
+              <DialogTitle>{data ? 'Editar' : 'Novo'} Lançamento</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Tipo *</Label>
+                  <Select
+                    value={fd.type}
+                    onValueChange={(v) => {
+                      let newDefaultCat = 'Custas Iniciais'
+                      if (v === 'income') {
+                        newDefaultCat = 'Honorários Contratuais'
+                      } else if (v === 'office_expense') {
+                        newDefaultCat = officeExpenseCategories[0] || 'Aluguel'
+                      }
+                      setFd({ ...fd, type: v, category: newDefaultCat })
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Tipo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="expense">Despesa do Cliente / Custa</SelectItem>
+                      <SelectItem value="office_expense">Despesas do escritório</SelectItem>
+                      <SelectItem value="income">Honorário / Receita</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Valor (R$) {isSuccessFee ? '(Opcional se %)' : '*'}</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    required={!isSuccessFee}
+                    placeholder={isSuccessFee ? 'A apurar ou informe R$' : '0,00'}
+                    value={fd.amount}
+                    onChange={(e) => setFd({ ...fd, amount: e.target.value })}
                   />
-                  <Label htmlFor="isRecurring" className="text-sm font-medium cursor-pointer">
-                    Lançamento Recorrente / Parcelado
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>
+                    {fd.type === 'income' ? 'Tipo de Honorário *' : 'Tipo de Despesa *'}
+                  </Label>
+                  <Select
+                    value={fd.category}
+                    onValueChange={(v) => {
+                      const isSucc = isCategorySuccessFee(v)
+                      setFd((prev: any) => ({
+                        ...prev,
+                        category: v,
+                        date: isSucc ? prev.date || defaultSuccessDueDate : prev.date,
+                      }))
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {currentCategoryList.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {c}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Data / Vencimento {isSuccessFee ? '(Padrão 31/12)' : '*'}</Label>
+                  <Input
+                    type="date"
+                    required
+                    value={fd.date || ''}
+                    onChange={(e) => setFd({ ...fd, date: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              {/* Seletor de Cliente com busca para Honorários Avulsos */}
+              {fd.category === 'Honorários Avulsos' && (
+                <div className="space-y-2 bg-blue-50/50 p-3 rounded-lg border border-blue-200">
+                  <Label className="text-blue-950 font-semibold">Cliente *</Label>
+                  <Popover open={clientSearchOpen} onOpenChange={setClientSearchOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={clientSearchOpen}
+                        disabled={Boolean(lockedClientId)}
+                        className="w-full justify-between font-normal bg-white"
+                      >
+                        <span className="truncate">
+                          {(() => {
+                            const selected = (state?.clients || []).find(
+                              (c: any) => c.id === fd.clientId,
+                            )
+                            return selected ? selected.name : 'Selecione ou busque um cliente...'
+                          })()}
+                        </span>
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Buscar cliente por nome..." />
+                        <CommandList className="max-h-60">
+                          <CommandEmpty>Nenhum cliente encontrado.</CommandEmpty>
+                          <CommandGroup>
+                            {[...(state?.clients || [])]
+                              .sort((a: any, b: any) =>
+                                (a.name || '').localeCompare(b.name || '', 'pt-BR'),
+                              )
+                              .map((client: any) => (
+                                <CommandItem
+                                  key={client.id}
+                                  value={client.name}
+                                  onSelect={() => {
+                                    setFd((prev: any) => ({ ...prev, clientId: client.id }))
+                                    setClientSearchOpen(false)
+                                  }}
+                                >
+                                  <Check
+                                    className={cn(
+                                      'mr-2 h-4 w-4',
+                                      fd.clientId === client.id ? 'opacity-100' : 'opacity-0',
+                                    )}
+                                  />
+                                  <span className="truncate">{client.name}</span>
+                                  {client.document && (
+                                    <span className="ml-2 text-xs text-muted-foreground">
+                                      ({client.document})
+                                    </span>
+                                  )}
+                                </CommandItem>
+                              ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                  {fd.processId && (
+                    <p className="text-[11px] text-muted-foreground">
+                      Processo vinculado:{' '}
+                      {(state?.cases || []).find((c: any) => c.id === fd.processId)?.number ||
+                        fd.processId}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label>
+                  {fd.category === 'Honorários Avulsos' ? 'Descrição do serviço *' : 'Descrição *'}
+                </Label>
+                <Input
+                  required
+                  placeholder={
+                    fd.category === 'Honorários Avulsos'
+                      ? 'Ex: Redação de contrato à parte'
+                      : 'Ex: Honorários contratuais ou Guia de custas'
+                  }
+                  value={fd.description}
+                  onChange={(e) =>
+                    setFd({ ...fd, description: capitalizeFirstLetter(e.target.value) })
+                  }
+                />
+              </div>
+
+              {isSuccessFee && (
+                <div className="space-y-2">
+                  <Label>Percentual (%) (Opcional)</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max="100"
+                    placeholder="Ex: 30"
+                    value={fd.percentage || ''}
+                    onChange={(e) => setFd({ ...fd, percentage: e.target.value })}
+                  />
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label>Processo (Opcional)</Label>
+                <Select
+                  value={fd.processId || 'none'}
+                  disabled={Boolean(lockedProcessId)}
+                  onValueChange={(v) => {
+                    setFd({ ...fd, processId: v === 'none' ? null : v })
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione um processo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Nenhum</SelectItem>
+                    {(() => {
+                      const activeClientId =
+                        fd.clientId || lockedClientId || (data ? resolveClientId(data) : '')
+                      const clientCases = (state?.cases || [])
+                        .filter((c: any) => !activeClientId || c.clientId === activeClientId)
+                        .sort((a: any, b: any) =>
+                          (a.number || a.title || '').localeCompare(
+                            b.number || b.title || '',
+                            'pt-BR',
+                          ),
+                        )
+                      return clientCases.map((c: any) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.number || c.title || c.id}
+                        </SelectItem>
+                      ))
+                    })()}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Status *</Label>
+                  <Select value={fd.status} onValueChange={(v) => setFd({ ...fd, status: v })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Previsto">Previsto</SelectItem>
+                      <SelectItem value="Pago">Pago</SelectItem>
+                      <SelectItem value="Pendente">Pendente</SelectItem>
+                      <SelectItem value="Atrasado">Atrasado</SelectItem>
+                      <SelectItem value="Cancelado">Cancelado</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Banco / Conta</Label>
+                  <Select
+                    value={fd.bankAccount}
+                    onValueChange={(v) => setFd({ ...fd, bankAccount: v })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Conta" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {bankOptions.map((b) => (
+                        <SelectItem key={b} value={b}>
+                          {b}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Forma de Pagamento</Label>
+                <Select
+                  value={fd.payment_method || 'PIX'}
+                  onValueChange={(v) => setFd({ ...fd, payment_method: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Forma de Pagamento" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {paymentMethodOptions.map((m) => (
+                      <SelectItem key={m} value={m}>
+                        {m}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {lockedProcessId && (
+                <div className="flex items-center space-x-2 pt-3 border-t mt-2">
+                  <Checkbox
+                    id="sendToFinance"
+                    checked={fd.sendToFinance}
+                    onCheckedChange={(v) => setFd({ ...fd, sendToFinance: !!v })}
+                  />
+                  <Label htmlFor="sendToFinance" className="text-sm font-medium cursor-pointer">
+                    Lançar também no Módulo Financeiro Global
                   </Label>
                 </div>
-                {isRecurring && (
-                  <div className="space-y-2">
-                    <Label>Quantidade de Meses/Parcelas</Label>
-                    <Input
-                      type="number"
-                      min="2"
-                      max="120"
-                      value={installments}
-                      onChange={(e) => setInstallments(e.target.value)}
+              )}
+
+              {!data && (
+                <div className="pt-3 border-t mt-2 space-y-4">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="isRecurring"
+                      checked={isRecurring}
+                      onCheckedChange={(v) => setIsRecurring(!!v)}
                     />
+                    <Label htmlFor="isRecurring" className="text-sm font-medium cursor-pointer">
+                      Lançamento Recorrente / Parcelado
+                    </Label>
                   </div>
-                )}
-              </div>
-            )}
-          </div>
-          <DialogFooter className="flex justify-between items-center w-full">
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  lastInitializedIdRef.id = null
-                  if (onCancel) onCancel()
-                  onOpenChange(false)
-                }}
-              >
-                Cancelar
-              </Button>
-              {data?.id && (
+                  {isRecurring && (
+                    <div className="space-y-2">
+                      <Label>Quantidade de Meses/Parcelas</Label>
+                      <Input
+                        type="number"
+                        min="2"
+                        max="120"
+                        value={installments}
+                        onChange={(e) => setInstallments(e.target.value)}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <DialogFooter className="flex justify-between items-center w-full">
+              <div className="flex items-center gap-2">
                 <Button
                   type="button"
                   variant="outline"
-                  className="border-blue-300 text-blue-700 hover:bg-blue-50"
-                  onClick={async () => {
-                    try {
-                      toast({ title: 'Sincronizando com Asaas...' })
-                      const { data: syncRes, error } = await syncChargeWithAsaas(data.id)
-                      if (error) {
-                        toast({
-                          title: 'Erro na cobrança Asaas',
-                          description: error.message || 'Falha ao sincronizar com Asaas',
-                          variant: 'destructive',
-                        })
-                      } else {
-                        const asaasTxId = (syncRes as any)?.asaas_id
-                        toast({
-                          title: 'Sucesso',
-                          description: asaasTxId
-                            ? `Cobrança sincronizada com Asaas com sucesso! (ID: ${asaasTxId})`
-                            : syncRes?.message || 'Cobrança sincronizada com Asaas com sucesso.',
-                        })
-                        onOpenChange(false)
-                      }
-                    } catch (err: any) {
-                      toast({
-                        title: 'Erro',
-                        description: err.message || 'Falha ao sincronizar com Asaas',
-                        variant: 'destructive',
-                      })
-                    }
+                  onClick={() => {
+                    lastInitializedIdRef.id = null
+                    if (onCancel) onCancel()
+                    onOpenChange(false)
                   }}
                 >
-                  Sincronizar com Asaas
+                  Cancelar
                 </Button>
+                {data?.id && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-blue-300 text-blue-700 hover:bg-blue-50"
+                    onClick={async () => {
+                      try {
+                        toast({ title: 'Sincronizando com Asaas...' })
+                        const { data: syncRes, error } = await syncChargeWithAsaas(data.id)
+                        if (error) {
+                          toast({
+                            title: 'Erro na cobrança Asaas',
+                            description: error.message || 'Falha ao sincronizar com Asaas',
+                            variant: 'destructive',
+                          })
+                        } else {
+                          const asaasTxId = (syncRes as any)?.asaas_id
+                          toast({
+                            title: 'Sucesso',
+                            description: asaasTxId
+                              ? `Cobrança sincronizada com Asaas com sucesso! (ID: ${asaasTxId})`
+                              : syncRes?.message || 'Cobrança sincronizada com Asaas com sucesso.',
+                          })
+                          onOpenChange(false)
+                        }
+                      } catch (err: any) {
+                        toast({
+                          title: 'Erro',
+                          description: err.message || 'Falha ao sincronizar com Asaas',
+                          variant: 'destructive',
+                        })
+                      }
+                    }}
+                  >
+                    Sincronizar com Asaas
+                  </Button>
+                )}
+              </div>
+              <Button type="submit">Salvar</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de aviso de provável duplicado com AlertDialog */}
+      <AlertDialog
+        open={Boolean(duplicateWarning)}
+        onOpenChange={(v) => {
+          if (!v) setDuplicateWarning(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-amber-800 flex items-center gap-2">
+              ⚠️ Provável lançamento duplicado detectado
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3 text-slate-700">
+              <p>Já existe um lançamento no sistema com a mesma data, valor, descrição e conta:</p>
+              {duplicateWarning?.matched && (
+                <div className="bg-amber-50/80 border border-amber-200 rounded-lg p-3 text-xs space-y-1 font-sans text-slate-800">
+                  <p>
+                    <strong className="text-slate-900">Data:</strong>{' '}
+                    {formatSafeLocalDate(duplicateWarning.matched.date)}
+                  </p>
+                  <p>
+                    <strong className="text-slate-900">Descrição:</strong>{' '}
+                    {duplicateWarning.matched.description}
+                  </p>
+                  <p>
+                    <strong className="text-slate-900">Valor:</strong> R${' '}
+                    {Number(duplicateWarning.matched.amount || 0).toLocaleString('pt-BR', {
+                      minimumFractionDigits: 2,
+                    })}
+                  </p>
+                  <p>
+                    <strong className="text-slate-900">Conta / Origem:</strong>{' '}
+                    {duplicateWarning.matched.bankAccount || 'Não informada'}
+                  </p>
+                  {duplicateWarning.matched.status && (
+                    <p>
+                      <strong className="text-slate-900">Status atual:</strong>{' '}
+                      {duplicateWarning.matched.status}
+                    </p>
+                  )}
+                </div>
               )}
-            </div>
-            <Button type="submit">Salvar</Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+              <p className="text-xs text-muted-foreground">
+                Deseja salvar este novo lançamento mesmo assim ou cancelar?
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDuplicateWarning(null)}>
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDuplicateSave}
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+            >
+              Salvar mesmo assim
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }

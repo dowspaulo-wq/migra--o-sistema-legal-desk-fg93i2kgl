@@ -45,6 +45,9 @@ import {
 import { supabase } from '@/lib/supabase/client'
 import { toast } from '@/hooks/use-toast'
 import { formatSafeLocalDate, cn } from '@/lib/utils'
+import useLegalStore from '@/stores/useLegalStore'
+import { findDuplicateTransaction } from '@/lib/anti-duplicate'
+import type { Transaction } from '@/lib/mockData'
 
 interface BankPdfImportDialogProps {
   open: boolean
@@ -69,6 +72,31 @@ export function BankPdfImportDialog({
   const [rawTextFallback, setRawTextFallback] = useState('')
   const [showTextFallback, setShowTextFallback] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const { state } = useLegalStore()
+
+  const markDuplicatesOnItems = (items: ParsedBankStatementItem[], bank: string) => {
+    const existingList = (state?.transactions || []) as Transaction[]
+    return items.map((item) => {
+      const duplicate = findDuplicateTransaction(
+        {
+          date: item.date,
+          amount: item.amount,
+          description: item.description,
+          bankAccount: bank,
+        },
+        existingList,
+      )
+      if (duplicate) {
+        return {
+          ...item,
+          selected: false, // Desmarca automaticamente para não importar duplicado
+          isDuplicate: true,
+          matchedDuplicate: duplicate,
+        }
+      }
+      return item
+    })
+  }
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -89,7 +117,8 @@ export function BankPdfImportDialog({
         )
         setShowTextFallback(true)
       } else {
-        setParsedItems(items)
+        const checkedItems = markDuplicatesOnItems(items, selectedBank)
+        setParsedItems(checkedItems)
       }
     } catch (err: any) {
       console.error('Erro ao ler PDF:', err)
@@ -121,7 +150,8 @@ export function BankPdfImportDialog({
         variant: 'destructive',
       })
     } else {
-      setParsedItems(items)
+      const checkedItems = markDuplicatesOnItems(items, selectedBank)
+      setParsedItems(checkedItems)
       setShowTextFallback(false)
       setErrorMessage(null)
       toast({
@@ -138,10 +168,19 @@ export function BankPdfImportDialog({
   }
 
   const toggleSelectAll = (select: boolean) => {
-    setParsedItems((prev) => prev.map((it) => ({ ...it, selected: select })))
+    setParsedItems((prev) =>
+      prev.map((it) => {
+        // Se estiver marcando todos mas o item for duplicado existente, não seleciona
+        if (select && (it as any).isDuplicate) {
+          return it
+        }
+        return { ...it, selected: select }
+      }),
+    )
   }
 
   const selectedCount = parsedItems.filter((it) => it.selected).length
+  const duplicateCount = parsedItems.filter((it: any) => it.isDuplicate).length
   const highConfidenceCount = parsedItems.filter((it) => it.confidence === 'high').length
   const lowConfidenceCount = parsedItems.filter((it) => it.confidence !== 'high').length
 
@@ -375,6 +414,11 @@ export function BankPdfImportDialog({
                       {lowConfidenceCount} para conferir
                     </Badge>
                   )}
+                  {duplicateCount > 0 && (
+                    <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
+                      {duplicateCount} duplicados (pulados)
+                    </Badge>
+                  )}
                   <div className="flex gap-1 ml-2">
                     <Button
                       size="sm"
@@ -464,7 +508,15 @@ export function BankPdfImportDialog({
                             {item.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                           </TableCell>
                           <TableCell>
-                            {item.confidence === 'high' ? (
+                            {(item as any).isDuplicate ? (
+                              <Badge
+                                variant="outline"
+                                className="bg-red-50 text-[10px] text-red-700 border-red-200"
+                                title="Lançamento com mesma data, valor, descrição e conta já existe no sistema"
+                              >
+                                Já existe
+                              </Badge>
+                            ) : item.confidence === 'high' ? (
                               <Badge
                                 variant="outline"
                                 className="bg-slate-50 text-[10px] text-slate-600"
