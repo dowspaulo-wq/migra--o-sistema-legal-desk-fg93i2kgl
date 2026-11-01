@@ -835,6 +835,11 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
         delete finalChanges.feeConfig
         delete finalChanges.isNew
 
+        if (table === 'suppliers') {
+          // A coluna group_name NÃO existe na tabela suppliers do banco VPS
+          delete finalChanges.group_name
+        }
+
         if (table === 'tasks') {
           // A tabela tasks no Postgres NÃO possui a coluna updatedAt — apenas created_at.
           // Previne que updatedAt enviado acidentalmente quebre a atualização via PostgREST.
@@ -1664,9 +1669,16 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
   )
 
   const addSupplier = useCallback(async (s: Omit<Supplier, 'id'>) => {
+    const rawPayload: any = { ...s }
+    delete rawPayload.group_name
+    delete rawPayload.table
+    delete rawPayload._previousStatus
+    delete rawPayload.feeConfig
+    delete rawPayload.isNew
+
     const { data, error } = await supabase
       .from('suppliers')
-      .insert(s as any)
+      .insert(rawPayload as any)
       .select()
       .single()
     if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })

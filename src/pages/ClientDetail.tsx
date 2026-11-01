@@ -50,7 +50,12 @@ import useLegalStore from '@/stores/useLegalStore'
 import { ClientDialog } from '@/components/ClientDialog'
 import { CaseDialog } from '@/components/CaseDialog'
 import { AppointmentDialog } from '@/components/AppointmentDialog'
-import { syncClientWithAsaas, cancelChargeWithAsaas, syncChargeWithAsaas } from '@/services/asaas'
+import {
+  syncClientWithAsaas,
+  cancelChargeWithAsaas,
+  syncChargeWithAsaas,
+  issueInvoiceWithAsaas,
+} from '@/services/asaas'
 import { toast } from '@/hooks/use-toast'
 import { ClientFeesDialog } from '@/components/ClientFeesDialog'
 import { TransactionDialog } from '@/components/TransactionDialog'
@@ -101,6 +106,8 @@ export default function ClientDetail() {
   const [generateDocxOpen, setGenerateDocxOpen] = useState(false)
   const [syncingFeeId, setSyncingFeeId] = useState<string | null>(null)
   const [bulkSyncing, setBulkSyncing] = useState(false)
+  const [issuingInvoiceId, setIssuingInvoiceId] = useState<string | null>(null)
+  const [invoiceToReissue, setInvoiceToReissue] = useState<any | null>(null)
   const [editingCase, setEditingCase] = useState<any>(null)
   const [isEditCaseOpen, setIsEditCaseOpen] = useState(false)
   const [editingDirectFee, setEditingDirectFee] = useState<any>(null)
@@ -406,6 +413,51 @@ export default function ClientDetail() {
     setFeeToDelete(null)
     setFeeDeleteError(null)
     toast({ title: 'Honorário excluído com sucesso.' })
+  }
+
+  const executeIssueInvoice = async (tx: any) => {
+    if (!canManageAsaas) return
+    setIssuingInvoiceId(tx.id)
+    const { data, error } = await issueInvoiceWithAsaas(tx.id)
+    setIssuingInvoiceId(null)
+    setInvoiceToReissue(null)
+
+    if (error) {
+      toast({
+        title: 'Erro ao emitir NF no Asaas',
+        description: error.message || 'Falha ao comunicar emissão de NFS-e.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    const inv = data?.invoice || {}
+    const changes: Record<string, any> = {
+      asaas_invoice_id: inv.id || data?.invoiceId || tx.asaas_invoice_id,
+      asaas_invoice_status: inv.status || 'SCHEDULED',
+      asaas_invoice_url: inv.pdfUrl || inv.xmlUrl || data?.pdfUrl || tx.asaas_invoice_url,
+      asaas_invoice_number: inv.number || data?.number || tx.asaas_invoice_number,
+    }
+
+    try {
+      await updateItem('transactions', tx.id, changes)
+    } catch (e) {
+      console.warn('Erro ao atualizar lançamento localmente:', e)
+    }
+
+    toast({
+      title: 'Nota Fiscal solicitada com sucesso!',
+      description: `NFS-e gerada/agendada no Asaas (Status: ${changes.asaas_invoice_status || 'OK'}).`,
+    })
+  }
+
+  const handleIssueInvoice = (tx: any) => {
+    if (!canManageAsaas) return
+    if (tx.asaas_invoice_id) {
+      setInvoiceToReissue(tx)
+      return
+    }
+    executeIssueInvoice(tx)
   }
 
   const handleFeeAsaasSync = async (transactionId: string) => {
@@ -1620,29 +1672,82 @@ export default function ClientDetail() {
                           {t.status}
                         </Badge>
                         {canManageAsaas && (
-                          <Button
-                            variant={t.asaas_id ? 'outline' : 'ghost'}
-                            size={t.asaas_id ? 'sm' : 'icon'}
-                            className={
-                              t.asaas_id
-                                ? 'text-xs h-7 bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
-                                : 'h-8 w-8 text-blue-500 hover:text-blue-700 hover:bg-blue-50'
-                            }
-                            onClick={() => handleFeeAsaasSync(t.id)}
-                            disabled={syncingFeeId === t.id}
-                            title={
-                              t.asaas_id ? 'Sincronizar/Atualizar no Asaas' : 'Enviar para o Asaas'
-                            }
-                          >
-                            <Send
-                              className={`h-3.5 w-3.5 ${t.asaas_id ? 'mr-1' : ''} ${syncingFeeId === t.id ? 'animate-pulse' : ''}`}
-                            />
-                            {t.asaas_id
-                              ? syncingFeeId === t.id
-                                ? 'Sincronizando...'
-                                : 'ASAAS'
-                              : null}
-                          </Button>
+                          <div className="flex items-center gap-1.5">
+                            {/* Indicador / Botão de Nota Fiscal no Asaas */}
+                            {t.asaas_invoice_id ? (
+                              <div className="inline-flex items-center gap-1">
+                                <span
+                                  title={`NF Emitida no Asaas (${t.asaas_invoice_status || 'Emitida/Agendada'})`}
+                                  className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300"
+                                >
+                                  🧾 Emitida
+                                </span>
+                                {t.asaas_invoice_url && (
+                                  <a
+                                    href={t.asaas_invoice_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-[11px] text-blue-600 hover:underline font-medium"
+                                    title="Abrir PDF da NF"
+                                  >
+                                    PDF
+                                  </a>
+                                )}
+                              </div>
+                            ) : (
+                              <span
+                                title="NF não emitida"
+                                className="text-xs text-slate-400 font-normal"
+                              >
+                                Não emitida
+                              </span>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className={cn(
+                                'h-7 text-xs gap-1',
+                                t.asaas_invoice_id
+                                  ? 'border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                                  : 'border-blue-300 text-blue-700 hover:bg-blue-50',
+                              )}
+                              disabled={issuingInvoiceId === t.id}
+                              onClick={() => handleIssueInvoice(t)}
+                              title={
+                                t.asaas_invoice_id
+                                  ? 'Nota Fiscal já emitida no Asaas (clique para reemitir com confirmação)'
+                                  : 'Emitir Nota Fiscal (NFS-e) no Asaas com o valor deste honorário'
+                              }
+                            >
+                              {t.asaas_invoice_id ? '🧾 Reemitir NF' : '🧾 Emitir NF'}
+                            </Button>
+
+                            <Button
+                              variant={t.asaas_id ? 'outline' : 'ghost'}
+                              size={t.asaas_id ? 'sm' : 'icon'}
+                              className={
+                                t.asaas_id
+                                  ? 'text-xs h-7 bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                                  : 'h-8 w-8 text-blue-500 hover:text-blue-700 hover:bg-blue-50'
+                              }
+                              onClick={() => handleFeeAsaasSync(t.id)}
+                              disabled={syncingFeeId === t.id}
+                              title={
+                                t.asaas_id
+                                  ? 'Sincronizar/Atualizar no Asaas'
+                                  : 'Enviar para o Asaas'
+                              }
+                            >
+                              <Send
+                                className={`h-3.5 w-3.5 ${t.asaas_id ? 'mr-1' : ''} ${syncingFeeId === t.id ? 'animate-pulse' : ''}`}
+                              />
+                              {t.asaas_id
+                                ? syncingFeeId === t.id
+                                  ? 'Sincronizando...'
+                                  : 'ASAAS'
+                                : null}
+                            </Button>
+                          </div>
                         )}{' '}
                         {canEditFinance && (
                           <Button
@@ -1858,6 +1963,38 @@ export default function ClientDetail() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Dialog de Confirmação para Reemissão de Nota Fiscal */}
+      <AlertDialog
+        open={!!invoiceToReissue}
+        onOpenChange={(v) => {
+          if (!v) setInvoiceToReissue(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reemitir Nota Fiscal no Asaas?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Este lançamento já possui uma Nota Fiscal emitida no Asaas
+              {invoiceToReissue?.asaas_invoice_number
+                ? ` (Nº ${invoiceToReissue.asaas_invoice_number})`
+                : ''}
+              . Tem certeza de que deseja solicitar uma nova emissão de NFS-e para este valor?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (invoiceToReissue) executeIssueInvoice(invoiceToReissue)
+              }}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              Confirmar e Reemitir NF
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <PaymentPlanDialog
         open={isPlanDialogOpen}

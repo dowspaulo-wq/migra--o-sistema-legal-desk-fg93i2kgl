@@ -153,6 +153,10 @@ export interface Transaction {
   recurring_id?: string
   pendente_vinculo?: boolean
   origem?: string
+  asaas_invoice_id?: string | null
+  asaas_invoice_status?: string | null
+  asaas_invoice_url?: string | null
+  asaas_invoice_number?: string | null
 }
 export interface Log {
   id: string

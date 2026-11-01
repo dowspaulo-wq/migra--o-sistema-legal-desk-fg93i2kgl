@@ -102,12 +102,24 @@ const getAlertLabel = (alert: string) => {
 }
 
 import { useFinancePermissions } from '@/hooks/use-finance-permissions'
+import { issueInvoiceWithAsaas } from '@/services/asaas'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 
 export default function CaseDetail() {
   const { id } = useParams<{ id: string }>()
   const { state, updateItem, deleteItem, addCase, addTask, addAppointment, addTransaction } =
     useLegalStore()
-  const { canEditFinance, canDeleteFinance, canManagePaymentPlans } = useFinancePermissions()
+  const { canManageAsaas, canEditFinance, canDeleteFinance, canManagePaymentPlans } =
+    useFinancePermissions()
   const [selectedTpl, setSelectedTpl] = useState<string>('')
   const [isCaseOpen, setIsCaseOpen] = useState(false)
 
@@ -123,6 +135,8 @@ export default function CaseDetail() {
   const [creatingTransaction, setCreatingTransaction] = useState(false)
   const [creatingPlan, setCreatingPlan] = useState(false)
   const [generateDocxOpen, setGenerateDocxOpen] = useState(false)
+  const [issuingInvoiceId, setIssuingInvoiceId] = useState<string | null>(null)
+  const [invoiceToReissue, setInvoiceToReissue] = useState<any | null>(null)
   const c = state.cases.find((x) => x.id === id)
   const client = state.clients.find((cl) => cl.id === c?.clientId)
   const tasks = state.tasks
@@ -172,6 +186,51 @@ export default function CaseDetail() {
   const expense = processTransactions
     .filter((t) => t.type === 'expense')
     .reduce((acc, t) => acc + (Number(t.amount) || 0), 0)
+
+  const executeIssueInvoice = async (tx: any) => {
+    if (!canManageAsaas) return
+    setIssuingInvoiceId(tx.id)
+    const { data, error } = await issueInvoiceWithAsaas(tx.id)
+    setIssuingInvoiceId(null)
+    setInvoiceToReissue(null)
+
+    if (error) {
+      toast({
+        title: 'Erro ao emitir NF no Asaas',
+        description: error.message || 'Falha ao comunicar emissão de NFS-e.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    const inv = data?.invoice || {}
+    const changes: Record<string, any> = {
+      asaas_invoice_id: inv.id || data?.invoiceId || tx.asaas_invoice_id,
+      asaas_invoice_status: inv.status || 'SCHEDULED',
+      asaas_invoice_url: inv.pdfUrl || inv.xmlUrl || data?.pdfUrl || tx.asaas_invoice_url,
+      asaas_invoice_number: inv.number || data?.number || tx.asaas_invoice_number,
+    }
+
+    try {
+      await updateItem('transactions', tx.id, changes)
+    } catch (e) {
+      console.warn('Erro ao atualizar lançamento localmente:', e)
+    }
+
+    toast({
+      title: 'Nota Fiscal solicitada com sucesso!',
+      description: `NFS-e gerada/agendada no Asaas (Status: ${changes.asaas_invoice_status || 'OK'}).`,
+    })
+  }
+
+  const handleIssueInvoice = (tx: any) => {
+    if (!canManageAsaas) return
+    if (tx.asaas_invoice_id) {
+      setInvoiceToReissue(tx)
+      return
+    }
+    executeIssueInvoice(tx)
+  }
 
   if (!c) return <div className="p-8 text-center">Processo não encontrado.</div>
 
@@ -1134,9 +1193,12 @@ export default function CaseDetail() {
                           <TableHead>Descrição</TableHead>
                           <TableHead>Categoria</TableHead>
                           <TableHead>Status</TableHead>
+                          {canManageAsaas && (
+                            <TableHead className="text-center w-[100px]">NF Asaas</TableHead>
+                          )}
                           <TableHead className="text-right">Valor</TableHead>
                           <TableHead>Processo Vinculado</TableHead>
-                          <TableHead className="w-[100px] text-right">Ações</TableHead>
+                          <TableHead className="w-[180px] text-right">Ações</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1164,6 +1226,38 @@ export default function CaseDetail() {
                                 {t.status}
                               </Badge>
                             </TableCell>
+                            {canManageAsaas && (
+                              <TableCell className="text-center">
+                                {t.asaas_invoice_id ? (
+                                  <div className="inline-flex items-center gap-1 justify-center">
+                                    <span
+                                      title={`NF Emitida no Asaas (${t.asaas_invoice_status || 'Emitida/Agendada'})`}
+                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300"
+                                    >
+                                      🧾 Emitida
+                                    </span>
+                                    {t.asaas_invoice_url && (
+                                      <a
+                                        href={t.asaas_invoice_url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-[11px] text-blue-600 hover:underline font-medium"
+                                        title="Abrir PDF da NF"
+                                      >
+                                        PDF
+                                      </a>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span
+                                    title="NF não emitida"
+                                    className="text-xs text-slate-400 font-normal"
+                                  >
+                                    Não emitida
+                                  </span>
+                                )}
+                              </TableCell>
+                            )}
                             <TableCell
                               className={`text-right font-bold text-sm ${
                                 t.type === 'income' ? 'text-green-600' : 'text-red-600'
@@ -1179,6 +1273,27 @@ export default function CaseDetail() {
                             </TableCell>
                             <TableCell className="text-right">
                               <div className="flex items-center justify-end gap-1">
+                                {t.type === 'income' && canManageAsaas && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className={cn(
+                                      'h-7 text-xs gap-1',
+                                      t.asaas_invoice_id
+                                        ? 'border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                                        : 'border-blue-300 text-blue-700 hover:bg-blue-50',
+                                    )}
+                                    disabled={issuingInvoiceId === t.id}
+                                    onClick={() => handleIssueInvoice(t)}
+                                    title={
+                                      t.asaas_invoice_id
+                                        ? 'Nota Fiscal já emitida no Asaas (clique para reemitir com confirmação)'
+                                        : 'Emitir Nota Fiscal (NFS-e) no Asaas com o valor deste lançamento'
+                                    }
+                                  >
+                                    {t.asaas_invoice_id ? '🧾 Reemitir NF' : '🧾 Emitir NF'}
+                                  </Button>
+                                )}
                                 {canEditFinance && (
                                   <Button
                                     variant="ghost"
@@ -1393,6 +1508,38 @@ export default function CaseDetail() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Dialog de Confirmação para Reemissão de Nota Fiscal */}
+      <AlertDialog
+        open={!!invoiceToReissue}
+        onOpenChange={(v) => {
+          if (!v) setInvoiceToReissue(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reemitir Nota Fiscal no Asaas?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Este lançamento já possui uma Nota Fiscal emitida no Asaas
+              {invoiceToReissue?.asaas_invoice_number
+                ? ` (Nº ${invoiceToReissue.asaas_invoice_number})`
+                : ''}
+              . Tem certeza de que deseja solicitar uma nova emissão de NFS-e para este valor?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (invoiceToReissue) executeIssueInvoice(invoiceToReissue)
+              }}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              Confirmar e Reemitir NF
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

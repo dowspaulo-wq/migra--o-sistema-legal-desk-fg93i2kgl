@@ -48,7 +48,12 @@ import { downloadCSV } from '@/lib/export'
 import { TransactionDialog } from '@/components/TransactionDialog'
 import { cn, formatSafeLocalDate, formatSafeDateTime, calculateInstallmentDate } from '@/lib/utils'
 import { SupplierDialog } from '@/components/SupplierDialog'
-import { syncChargeWithAsaas, cancelChargeWithAsaas, syncHistoryWithAsaas } from '@/services/asaas'
+import {
+  syncChargeWithAsaas,
+  cancelChargeWithAsaas,
+  syncHistoryWithAsaas,
+  issueInvoiceWithAsaas,
+} from '@/services/asaas'
 import { LinkTransactionToCaseDialog } from '@/components/LinkTransactionToCaseDialog'
 import { useFinancePermissions } from '@/hooks/use-finance-permissions'
 import { supabase } from '@/lib/supabase/client'
@@ -159,6 +164,8 @@ export default function Finance() {
   const [syncingAsaasId, setSyncingAsaasId] = useState<string | null>(null)
   const [syncingHistory, setSyncingHistory] = useState(false)
   const [linkingTx, setLinkingTx] = useState<any>(null)
+  const [issuingInvoiceId, setIssuingInvoiceId] = useState<string | null>(null)
+  const [invoiceToReissue, setInvoiceToReissue] = useState<any | null>(null)
   const [asaasExtractDialogOpen, setAsaasExtractDialogOpen] = useState(false)
   const [pdfImportDialogOpen, setPdfImportDialogOpen] = useState(false)
   const [txToDelete, setTxToDelete] = useState<any>(null)
@@ -467,6 +474,51 @@ export default function Finance() {
     baseTransactions.forEach((t) => t.bankAccount && banks.add(t.bankAccount))
     return Array.from(banks).sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }))
   }, [baseTransactions, state.settings?.bankAccounts])
+
+  const executeIssueInvoice = async (tx: any) => {
+    if (!canManageAsaas) return
+    setIssuingInvoiceId(tx.id)
+    const { data, error } = await issueInvoiceWithAsaas(tx.id)
+    setIssuingInvoiceId(null)
+    setInvoiceToReissue(null)
+
+    if (error) {
+      toast({
+        title: 'Erro ao emitir NF no Asaas',
+        description: error.message || 'Falha ao comunicar emissão de NFS-e.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    const inv = data?.invoice || {}
+    const changes: Record<string, any> = {
+      asaas_invoice_id: inv.id || data?.invoiceId || tx.asaas_invoice_id,
+      asaas_invoice_status: inv.status || 'SCHEDULED',
+      asaas_invoice_url: inv.pdfUrl || inv.xmlUrl || data?.pdfUrl || tx.asaas_invoice_url,
+      asaas_invoice_number: inv.number || data?.number || tx.asaas_invoice_number,
+    }
+
+    try {
+      await updateItem('transactions', tx.id, changes)
+    } catch (e) {
+      console.warn('Erro ao atualizar lançamento localmente:', e)
+    }
+
+    toast({
+      title: 'Nota Fiscal solicitada com sucesso!',
+      description: `NFS-e gerada/agendada no Asaas (Status: ${changes.asaas_invoice_status || 'OK'}).`,
+    })
+  }
+
+  const handleIssueInvoice = (tx: any) => {
+    if (!canManageAsaas) return
+    if (tx.asaas_invoice_id) {
+      setInvoiceToReissue(tx)
+      return
+    }
+    executeIssueInvoice(tx)
+  }
 
   const handleAsaasChargeSync = async (transactionId: string) => {
     if (!canManageAsaas) return
@@ -1363,8 +1415,15 @@ export default function Finance() {
                       <TableHead>Conta</TableHead>
                       <TableHead>Processos</TableHead>
                       <TableHead>Status</TableHead>
+                      {activeTab === 'honorarios' && canManageAsaas && (
+                        <TableHead className="text-center w-[100px]">NF Asaas</TableHead>
+                      )}
                       <TableHead className="text-right">Valor</TableHead>
-                      <TableHead className="w-[80px]"></TableHead>
+                      <TableHead
+                        className={cn(
+                          activeTab === 'honorarios' && canManageAsaas ? 'w-[140px]' : 'w-[80px]',
+                        )}
+                      ></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1477,6 +1536,38 @@ export default function Finance() {
                             {t.status}
                           </Badge>
                         </TableCell>
+                        {activeTab === 'honorarios' && canManageAsaas && (
+                          <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                            {t.asaas_invoice_id ? (
+                              <div className="inline-flex items-center gap-1 justify-center">
+                                <span
+                                  title={`NF Emitida no Asaas (${t.asaas_invoice_status || 'Emitida/Agendada'})`}
+                                  className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300"
+                                >
+                                  🧾 Emitida
+                                </span>
+                                {t.asaas_invoice_url && (
+                                  <a
+                                    href={t.asaas_invoice_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-[11px] text-blue-600 hover:underline font-medium"
+                                    title="Abrir PDF da NF"
+                                  >
+                                    PDF
+                                  </a>
+                                )}
+                              </div>
+                            ) : (
+                              <span
+                                title="NF não emitida"
+                                className="text-xs text-slate-400 font-normal"
+                              >
+                                Não emitida
+                              </span>
+                            )}
+                          </TableCell>
+                        )}
                         <TableCell
                           className={`text-right font-bold ${t.type === 'income' ? 'text-green-600' : 'text-red-600'}`}
                         >
@@ -1550,6 +1641,33 @@ export default function Finance() {
                                 <Link2 className="h-4 w-4" />
                               </Button>
                             )}
+                            {/* Botão Emitir NF no Asaas visível na aba de Honorários */}
+                            {activeTab === 'honorarios' &&
+                              t.type === 'income' &&
+                              canManageAsaas && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className={cn(
+                                    'h-7 text-xs gap-1',
+                                    t.asaas_invoice_id
+                                      ? 'border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                                      : 'border-blue-300 text-blue-700 hover:bg-blue-50',
+                                  )}
+                                  disabled={issuingInvoiceId === t.id}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleIssueInvoice(t)
+                                  }}
+                                  title={
+                                    t.asaas_invoice_id
+                                      ? 'Nota Fiscal já emitida no Asaas (clique para reemitir com confirmação)'
+                                      : 'Emitir Nota Fiscal (NFS-e) no Asaas com o valor deste honorário'
+                                  }
+                                >
+                                  {t.asaas_invoice_id ? '🧾 Reemitir NF' : '🧾 Emitir NF'}
+                                </Button>
+                              )}
                             {canManageAsaas && (
                               <Button
                                 variant="ghost"
@@ -2104,6 +2222,38 @@ export default function Finance() {
             if (reloadTransactions) await reloadTransactions()
           }}
         />
+
+        {/* Dialog de Confirmação para Reemissão de Nota Fiscal */}
+        <AlertDialog
+          open={!!invoiceToReissue}
+          onOpenChange={(v) => {
+            if (!v) setInvoiceToReissue(null)
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Reemitir Nota Fiscal no Asaas?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Este lançamento já possui uma Nota Fiscal emitida no Asaas
+                {invoiceToReissue?.asaas_invoice_number
+                  ? ` (Nº ${invoiceToReissue.asaas_invoice_number})`
+                  : ''}
+                . Tem certeza de que deseja solicitar uma nova emissão de NFS-e para este valor?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  if (invoiceToReissue) executeIssueInvoice(invoiceToReissue)
+                }}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                Confirmar e Reemitir NF
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {activeTab === 'fornecedores' && (
           <Card className="mt-4">

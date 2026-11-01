@@ -71,12 +71,10 @@ export function SupplierDialog({ open, onOpenChange, data, onSave, existingGroup
       return
     }
 
-    const finalGroup = isCreatingCustomGroup ? customGroup.trim() : (fd.group_name || '').trim()
+    // Não enviar group_name no payload para a tabela suppliers (coluna não existe no VPS)
+    const { group_name: _ignoredGroup, ...payloadToSave } = fd
 
-    onSave({
-      ...fd,
-      group_name: finalGroup || null,
-    })
+    onSave(payloadToSave)
     onOpenChange(false)
   }
 

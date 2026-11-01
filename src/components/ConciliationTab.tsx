@@ -56,9 +56,6 @@ export function ConciliationTab({
   suppliers,
   onUpdateTransaction,
   onOpenPdfImport,
-  onIssueInvoice,
-  issuingInvoiceId,
-  canManageAsaas,
 }: ConciliationTabProps) {
   // Filtros
   const [filterOrigin, setFilterOrigin] = useState<string>('Todas')
@@ -417,9 +414,8 @@ export function ConciliationTab({
                   <TableHead className="w-[120px]">Tipo</TableHead>
                   <TableHead className="w-[120px]">Origem</TableHead>
                   <TableHead className="w-[120px]">Status</TableHead>
-                  <TableHead className="text-center w-[90px]">NF</TableHead>
                   <TableHead className="text-right w-[140px]">Valor</TableHead>
-                  <TableHead className="text-right w-[180px]">Ações</TableHead>
+                  <TableHead className="text-right w-[120px]">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -465,44 +461,6 @@ export function ConciliationTab({
                           {t.status || 'Previsto'}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-center">
-                        {(() => {
-                          const hasInvoice = !!(t as any).asaas_invoice_id
-                          const invStatus = (t as any).asaas_invoice_status
-                          const invUrl = (t as any).asaas_invoice_url
-                          if (hasInvoice) {
-                            return (
-                              <div className="inline-flex items-center gap-1">
-                                <span
-                                  title={`NF Emitida no Asaas (${invStatus || 'Agendada/Emitida'})`}
-                                  className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300"
-                                >
-                                  🧾 Emitida
-                                </span>
-                                {invUrl && (
-                                  <a
-                                    href={invUrl}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="text-[11px] text-blue-600 hover:underline"
-                                    title="Abrir PDF/XML da NF"
-                                  >
-                                    PDF
-                                  </a>
-                                )}
-                              </div>
-                            )
-                          }
-                          return (
-                            <span
-                              title="NF não emitida"
-                              className="text-xs text-slate-400 font-normal"
-                            >
-                              Não emitida
-                            </span>
-                          )
-                        })()}
-                      </TableCell>
                       <TableCell
                         className={cn(
                           'text-right font-bold',
@@ -516,27 +474,6 @@ export function ConciliationTab({
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          {isIncome && canManageAsaas && onIssueInvoice && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className={cn(
-                                'h-8 text-xs gap-1',
-                                (t as any).asaas_invoice_id
-                                  ? 'border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
-                                  : 'border-blue-300 text-blue-700 hover:bg-blue-50',
-                              )}
-                              disabled={issuingInvoiceId === t.id}
-                              onClick={() => onIssueInvoice(t)}
-                              title={
-                                (t as any).asaas_invoice_id
-                                  ? 'Nota Fiscal já emitida no Asaas'
-                                  : 'Emitir Nota Fiscal (NFS-e) no Asaas com o valor deste recebível'
-                              }
-                            >
-                              {(t as any).asaas_invoice_id ? '🧾 NF Emitida' : '🧾 Emitir NF'}
-                            </Button>
-                          )}
                           <Button
                             size="sm"
                             variant="default"
@@ -554,7 +491,7 @@ export function ConciliationTab({
 
                 {filteredList.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <Inbox className="h-8 w-8 text-slate-400 stroke-1" />
                         <span className="font-medium">
