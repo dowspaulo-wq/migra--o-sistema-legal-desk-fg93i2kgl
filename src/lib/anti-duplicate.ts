@@ -1,6 +1,8 @@
 import { normalizeStr } from '@/lib/utils'
 import type { Transaction } from '@/lib/mockData'
 
+export { normalizeStr }
+
 export interface DuplicateCandidate {
   date?: string | null
   amount?: number | string | null
@@ -9,12 +11,37 @@ export interface DuplicateCandidate {
   origem?: string | null
   clientId?: string | null
   id?: string
+  status?: string | null
 }
 
 export interface DuplicateMatchResult {
   hasDuplicate: boolean
   matchedTransaction: Transaction | null
   reason?: string
+  matchType?: 'exact' | 'cross_origin'
+}
+
+/**
+ * Calcula a diferença absoluta em dias entre duas datas (YYYY-MM-DD ou ISO).
+ * Retorna null se alguma data for inválida.
+ */
+export function getDaysDifference(
+  dateA: string | null | undefined,
+  dateB: string | null | undefined,
+): number | null {
+  const normA = normalizeDate(dateA)
+  const normB = normalizeDate(dateB)
+  if (!normA || !normB) return null
+
+  const partsA = normA.split('-').map(Number)
+  const partsB = normB.split('-').map(Number)
+  if (partsA.length !== 3 || partsB.length !== 3) return null
+
+  const dtA = Date.UTC(partsA[0], partsA[1] - 1, partsA[2])
+  const dtB = Date.UTC(partsB[0], partsB[1] - 1, partsB[2])
+
+  const diffMs = Math.abs(dtA - dtB)
+  return Math.round(diffMs / (1000 * 60 * 60 * 24))
 }
 
 /**
@@ -114,6 +141,103 @@ export function findDuplicateTransaction(
     if (candDesc === txDesc) {
       return tx
     }
+  }
+
+  return null
+}
+
+/**
+ * Normaliza o campo origem para comparação lógica:
+ * - 'ASAAS' se for ASAAS_WEBHOOK ou se tiver identificador de cobrança Asaas
+ * - 'OTHER' se for MANUAL, IMPORT_SICOOB ou qualquer extrato bancário
+ */
+export function classifyOrigem(origem: string | null | undefined): 'ASAAS' | 'OTHER' {
+  const norm = (origem || '').toUpperCase().trim()
+  if (norm === 'ASAAS_WEBHOOK' || norm === 'ASAAS') {
+    return 'ASAAS'
+  }
+  return 'OTHER'
+}
+
+export interface CrossOriginCandidate {
+  date?: string | null
+  amount?: number | string | null
+  clientId?: string | null
+  origem?: string | null
+  id?: string | null
+  status?: string | null
+}
+
+/**
+ * Trava de duplicidade ENTRE ORIGENS:
+ * Dado um clientId + valor + data alvo:
+ * Se o novo lançamento vem de IMPORT_SICOOB ou MANUAL (origem OTHER),
+ * procura lançamento existente com origem ASAAS_WEBHOOK:
+ *   - mesmo cliente (clientId igual e preenchido)
+ *   - mesmo amount (tolerância de centavos)
+ *   - |diferença de datas| <= 5 dias
+ *   - status 'Pago'
+ * E vice-versa: se novo é ASAAS_WEBHOOK, procura existente com origem IMPORT_SICOOB ou MANUAL.
+ *
+ * Esta trava NÃO compara descrição nem conta bancária — apenas cliente + valor + janela de 5 dias + status Pago.
+ */
+export function findCrossOriginDuplicateTransaction(
+  candidate: CrossOriginCandidate,
+  existingTransactions: Transaction[],
+  excludeId?: string | null,
+): Transaction | null {
+  if (!candidate.clientId) {
+    return null
+  }
+
+  const candAmount = normalizeAmount(candidate.amount)
+  if (candAmount <= 0) {
+    return null
+  }
+
+  const candDate = normalizeDate(candidate.date)
+  if (!candDate) {
+    return null
+  }
+
+  const candGroup = classifyOrigem(candidate.origem)
+  const targetGroup: 'ASAAS' | 'OTHER' = candGroup === 'ASAAS' ? 'OTHER' : 'ASAAS'
+
+  for (const tx of existingTransactions) {
+    if (excludeId && tx.id === excludeId) {
+      continue
+    }
+
+    // Apenas status 'Pago' (ou Realizado, tratado como Pago no sistema)
+    const txStatus = (tx.status || '').trim()
+    if (txStatus !== 'Pago' && txStatus !== 'Realizado') {
+      continue
+    }
+
+    // Mesmo cliente
+    if (!tx.clientId || tx.clientId !== candidate.clientId) {
+      continue
+    }
+
+    // Mesmo valor monetário
+    const txAmount = normalizeAmount(tx.amount)
+    if (Math.abs(txAmount - candAmount) > 0.009) {
+      continue
+    }
+
+    // Origem oposta
+    const txGroup = classifyOrigem(tx.origem)
+    if (txGroup !== targetGroup) {
+      continue
+    }
+
+    // Janela de datas: |data Asaas - data outro| <= 5 dias
+    const daysDiff = getDaysDifference(candidate.date, tx.date)
+    if (daysDiff === null || daysDiff > 5) {
+      continue
+    }
+
+    return tx
   }
 
   return null

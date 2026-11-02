@@ -49,7 +49,7 @@ import {
 } from '@/lib/fee-types'
 import { syncChargeWithAsaas } from '@/services/asaas'
 import { useFinancePermissions } from '@/hooks/use-finance-permissions'
-import { findDuplicateTransaction } from '@/lib/anti-duplicate'
+import { findDuplicateTransaction, findCrossOriginDuplicateTransaction } from '@/lib/anti-duplicate'
 import { formatSafeLocalDate } from '@/lib/utils'
 import type { Transaction } from '@/lib/mockData'
 
@@ -189,6 +189,7 @@ export function TransactionDialog({
     pendingPayload: any
     isRecurring: boolean
     installments: number
+    type: 'exact' | 'cross_origin'
   } | null>(null)
 
   const lastInitializedIdRef = useState<{ id: string | null }>({ id: null })[0]
@@ -381,8 +382,34 @@ export function TransactionDialog({
         pendingPayload: payload,
         isRecurring,
         installments: parsedInstallments,
+        type: 'exact',
       })
       return
+    }
+
+    // Trava de duplicidade ENTRE ORIGENS (ex: novo MANUAL/SICOOB x existente ASAAS_WEBHOOK ou vice-versa)
+    if (payload.clientId) {
+      const crossOriginMatch = findCrossOriginDuplicateTransaction(
+        {
+          clientId: payload.clientId,
+          amount: payload.amount,
+          date: payload.date,
+          origem: payload.origem || 'MANUAL',
+        },
+        existingList,
+        data?.id || null,
+      )
+
+      if (crossOriginMatch) {
+        setDuplicateWarning({
+          matched: crossOriginMatch,
+          pendingPayload: payload,
+          isRecurring,
+          installments: parsedInstallments,
+          type: 'cross_origin',
+        })
+        return
+      }
     }
 
     onSave(payload, isRecurring, parsedInstallments)
@@ -786,10 +813,16 @@ export function TransactionDialog({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="text-amber-800 flex items-center gap-2">
-              ⚠️ Provável lançamento duplicado detectado
+              {duplicateWarning?.type === 'cross_origin'
+                ? '⚠️ Provável duplicado entre origens (Asaas / Extrato)'
+                : '⚠️ Provável lançamento duplicado detectado'}
             </AlertDialogTitle>
             <AlertDialogDescription className="space-y-3 text-slate-700">
-              <p>Já existe um lançamento no sistema com a mesma data, valor, descrição e conta:</p>
+              <p>
+                {duplicateWarning?.type === 'cross_origin'
+                  ? 'Foi encontrado um lançamento correspondente já registrado para este cliente com o mesmo valor e data próxima (até 5 dias de diferença):'
+                  : 'Já existe um lançamento no sistema com a mesma data, valor, descrição e conta:'}
+              </p>
               {duplicateWarning?.matched && (
                 <div className="bg-amber-50/80 border border-amber-200 rounded-lg p-3 text-xs space-y-1 font-sans text-slate-800">
                   <p>
@@ -807,8 +840,10 @@ export function TransactionDialog({
                     })}
                   </p>
                   <p>
-                    <strong className="text-slate-900">Conta / Origem:</strong>{' '}
-                    {duplicateWarning.matched.bankAccount || 'Não informada'}
+                    <strong className="text-slate-900">Origem / Banco:</strong>{' '}
+                    {duplicateWarning.matched.origem ||
+                      duplicateWarning.matched.bankAccount ||
+                      'Não informada'}
                   </p>
                   {duplicateWarning.matched.status && (
                     <p>
@@ -819,19 +854,41 @@ export function TransactionDialog({
                 </div>
               )}
               <p className="text-xs text-muted-foreground">
-                Deseja salvar este novo lançamento mesmo assim ou cancelar?
+                {duplicateWarning?.type === 'cross_origin'
+                  ? 'Você pode vincular ao lançamento já existente (não criando duplicidade) ou lançar mesmo assim.'
+                  : 'Deseja salvar este novo lançamento mesmo assim ou cancelar?'}
               </p>
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
             <AlertDialogCancel onClick={() => setDuplicateWarning(null)}>
               Cancelar
             </AlertDialogCancel>
+            {duplicateWarning?.type === 'cross_origin' && (
+              <Button
+                type="button"
+                variant="outline"
+                className="border-emerald-600 text-emerald-700 hover:bg-emerald-50"
+                onClick={() => {
+                  toast({
+                    title: 'Lançamento já existente mantido',
+                    description:
+                      'O lançamento anterior foi preservado e nenhum duplicado foi criado.',
+                  })
+                  setDuplicateWarning(null)
+                  onOpenChange(false)
+                }}
+              >
+                Vincular ao existente (não lançar de novo)
+              </Button>
+            )}
             <AlertDialogAction
               onClick={handleConfirmDuplicateSave}
               className="bg-amber-600 hover:bg-amber-700 text-white"
             >
-              Salvar mesmo assim
+              {duplicateWarning?.type === 'cross_origin'
+                ? 'Lançar mesmo assim'
+                : 'Salvar mesmo assim'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

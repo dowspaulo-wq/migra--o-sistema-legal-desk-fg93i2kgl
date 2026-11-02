@@ -36,7 +36,7 @@ import {
   isNonFinancialFeeType,
   capitalizeFirstLetter,
 } from '@/lib/fee-types'
-import { findDuplicateTransaction } from '@/lib/anti-duplicate'
+import { findDuplicateTransaction, findCrossOriginDuplicateTransaction } from '@/lib/anti-duplicate'
 import { formatSafeLocalDate } from '@/lib/utils'
 import type { Transaction } from '@/lib/mockData'
 
@@ -65,6 +65,7 @@ export function ClientFeesDialog({
   const [duplicateWarning, setDuplicateWarning] = useState<{
     matched: Transaction
     pendingFee: any
+    type: 'exact' | 'cross_origin'
   } | null>(null)
 
   const currentYear = new Date().getFullYear()
@@ -233,6 +234,29 @@ export function ClientFeesDialog({
         setDuplicateWarning({
           matched: duplicateMatch,
           pendingFee: feePayload,
+          type: 'exact',
+        })
+        return
+      }
+
+      // Trava de duplicidade ENTRE ORIGENS (novo honorário MANUAL vs existente ASAAS_WEBHOOK)
+      const firstInstallmentAmount =
+        parsedInstallments > 1 ? parsedAmount / parsedInstallments : parsedAmount
+      const crossOriginMatch = findCrossOriginDuplicateTransaction(
+        {
+          clientId,
+          amount: firstInstallmentAmount,
+          date: targetDate,
+          origem: 'MANUAL',
+        },
+        existingList,
+      )
+
+      if (crossOriginMatch) {
+        setDuplicateWarning({
+          matched: crossOriginMatch,
+          pendingFee: feePayload,
+          type: 'cross_origin',
         })
         return
       }
@@ -514,12 +538,15 @@ export function ClientFeesDialog({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="text-amber-800 flex items-center gap-2">
-              ⚠️ Provável honorário duplicado detectado
+              {duplicateWarning?.type === 'cross_origin'
+                ? '⚠️ Provável honorário duplicado entre origens (Asaas / Extrato)'
+                : '⚠️ Provável honorário duplicado detectado'}
             </AlertDialogTitle>
             <AlertDialogDescription className="space-y-3 text-slate-700">
               <p>
-                Já existe um lançamento financeiro no sistema com a mesma data, valor, descrição e
-                conta para este cliente:
+                {duplicateWarning?.type === 'cross_origin'
+                  ? 'Foi encontrado um lançamento correspondente já registrado para este cliente com o mesmo valor e data próxima (até 5 dias de diferença):'
+                  : 'Já existe um lançamento financeiro no sistema com a mesma data, valor, descrição e conta para este cliente:'}
               </p>
               {duplicateWarning?.matched && (
                 <div className="bg-amber-50/80 border border-amber-200 rounded-lg p-3 text-xs space-y-1 font-sans text-slate-800">
@@ -538,8 +565,10 @@ export function ClientFeesDialog({
                     })}
                   </p>
                   <p>
-                    <strong className="text-slate-900">Conta / Origem:</strong>{' '}
-                    {duplicateWarning.matched.bankAccount || 'Não informada'}
+                    <strong className="text-slate-900">Origem / Banco:</strong>{' '}
+                    {duplicateWarning.matched.origem ||
+                      duplicateWarning.matched.bankAccount ||
+                      'Não informada'}
                   </p>
                   {duplicateWarning.matched.status && (
                     <p>
@@ -550,19 +579,42 @@ export function ClientFeesDialog({
                 </div>
               )}
               <p className="text-xs text-muted-foreground">
-                Deseja salvar este honorário mesmo assim ou cancelar?
+                {duplicateWarning?.type === 'cross_origin'
+                  ? 'Você pode vincular ao lançamento já existente (não criando duplicidade) ou lançar mesmo assim.'
+                  : 'Deseja salvar este honorário mesmo assim ou cancelar?'}
               </p>
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
             <AlertDialogCancel onClick={() => setDuplicateWarning(null)}>
               Cancelar
             </AlertDialogCancel>
+            {duplicateWarning?.type === 'cross_origin' && (
+              <Button
+                type="button"
+                variant="outline"
+                className="border-emerald-600 text-emerald-700 hover:bg-emerald-50"
+                onClick={() => {
+                  toast({
+                    title: 'Lançamento já existente mantido',
+                    description:
+                      'O lançamento anterior foi preservado e nenhum duplicado foi criado.',
+                  })
+                  setDuplicateWarning(null)
+                  clearDraft()
+                  onOpenChange(false)
+                }}
+              >
+                Vincular ao existente (não lançar de novo)
+              </Button>
+            )}
             <AlertDialogAction
               onClick={handleConfirmDuplicateSave}
               className="bg-amber-600 hover:bg-amber-700 text-white"
             >
-              Salvar mesmo assim
+              {duplicateWarning?.type === 'cross_origin'
+                ? 'Lançar mesmo assim'
+                : 'Salvar mesmo assim'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
