@@ -188,9 +188,27 @@ export function TaskDialog({
       return
     }
 
-    const { isNew, ...payload } = formData
-    if (payload.clientId === 'none') payload.clientId = null
-    if (payload.relatedProcessId === 'none') payload.relatedProcessId = null
+    const { isNew, ...rawPayload } = formData
+    const payload = { ...rawPayload }
+
+    // Normaliza campos UUID: strings vazias, apenas espaços ou 'none' tornam-se null
+    const normalizeUuid = (val: any) => {
+      if (val === undefined || val === null) return null
+      const str = String(val).trim()
+      if (!str || str === 'none' || str === 'undefined' || str === 'null') return null
+      return str
+    }
+
+    payload.clientId = normalizeUuid(payload.clientId)
+    payload.relatedProcessId = normalizeUuid(payload.relatedProcessId)
+    payload.responsibleId = normalizeUuid(payload.responsibleId)
+    if ('created_by' in payload) {
+      payload.created_by = normalizeUuid(payload.created_by)
+    }
+    if ('completed_by' in payload) {
+      payload.completed_by = normalizeUuid(payload.completed_by)
+    }
+
     if (payload.status) {
       payload.status = canonicalTaskStatus(payload.status)
     }

@@ -849,6 +849,32 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           if (finalChanges.status) {
             finalChanges.status = canonicalTaskStatus(finalChanges.status)
           }
+
+          // Normaliza todas as colunas UUID da tabela tasks:
+          // Postgres recusa string vazia "" para uuid (ex.: relatedProcessId/processo não vinculado).
+          // Se vier vazio, whitespace ou 'none', normaliza para null.
+          const taskUuidFields = [
+            'relatedProcessId',
+            'clientId',
+            'responsibleId',
+            'created_by',
+            'completed_by',
+          ]
+          for (const field of taskUuidFields) {
+            if (field in finalChanges) {
+              const val = finalChanges[field]
+              if (val === undefined || val === null) {
+                finalChanges[field] = null
+              } else {
+                const str = String(val).trim()
+                if (!str || str === 'none' || str === 'undefined' || str === 'null') {
+                  finalChanges[field] = null
+                } else {
+                  finalChanges[field] = str
+                }
+              }
+            }
+          }
         }
 
         if (table === 'payment_plans') {
@@ -1474,14 +1500,46 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
 
   const addTask = useCallback(
     async (task: Omit<Task, 'id'>) => {
-      const taskPayload = {
+      const rawTaskPayload: any = {
         ...task,
         status: canonicalTaskStatus(task.status || 'Pendente'),
         created_by: (task as any).created_by || state.currentUser?.id || user?.id || null,
       }
+
+      delete rawTaskPayload.table
+      delete rawTaskPayload._previousStatus
+      delete rawTaskPayload.feeConfig
+      delete rawTaskPayload.isNew
+      delete rawTaskPayload.updatedAt
+      delete rawTaskPayload.updated_at
+
+      // Normaliza todas as colunas UUID da tabela tasks para evitar erro de sintaxe uuid ""
+      const taskUuidFields = [
+        'relatedProcessId',
+        'clientId',
+        'responsibleId',
+        'created_by',
+        'completed_by',
+      ]
+      for (const field of taskUuidFields) {
+        if (field in rawTaskPayload) {
+          const val = rawTaskPayload[field]
+          if (val === undefined || val === null) {
+            rawTaskPayload[field] = null
+          } else {
+            const str = String(val).trim()
+            if (!str || str === 'none' || str === 'undefined' || str === 'null') {
+              rawTaskPayload[field] = null
+            } else {
+              rawTaskPayload[field] = str
+            }
+          }
+        }
+      }
+
       const { data, error } = await supabase
         .from('tasks')
-        .insert(taskPayload as any)
+        .insert(rawTaskPayload as any)
         .select()
         .single()
       if (error) return toast({ title: 'Erro', description: error.message, variant: 'destructive' })
