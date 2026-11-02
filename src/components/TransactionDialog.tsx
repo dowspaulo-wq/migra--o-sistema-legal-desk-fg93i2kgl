@@ -510,78 +510,128 @@ export function TransactionDialog({
                 </div>
               </div>
 
-              {/* Seletor de Cliente com busca para Honorários Avulsos */}
-              {fd.category === 'Honorários Avulsos' && (
-                <div className="space-y-2 bg-blue-50/50 p-3 rounded-lg border border-blue-200">
-                  <Label className="text-blue-950 font-semibold">Cliente *</Label>
-                  <Popover open={clientSearchOpen} onOpenChange={setClientSearchOpen}>
-                    <PopoverTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        role="combobox"
-                        aria-expanded={clientSearchOpen}
-                        disabled={Boolean(lockedClientId)}
-                        className="w-full justify-between font-normal bg-white"
-                      >
-                        <span className="truncate">
-                          {(() => {
-                            const selected = (state?.clients || []).find(
-                              (c: any) => c.id === fd.clientId,
-                            )
-                            return selected ? selected.name : 'Selecione ou busque um cliente...'
-                          })()}
-                        </span>
-                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                      <Command>
-                        <CommandInput placeholder="Buscar cliente por nome..." />
-                        <CommandList className="max-h-60">
-                          <CommandEmpty>Nenhum cliente encontrado.</CommandEmpty>
-                          <CommandGroup>
-                            {[...(state?.clients || [])]
-                              .sort((a: any, b: any) =>
-                                (a.name || '').localeCompare(b.name || '', 'pt-BR'),
+              {/* Seletor de Cliente com busca para Modo Edição ou Honorários Avulsos */}
+              {(Boolean(data?.id) || fd.category === 'Honorários Avulsos') &&
+                fd.type !== 'office_expense' && (
+                  <div className="space-y-2 bg-slate-50/80 p-3 rounded-lg border border-slate-200">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-slate-800 font-semibold">
+                        Cliente {fd.category === 'Honorários Avulsos' ? '*' : '(Opcional)'}
+                      </Label>
+                      {Boolean(fd.clientId) && !lockedClientId && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFd((prev: any) => {
+                              const currentProcess = (state?.cases || []).find(
+                                (c: any) => c.id === prev.processId,
                               )
-                              .map((client: any) => (
-                                <CommandItem
-                                  key={client.id}
-                                  value={client.name}
-                                  onSelect={() => {
-                                    setFd((prev: any) => ({ ...prev, clientId: client.id }))
-                                    setClientSearchOpen(false)
-                                  }}
-                                >
-                                  <Check
-                                    className={cn(
-                                      'mr-2 h-4 w-4',
-                                      fd.clientId === client.id ? 'opacity-100' : 'opacity-0',
+                              const keepProcess = !currentProcess || !currentProcess.clientId
+                              return {
+                                ...prev,
+                                clientId: '',
+                                processId: keepProcess ? prev.processId : null,
+                              }
+                            })
+                          }}
+                          className="text-xs text-muted-foreground hover:text-red-600 transition-colors"
+                        >
+                          Limpar cliente
+                        </button>
+                      )}
+                    </div>
+                    <Popover open={clientSearchOpen} onOpenChange={setClientSearchOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={clientSearchOpen}
+                          disabled={Boolean(lockedClientId)}
+                          className="w-full justify-between font-normal bg-white"
+                        >
+                          <span className="truncate">
+                            {(() => {
+                              const selected = (state?.clients || []).find(
+                                (c: any) => c.id === fd.clientId,
+                              )
+                              return selected ? selected.name : 'Selecione ou busque um cliente...'
+                            })()}
+                          </span>
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        className="w-[--radix-popover-trigger-width] p-0"
+                        align="start"
+                      >
+                        <Command>
+                          <CommandInput placeholder="Buscar cliente por nome..." />
+                          <CommandList className="max-h-60">
+                            <CommandEmpty>Nenhum cliente encontrado.</CommandEmpty>
+                            <CommandGroup>
+                              {[...(state?.clients || [])]
+                                .sort((a: any, b: any) =>
+                                  (a.name || '').localeCompare(b.name || '', 'pt-BR'),
+                                )
+                                .map((client: any) => (
+                                  <CommandItem
+                                    key={client.id}
+                                    value={client.name}
+                                    onSelect={() => {
+                                      setFd((prev: any) => {
+                                        const nextClientId = client.id
+                                        let nextProcessId = prev.processId
+                                        if (nextProcessId) {
+                                          const currentCase = (state?.cases || []).find(
+                                            (c: any) => c.id === nextProcessId,
+                                          )
+                                          // Se o processo atual pertencer a outro cliente, limpa a seleção de processo
+                                          if (
+                                            currentCase &&
+                                            currentCase.clientId &&
+                                            currentCase.clientId !== nextClientId
+                                          ) {
+                                            nextProcessId = null
+                                          }
+                                        }
+                                        return {
+                                          ...prev,
+                                          clientId: nextClientId,
+                                          processId: nextProcessId,
+                                        }
+                                      })
+                                      setClientSearchOpen(false)
+                                    }}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        'mr-2 h-4 w-4',
+                                        fd.clientId === client.id ? 'opacity-100' : 'opacity-0',
+                                      )}
+                                    />
+                                    <span className="truncate">{client.name}</span>
+                                    {client.document && (
+                                      <span className="ml-2 text-xs text-muted-foreground">
+                                        ({client.document})
+                                      </span>
                                     )}
-                                  />
-                                  <span className="truncate">{client.name}</span>
-                                  {client.document && (
-                                    <span className="ml-2 text-xs text-muted-foreground">
-                                      ({client.document})
-                                    </span>
-                                  )}
-                                </CommandItem>
-                              ))}
-                          </CommandGroup>
-                        </CommandList>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
-                  {fd.processId && (
-                    <p className="text-[11px] text-muted-foreground">
-                      Processo vinculado:{' '}
-                      {(state?.cases || []).find((c: any) => c.id === fd.processId)?.number ||
-                        fd.processId}
-                    </p>
-                  )}
-                </div>
-              )}
+                                  </CommandItem>
+                                ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                    {fd.processId && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Processo vinculado:{' '}
+                        {(state?.cases || []).find((c: any) => c.id === fd.processId)?.number ||
+                          fd.processId}
+                      </p>
+                    )}
+                  </div>
+                )}
 
               <div className="space-y-2">
                 <Label>
@@ -619,10 +669,43 @@ export function TransactionDialog({
               <div className="space-y-2">
                 <Label>Processo (Opcional)</Label>
                 <Select
-                  value={fd.processId || 'none'}
+                  value={(() => {
+                    const activeClientId = fd.clientId || lockedClientId || ''
+                    // Se há processo selecionado mas ele pertence a outro cliente diferente do ativo, exibe "none"
+                    if (fd.processId) {
+                      const foundCase = (state?.cases || []).find((c: any) => c.id === fd.processId)
+                      if (
+                        foundCase &&
+                        foundCase.clientId &&
+                        activeClientId &&
+                        foundCase.clientId !== activeClientId
+                      ) {
+                        return 'none'
+                      }
+                      return fd.processId
+                    }
+                    return 'none'
+                  })()}
                   disabled={Boolean(lockedProcessId)}
                   onValueChange={(v) => {
-                    setFd({ ...fd, processId: v === 'none' ? null : v })
+                    setFd((prev: any) => {
+                      const newProcessId = v === 'none' ? null : v
+                      // Se o usuário selecionou um processo e ainda não tinha cliente definido, vincula o cliente do processo
+                      let nextClientId = prev.clientId
+                      if (newProcessId && !nextClientId) {
+                        const foundCase = (state?.cases || []).find(
+                          (c: any) => c.id === newProcessId,
+                        )
+                        if (foundCase?.clientId) {
+                          nextClientId = foundCase.clientId
+                        }
+                      }
+                      return {
+                        ...prev,
+                        processId: newProcessId,
+                        clientId: nextClientId,
+                      }
+                    })
                   }}
                 >
                   <SelectTrigger>
@@ -631,8 +714,7 @@ export function TransactionDialog({
                   <SelectContent>
                     <SelectItem value="none">Nenhum</SelectItem>
                     {(() => {
-                      const activeClientId =
-                        fd.clientId || lockedClientId || (data ? resolveClientId(data) : '')
+                      const activeClientId = fd.clientId || lockedClientId || ''
                       const clientCases = (state?.cases || [])
                         .filter((c: any) => !activeClientId || c.clientId === activeClientId)
                         .sort((a: any, b: any) =>
