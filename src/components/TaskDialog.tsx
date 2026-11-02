@@ -21,6 +21,7 @@ import { Check } from 'lucide-react'
 import { ProtectedRichText } from '@/components/ProtectedRichText'
 import { stripHtml } from '@/lib/utils'
 import useLegalStore from '@/stores/useLegalStore'
+import { isTaskDone, canonicalTaskStatus } from '@/lib/taskStatus'
 
 const TASK_DRAFT_KEY = 'task_draft'
 
@@ -104,7 +105,7 @@ export function TaskDialog({
         title: data.title || '',
         description: data.description || '',
         dueDate: data.dueDate || '',
-        status: data.status || 'Pendente',
+        status: canonicalTaskStatus(data.status || 'Pendente'),
         priority: data.priority || 'Baixa',
         responsibleId: data.responsibleId || '',
         relatedProcessId: data.relatedProcessId || '',
@@ -190,6 +191,9 @@ export function TaskDialog({
     const { isNew, ...payload } = formData
     if (payload.clientId === 'none') payload.clientId = null
     if (payload.relatedProcessId === 'none') payload.relatedProcessId = null
+    if (payload.status) {
+      payload.status = canonicalTaskStatus(payload.status)
+    }
     if (isNew) clearDraft()
     onSave(payload)
     onOpenChange(false)
@@ -200,7 +204,7 @@ export function TaskDialog({
     onOpenChange(false)
   }
 
-  const isCompleted = formData.status === 'Concluído'
+  const isCompleted = isTaskDone(formData.status)
   const isOnboardingType =
     String(formData.type || '')
       .trim()
@@ -247,7 +251,7 @@ export function TaskDialog({
                     onClick={() =>
                       setFormData((prev: any) => ({
                         ...prev,
-                        status: isCompleted ? 'Pendente' : 'Concluído',
+                        status: isCompleted ? 'Pendente' : 'Concluída',
                       }))
                     }
                   >
@@ -340,14 +344,51 @@ export function TaskDialog({
                   <SelectValue placeholder="Selecione..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {(settings?.taskStatuses || ['Pendente', 'Em andamento', 'Atrasada'])
-                    .filter((s: string) => s !== 'Concluído')
-                    .map((s: string) => (
+                  {(() => {
+                    const baseStatuses: string[] =
+                      settings?.taskStatuses && settings.taskStatuses.length > 0
+                        ? settings.taskStatuses
+                        : ['Pendente', 'Em andamento', 'Atrasada']
+
+                    // Mapeia para status canônico e deduplica mantendo a ordem
+                    const list: string[] = []
+                    const seen = new Set<string>()
+
+                    for (const s of baseStatuses) {
+                      const canon = canonicalTaskStatus(s)
+                      const key = canon.toLowerCase()
+                      if (!seen.has(key)) {
+                        seen.add(key)
+                        list.push(canon)
+                      }
+                    }
+
+                    // Garante 'Pendente' e 'Concluída' como opções conhecidas
+                    if (!seen.has('pendente')) {
+                      seen.add('pendente')
+                      list.unshift('Pendente')
+                    }
+                    if (!seen.has('concluida')) {
+                      seen.add('concluida')
+                      list.push('Concluída')
+                    }
+
+                    // Se a tarefa tiver um status customizado que ainda não está na lista, adiciona
+                    if (formData.status) {
+                      const currentCanon = canonicalTaskStatus(formData.status)
+                      const currentKey = currentCanon.toLowerCase()
+                      if (!seen.has(currentKey)) {
+                        seen.add(currentKey)
+                        list.push(currentCanon)
+                      }
+                    }
+
+                    return list.map((s) => (
                       <SelectItem key={s} value={s}>
                         {s}
                       </SelectItem>
-                    ))}
-                  {isCompleted && <SelectItem value="Concluído">Concluído</SelectItem>}
+                    ))
+                  })()}
                 </SelectContent>
               </Select>
               {errors.status && <p className="text-xs text-red-500 font-medium">{errors.status}</p>}

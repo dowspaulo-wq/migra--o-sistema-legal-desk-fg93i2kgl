@@ -54,6 +54,7 @@ import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/hooks/use-auth'
 import { normalizeStr, calculateInstallmentDate } from '@/lib/utils'
 import { isNonFinancialFeeType, isSuccessFeeType } from '@/lib/fee-types'
+import { canonicalTaskStatus } from '@/lib/taskStatus'
 import { AutomationTriggerEvent, AutomationDueType } from '@/lib/mockData'
 
 interface LegalContextType {
@@ -845,6 +846,9 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
           // Previne que updatedAt enviado acidentalmente quebre a atualização via PostgREST.
           delete finalChanges.updatedAt
           delete finalChanges.updated_at
+          if (finalChanges.status) {
+            finalChanges.status = canonicalTaskStatus(finalChanges.status)
+          }
         }
 
         if (table === 'payment_plans') {
@@ -1472,6 +1476,7 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     async (task: Omit<Task, 'id'>) => {
       const taskPayload = {
         ...task,
+        status: canonicalTaskStatus(task.status || 'Pendente'),
         created_by: (task as any).created_by || state.currentUser?.id || user?.id || null,
       }
       const { data, error } = await supabase

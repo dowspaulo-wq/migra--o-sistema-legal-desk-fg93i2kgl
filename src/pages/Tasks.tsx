@@ -163,18 +163,44 @@ export default function Tasks() {
   const sortedUsers = [...state.users].sort((a, b) => a.name.localeCompare(b.name))
   const sortedClients = [...state.clients].sort((a, b) => a.name.localeCompare(b.name))
   const sortedTypes = [...(state.settings.taskTypes || [])].sort((a, b) => a.localeCompare(b))
-  const sortedStatuses = [...(state.settings.taskStatuses || [])].sort((a, b) => a.localeCompare(b))
+  const sortedStatuses = (() => {
+    const raw = state.settings.taskStatuses || ['Pendente', 'Em andamento', 'Atrasada', 'Concluída']
+    const set = new Set<string>()
+    for (const s of raw) {
+      set.add(canonicalTaskStatus(s))
+    }
+    set.add('Pendente')
+    set.add('Concluída')
+    for (const t of state.tasks) {
+      if (t.status) set.add(canonicalTaskStatus(t.status))
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b))
+  })()
 
   const filtered = state.tasks.filter((t) => {
     if (quickSearch && !normalizeStr(t.title).includes(normalizeStr(quickSearch))) return false
     const f = appliedFilters as any
     if (f.titulo && !normalizeStr(t.title).includes(normalizeStr(f.titulo))) return false
 
-    if (f.status && f.status.length > 0 && !f.status.includes(t.status)) return false
+    const taskCanon = canonicalTaskStatus(t.status)
+    if (
+      f.status &&
+      f.status.length > 0 &&
+      !f.status.some(
+        (st: string) =>
+          canonicalTaskStatus(st).toLowerCase() === taskCanon.toLowerCase() ||
+          st.toLowerCase() === (t.status || '').toLowerCase(),
+      )
+    )
+      return false
     if (
       f.statusNot &&
       f.statusNot.length > 0 &&
-      f.statusNot.some((s: string) => t.status.toLowerCase() === s.toLowerCase())
+      f.statusNot.some(
+        (s: string) =>
+          canonicalTaskStatus(s).toLowerCase() === taskCanon.toLowerCase() ||
+          (t.status || '').toLowerCase() === s.toLowerCase(),
+      )
     )
       return false
 
