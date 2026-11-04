@@ -2074,7 +2074,9 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
 
       return { plan: createdPlan, transactions: insertedTxns || allNewTransactions }
     },
-    [],
+    // Dependência OBRIGATÓRIA: sem ela o callback captura o state do 1º render
+    // (currentUser padrão role:'User') e nega o próprio administrador.
+    [state.currentUser],
   )
 
   const markRepasseAsDone = useCallback(async (transactionId: string) => {
@@ -2111,42 +2113,47 @@ export function LegalStoreProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  const deletePaymentPlan = useCallback(async (id: string) => {
-    const currentRole = (state.currentUser?.role || '').toLowerCase()
-    const currentEmail = (state.currentUser?.email || '').toLowerCase()
-    const isDouglas =
-      currentEmail === 'advdouglaspsantos@gmail.com' ||
-      currentEmail === 'dowspaulo@gmail.com' ||
-      state.currentUser?.id === '6501af65-cd6c-43c3-958a-3091ce93ba78'
-    const isAdmin = isDouglas || currentRole === 'admin' || currentRole === 'adm'
-    if (!isAdmin) {
-      toast({
-        title: 'Acesso negado',
-        description: 'Apenas administradores podem excluir parcelamentos.',
-        variant: 'destructive',
-      })
-      return
-    }
+  const deletePaymentPlan = useCallback(
+    async (id: string) => {
+      const currentRole = (state.currentUser?.role || '').toLowerCase()
+      const currentEmail = (state.currentUser?.email || '').toLowerCase()
+      const isDouglas =
+        currentEmail === 'advdouglaspsantos@gmail.com' ||
+        currentEmail === 'dowspaulo@gmail.com' ||
+        state.currentUser?.id === '6501af65-cd6c-43c3-958a-3091ce93ba78'
+      const isAdmin = isDouglas || currentRole === 'admin' || currentRole === 'adm'
+      if (!isAdmin) {
+        toast({
+          title: 'Acesso negado',
+          description: 'Apenas administradores podem excluir parcelamentos.',
+          variant: 'destructive',
+        })
+        return
+      }
 
-    // Ao deletar o plano, o banco com ON DELETE CASCADE remove as transactions associadas
-    const { error } = await (supabase as any).from('payment_plans').delete().eq('id', id)
-    if (error) {
-      toast({
-        title: 'Erro ao excluir parcelamento',
-        description: error.message,
-        variant: 'destructive',
-      })
-      return
-    }
+      // Ao deletar o plano, o banco com ON DELETE CASCADE remove as transactions associadas
+      const { error } = await (supabase as any).from('payment_plans').delete().eq('id', id)
+      if (error) {
+        toast({
+          title: 'Erro ao excluir parcelamento',
+          description: error.message,
+          variant: 'destructive',
+        })
+        return
+      }
 
-    setState((prev) => ({
-      ...prev,
-      paymentPlans: (prev.paymentPlans || []).filter((p) => p.id !== id),
-      transactions: prev.transactions.filter((t) => t.plan_id !== id),
-    }))
+      setState((prev) => ({
+        ...prev,
+        paymentPlans: (prev.paymentPlans || []).filter((p) => p.id !== id),
+        transactions: prev.transactions.filter((t) => t.plan_id !== id),
+      }))
 
-    toast({ title: 'Parcelamento e lançamentos vinculados excluídos.' })
-  }, [])
+      toast({ title: 'Parcelamento e lançamentos vinculados excluídos.' })
+      // Dependência OBRIGATÓRIA: sem ela o callback captura o state do 1º render
+      // (currentUser padrão role:'User') e nega o próprio administrador.
+    },
+    [state.currentUser],
+  )
 
   const addClientFee = useCallback(
     async (fee: {
