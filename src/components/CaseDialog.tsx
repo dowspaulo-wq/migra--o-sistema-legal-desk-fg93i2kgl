@@ -57,11 +57,9 @@ export function CaseDialog({
   const sortedClients = [...clients].sort((a: any, b: any) => a.name.localeCompare(b.name))
 
   const caseTypesSettings = settings.caseTypes || []
-  const sortedTypes = [...caseTypesSettings].sort((a: any, b: any) => {
-    const labelA = typeof a === 'string' ? a : a.label
-    const labelB = typeof b === 'string' ? b : b.label
-    return labelA.localeCompare(labelB)
-  })
+  const sortedTypes = [...caseTypesSettings]
+    .map((t: any) => (typeof t === 'string' ? t : t.label))
+    .sort((a: string, b: string) => a.localeCompare(b))
 
   const caseStatusesSettings = settings.caseStatuses || []
   const sortedStatuses = [...caseStatusesSettings].sort((a: any, b: any) => {
@@ -76,6 +74,16 @@ export function CaseDialog({
     'Incidente',
     'Outros',
   ]
+
+  // Campos de processo que devem ficar sempre em caixa alta
+  const UPPERCASE_CASE_FIELDS = ['adverseParty', 'court', 'comarca', 'state']
+  const withUppercaseFields = (formData: any) => {
+    const next = { ...formData }
+    for (const field of UPPERCASE_CASE_FIELDS) {
+      if (typeof next[field] === 'string') next[field] = next[field].toUpperCase()
+    }
+    return next
+  }
   const sortedSubprocessTypes = [...subprocessTypesSettings].sort((a: any, b: any) => {
     const labelA = typeof a === 'string' ? a : a.label
     const labelB = typeof b === 'string' ? b : b.label
@@ -131,11 +139,11 @@ export function CaseDialog({
 
   const [fd, setFd] = useState(() =>
     data && !data.isNew
-      ? {
+      ? withUppercaseFields({
           ...data,
           classification: data.classification || 'DPS',
           noFees: Boolean(data.noFees ?? (data as any)?.no_fees ?? false),
-        }
+        })
       : getInitial(),
   )
 
@@ -164,11 +172,11 @@ export function CaseDialog({
     if (open) {
       setFd(
         data && !data.isNew
-          ? {
+          ? withUppercaseFields({
               ...data,
               classification: data.classification || 'DPS',
               noFees: Boolean(data.noFees ?? (data as any)?.no_fees ?? false),
-            }
+            })
           : getInitial(),
       )
     }
@@ -204,7 +212,7 @@ export function CaseDialog({
     }
 
     const payload = {
-      ...fd,
+      ...withUppercaseFields(fd),
       noFees: Boolean(fd.noFees),
       classification: fd.classification || 'DPS',
       feeConfig: feeConfig.hasFees ? feeConfig : undefined,
@@ -360,14 +368,18 @@ export function CaseDialog({
                         )}
                     </>
                   ) : (
-                    sortedTypes.map((t: any) => {
-                      const label = typeof t === 'string' ? t : t.label
-                      return (
+                    <>
+                      {sortedTypes.map((label: string) => (
                         <SelectItem key={label} value={label}>
                           {label}
                         </SelectItem>
-                      )
-                    })
+                      ))}
+                      {fd.type && !sortedTypes.some((label: string) => label === fd.type) && (
+                        <SelectItem key={fd.type} value={fd.type}>
+                          {fd.type}
+                        </SelectItem>
+                      )}
+                    </>
                   )}
                 </SelectContent>
               </Select>
@@ -463,13 +475,16 @@ export function CaseDialog({
               <Label>Parte Adversa</Label>
               <Input
                 value={fd.adverseParty}
-                onChange={(e) => setFd({ ...fd, adverseParty: e.target.value })}
+                onChange={(e) => setFd({ ...fd, adverseParty: e.target.value.toUpperCase() })}
               />
             </div>
 
             <div className="space-y-2">
               <Label>Vara / Juízo</Label>
-              <Input value={fd.court} onChange={(e) => setFd({ ...fd, court: e.target.value })} />
+              <Input
+                value={fd.court}
+                onChange={(e) => setFd({ ...fd, court: e.target.value.toUpperCase() })}
+              />
             </div>
 
             <div className="space-y-2">

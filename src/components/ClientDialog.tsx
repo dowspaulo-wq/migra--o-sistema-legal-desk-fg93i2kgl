@@ -72,8 +72,15 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [cepLoading, setCepLoading] = useState(false)
+
+  // Apenas o NOME do cliente deve ficar sempre em caixa alta
+  const withUppercaseName = (formData: any) =>
+    typeof formData?.name === 'string'
+      ? { ...formData, name: formData.name.toUpperCase() }
+      : formData
+
   const [fd, setFd] = useState(() => {
-    if (client) return client
+    if (client) return withUppercaseName(client)
 
     try {
       const draft = sessionStorage.getItem('client_form_draft')
@@ -90,7 +97,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
   useEffect(() => {
     setFormErrors({})
     if (client) {
-      setFd(client)
+      setFd(withUppercaseName(client))
     } else if (open) {
       try {
         const draft = sessionStorage.getItem('client_form_draft')
@@ -243,7 +250,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
     const sanitizedEmail = emailExempt ? '' : (fd.email || '').trim()
 
     const payload = {
-      ...fd,
+      ...withUppercaseName(fd),
       marital_status: fd.type === 'PJ' ? null : fd.marital_status || null,
       address: fullAddress,
       phone: sanitizedPhone,
@@ -279,7 +286,7 @@ export function ClientDialog({ open, onOpenChange, client, onSave, users, settin
                 <Input
                   required
                   value={fd.name}
-                  onChange={(e) => setFd({ ...fd, name: e.target.value })}
+                  onChange={(e) => setFd({ ...fd, name: e.target.value.toUpperCase() })}
                 />
               </div>
               <div className="flex gap-2">
