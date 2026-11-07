@@ -27,7 +27,27 @@ import {
 } from '@/stores/useLeadsStore'
 import { formatSafeDateTime, formatSafeLocalDate, getWhatsAppPhone } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
-import { Phone, MessageSquare, CalendarClock, CheckCircle2, ArrowRight } from 'lucide-react'
+import {
+  Phone,
+  MessageSquare,
+  CalendarClock,
+  CheckCircle2,
+  ArrowRight,
+  Trash2,
+  UserCheck,
+} from 'lucide-react'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 interface LeadDetailSheetProps {
   lead?: Lead | null
@@ -36,6 +56,7 @@ interface LeadDetailSheetProps {
   users: Array<{ id: string; name: string }>
   leadStages?: string[]
   leadInteractionTypes?: string[]
+  canDelete?: boolean
   fetchInteractions: (leadId: string) => Promise<LeadInteraction[]>
   addInteraction: (
     leadId: string,
@@ -47,6 +68,7 @@ interface LeadDetailSheetProps {
   onScheduleFollowUp: (id: string, date: string) => Promise<boolean>
   onConvert: (lead: Lead) => void
   onEdit: (lead: Lead) => void
+  onDelete?: (lead: Lead) => Promise<boolean>
 }
 function typeIcon(type: string) {
   switch (type) {
@@ -70,12 +92,14 @@ export function LeadDetailSheet({
   users,
   leadStages,
   leadInteractionTypes,
+  canDelete = true,
   fetchInteractions,
   addInteraction,
   onChangeStage,
   onScheduleFollowUp,
   onConvert,
   onEdit,
+  onDelete,
 }: LeadDetailSheetProps) {
   const [interactions, setInteractions] = useState<LeadInteraction[]>([])
   const [loading, setLoading] = useState(false)
@@ -83,11 +107,11 @@ export function LeadDetailSheet({
   const [newDesc, setNewDesc] = useState('')
   const [newDate, setNewDate] = useState('')
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
-  const canConvert =
-    !!lead &&
-    !lead.convertedClientId &&
-    (lead.stage === 'Qualificado' || lead.stage === 'Proposta enviada')
+  const isEligibleStage = lead?.stage === 'Qualificado' || lead?.stage === 'Proposta enviada'
+  const isAlreadyConverted = !!lead?.convertedClientId
+  const canConvert = !!lead && !isAlreadyConverted && isEligibleStage
 
   useEffect(() => {
     if (!open || !lead) return
@@ -173,19 +197,65 @@ export function LeadDetailSheet({
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 items-center">
             <Button size="sm" variant="outline" onClick={() => onEdit(lead)}>
               Editar lead
             </Button>
-            {canConvert && (
-              <Button
-                size="sm"
-                className="bg-emerald-600 hover:bg-emerald-700"
-                onClick={() => onConvert(lead)}
-              >
-                Converter em cliente
-              </Button>
-            )}
+
+            {/* Botão Converter em cliente: sempre presente na área de ações da ficha */}
+            <TooltipProvider>
+              {canConvert ? (
+                <Button
+                  size="sm"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
+                  onClick={() => onConvert(lead)}
+                >
+                  <UserCheck className="h-4 w-4 mr-1.5" />
+                  Converter em cliente
+                </Button>
+              ) : isAlreadyConverted ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span tabIndex={0}>
+                      <Button
+                        size="sm"
+                        disabled
+                        variant="secondary"
+                        className="opacity-60 cursor-not-allowed"
+                      >
+                        <UserCheck className="h-4 w-4 mr-1.5" />
+                        Cliente já contratado
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Este lead já foi convertido em cliente ativo.</p>
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span tabIndex={0}>
+                      <Button
+                        size="sm"
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
+                        onClick={() => onConvert(lead)}
+                      >
+                        <UserCheck className="h-4 w-4 mr-1.5" />
+                        Converter em cliente
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>
+                      Etapa atual: {lead.stage}. Clique para abrir o fluxo de conversão e efetivar a
+                      contratação do cliente.
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </TooltipProvider>
+
             {lead.phone && getWhatsAppPhone(lead.phone) && (
               <Button
                 size="sm"
@@ -197,6 +267,48 @@ export function LeadDetailSheet({
                 Abrir WhatsApp
               </Button>
             )}
+
+            {/* Opção de Excluir o lead com diálogo de confirmação explícita */}
+            {canDelete && onDelete && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-red-600 hover:bg-red-50 hover:text-red-700 ml-auto"
+                    disabled={deleting}
+                  >
+                    <Trash2 className="h-4 w-4 mr-1.5" />
+                    Excluir lead
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Excluir Lead?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Esta ação é irreversível. O lead <strong>"{lead.name}"</strong> e todo o seu
+                      histórico de interações serão removidos definitivamente do sistema.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction
+                      className="bg-red-600 hover:bg-red-700 text-white"
+                      onClick={async () => {
+                        setDeleting(true)
+                        const ok = await onDelete(lead)
+                        setDeleting(false)
+                        if (ok) {
+                          onOpenChange(false)
+                        }
+                      }}
+                    >
+                      Excluir definitivamente
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
           </div>
 
           {/* Mudança de etapa */}
@@ -207,6 +319,11 @@ export function LeadDetailSheet({
                 value={lead.stage}
                 onValueChange={async (v) => {
                   if (v === lead.stage) return
+                  // Se o usuário selecionou 'Contratado', dispara automaticamente o fluxo de conversão
+                  if (v === 'Contratado') {
+                    onConvert(lead)
+                    return
+                  }
                   const ok = await onChangeStage(lead.id, v)
                   if (ok) {
                     const list = await fetchInteractions(lead.id)
@@ -228,7 +345,7 @@ export function LeadDetailSheet({
                         : baseStages
                     return allStages.map((s) => (
                       <SelectItem key={s} value={s}>
-                        {s}
+                        {s === 'Contratado' ? 'Contratado (via conversão)' : s}
                       </SelectItem>
                     ))
                   })()}

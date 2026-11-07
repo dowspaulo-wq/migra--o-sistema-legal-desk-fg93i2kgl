@@ -362,6 +362,13 @@ export function useLeadsStore() {
 
   const deleteLead = useCallback(async (id: string): Promise<boolean> => {
     try {
+      // Exclusão explícita em cascata das interações na aplicação antes do lead,
+      // garantindo que funcione mesmo em ambientes sem FK ON DELETE CASCADE no banco
+      const { error: itErr } = await supabase.from('lead_interactions').delete().eq('leadId', id)
+      if (itErr) {
+        console.warn('Aviso ao remover interações do lead antes da exclusão:', itErr)
+      }
+
       const { error } = await supabase.from('leads').delete().eq('id', id)
       if (error) throw error
       setLeads((p) => p.filter((l) => l.id !== id))

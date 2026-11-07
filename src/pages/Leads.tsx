@@ -42,7 +42,19 @@ import {
   List,
   Search,
   Settings as SettingsIcon,
+  Trash2,
+  UserCheck,
 } from 'lucide-react'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 
 // ============================================================
 // MÓDULO DE GESTÃO DE LEADS — painel, lista e Kanban
@@ -84,6 +96,7 @@ export default function Leads() {
     fetchInteractions,
     addLead,
     updateLead,
+    deleteLead,
     changeStage,
     batchRenameStage,
     addInteraction,
@@ -116,6 +129,7 @@ export default function Leads() {
   const [editingLead, setEditingLead] = useState<Lead | null>(null)
   const [detailLead, setDetailLead] = useState<Lead | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
+  const [leadToDelete, setLeadToDelete] = useState<Lead | null>(null)
   const [convertLeadObj, setConvertLeadObj] = useState<Lead | null>(null)
   const [convertOpen, setConvertOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -422,20 +436,37 @@ export default function Leads() {
     setDetailLead(l)
     setDetailOpen(true)
   }
+  const canDeleteLead = (l: Lead) => {
+    if (isAdmin) return true
+    const currentUserId = user?.id || legal.state.currentUser?.id
+    return !!currentUserId && l.responsibleId === currentUserId
+  }
+
+  const handleDeleteLead = async (l: Lead): Promise<boolean> => {
+    if (!canDeleteLead(l)) {
+      toast({
+        title: 'Permissão insuficiente',
+        description: 'Apenas administradores ou o responsável pelo lead podem excluí-lo.',
+        variant: 'destructive',
+      })
+      return false
+    }
+    const ok = await deleteLead(l.id)
+    if (ok) {
+      if (detailLead?.id === l.id) {
+        setDetailOpen(false)
+        setDetailLead(null)
+      }
+      setLeadToDelete(null)
+    }
+    return ok
+  }
+
   const openConvert = (l: Lead) => {
     if (l.convertedClientId) {
       toast({
         title: 'Lead já convertido',
         description: 'Este lead já foi convertido em cliente.',
-        variant: 'destructive',
-      })
-      return
-    }
-    if (l.stage !== 'Qualificado' && l.stage !== 'Proposta enviada') {
-      toast({
-        title: 'Conversão indisponível',
-        description:
-          'Só é possível converter leads nas etapas "Qualificado" ou "Proposta enviada". Mova o lead no funil primeiro.',
         variant: 'destructive',
       })
       return
@@ -910,20 +941,34 @@ export default function Leads() {
                     <div className="text-xs text-muted-foreground w-24">
                       {userName(l.responsibleId)}
                     </div>
-                    <div className="flex gap-1">
+                    <div className="flex items-center gap-1">
                       <Button size="sm" variant="outline" onClick={() => openDetail(l)}>
                         Ficha
                       </Button>
-                      {(l.stage === 'Qualificado' || l.stage === 'Proposta enviada') &&
-                        !l.convertedClientId && (
-                          <Button
-                            size="sm"
-                            className="bg-emerald-600 hover:bg-emerald-700"
-                            onClick={() => openConvert(l)}
-                          >
-                            Converter
-                          </Button>
-                        )}
+                      {!l.convertedClientId && (
+                        <Button
+                          size="sm"
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                          onClick={() => openConvert(l)}
+                        >
+                          <UserCheck className="h-3.5 w-3.5 mr-1" />
+                          Converter
+                        </Button>
+                      )}
+                      {canDeleteLead(l) && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50 p-2 h-8 w-8"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setLeadToDelete(l)
+                          }}
+                          title="Excluir lead"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -995,7 +1040,13 @@ export default function Leads() {
                             </div>
                             <Select
                               value={l.stage}
-                              onValueChange={(v) => changeStage(l.id, v)}
+                              onValueChange={(v) => {
+                                if (v === 'Contratado') {
+                                  openConvert(l)
+                                  return
+                                }
+                                changeStage(l.id, v)
+                              }}
                               disabled={!!l.convertedClientId}
                             >
                               <SelectTrigger className="mt-2 h-7 text-xs">
@@ -1047,6 +1098,7 @@ export default function Leads() {
         users={users}
         leadStages={configuredStages}
         leadInteractionTypes={configuredInteractionTypes}
+        canDelete={detailLead ? canDeleteLead(detailLead) : false}
         fetchInteractions={fetchInteractions}
         addInteraction={addInteraction}
         onChangeStage={changeStage}
@@ -1056,6 +1108,7 @@ export default function Leads() {
           setDetailOpen(false)
           openEdit(l)
         }}
+        onDelete={handleDeleteLead}
       />
       <ConvertLeadDialog
         open={convertOpen}
@@ -1070,6 +1123,37 @@ export default function Leads() {
         config={leadListsConfig}
         onSave={handleSaveListsConfig}
       />
+
+      {/* Diálogo de confirmação de exclusão da lista */}
+      <AlertDialog
+        open={!!leadToDelete}
+        onOpenChange={(op) => {
+          if (!op) setLeadToDelete(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir Lead?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação é irreversível. O lead <strong>"{leadToDelete?.name}"</strong> e todo o seu
+              histórico de interações serão removidos definitivamente do sistema.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 text-white"
+              onClick={async () => {
+                if (leadToDelete) {
+                  await handleDeleteLead(leadToDelete)
+                }
+              }}
+            >
+              Excluir definitivamente
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
