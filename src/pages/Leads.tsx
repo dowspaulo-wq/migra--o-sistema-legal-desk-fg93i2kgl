@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2 } from 'lucide-react'
 import { useLeadsStore, LEAD_STAGES, type Lead } from '@/stores/useLeadsStore'
-import { useLegalStore } from '@/stores/useLegalStore'
+import useLegalStore from '@/stores/useLegalStore'
 import { useAuth } from '@/hooks/use-auth'
 import { LeadDialog } from '@/components/leads/LeadDialog'
 import { LeadDetailSheet } from '@/components/leads/LeadDetailSheet'
@@ -72,7 +72,8 @@ const daysBetween = (a: Date, b: Date) => Math.floor((b.getTime() - a.getTime())
 
 export default function Leads() {
   const {
-    state,
+    leads,
+    isLoading,
     fetchLeads,
     fetchInteractions,
     addLead,
@@ -116,20 +117,16 @@ export default function Leads() {
     [legal.state.users],
   )
 
-  const settingsOptions = (legal.state.settings as any)?.[0]?.options || {}
-  const leadAreas: string[] = settingsOptions.leadAreas || []
-  const leadSubjectsByArea: Record<string, string[]> = settingsOptions.leadSubjectsByArea || {}
-  const leadSubjectsFlat = useMemo(
-    () => Array.from(new Set(Object.values(leadSubjectsByArea).flat())),
-    [leadSubjectsByArea],
-  )
+  const leadAreas: string[] = ((legal.state.settings as any)?.leadAreas as string[] | null) || []
+  const leadSubjectsFlat: string[] =
+    ((legal.state.settings as any)?.leadSubjects as string[] | null) || []
 
   const userName = (id?: string | null) => users.find((u) => u.id === id)?.name || '—'
 
   // ---------- FILTROS ----------
   const filtered = useMemo(() => {
     const s = search.trim().toUpperCase()
-    return state.leads.filter((l) => {
+    return leads.filter((l) => {
       if (s) {
         const hay = [l.name, l.phone, l.email, l.subject, l.city]
           .filter(Boolean)
@@ -148,7 +145,7 @@ export default function Leads() {
       return true
     })
   }, [
-    state.leads,
+    leads,
     search,
     fStage,
     fOrigin,
@@ -170,13 +167,13 @@ export default function Leads() {
 
   // ---------- PAINEL / INDICADORES (período selecionável) ----------
   const periodFiltered = useMemo(() => {
-    return state.leads.filter((l) => {
+    return leads.filter((l) => {
       const d = l.entryDate || String(l.created_at || '').slice(0, 10) || ''
       if (fromDate && d < fromDate) return false
       if (toDate && d > toDate) return false
       return true
     })
-  }, [state.leads, fromDate, toDate])
+  }, [leads, fromDate, toDate])
 
   const metrics = useMemo(() => {
     const now = new Date()
@@ -283,7 +280,7 @@ export default function Leads() {
       desc: string
       lead: Lead
     }> = []
-    const active = state.leads.filter((l) => !l.convertedClientId)
+    const active = leads.filter((l) => !l.convertedClientId)
 
     active.forEach((l) => {
       const entry = l.entryDate || String(l.created_at || '').slice(0, 10) || ''
@@ -361,7 +358,7 @@ export default function Leads() {
 
     const order = { destructive: 0, warning: 1, info: 2 }
     return list.sort((a, b) => order[a.tone] - order[b.tone])
-  }, [state.leads])
+  }, [leads])
 
   // ---------- AÇÕES ----------
   const openNew = () => {
@@ -654,7 +651,7 @@ export default function Leads() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="todas">Todas as origens</SelectItem>
-                  {[...new Set(state.leads.map((l) => l.origin).filter(Boolean))].map((o) => (
+                  {[...new Set(leads.map((l) => l.origin).filter(Boolean))].map((o) => (
                     <SelectItem key={o as string} value={o as string}>
                       {o as string}
                     </SelectItem>
@@ -741,7 +738,7 @@ export default function Leads() {
             </div>
           </div>
 
-          {state.isLoading && (
+          {isLoading && (
             <div className="grid gap-2">
               {[1, 2, 3].map((i) => (
                 <Skeleton key={i} className="h-14 w-full" />
@@ -749,7 +746,7 @@ export default function Leads() {
             </div>
           )}
 
-          {!state.isLoading && view === 'lista' && (
+          {!isLoading && view === 'lista' && (
             <div className="space-y-2">
               {paged.length === 0 && (
                 <div className="text-sm text-muted-foreground">Nenhum lead encontrado.</div>
@@ -828,7 +825,7 @@ export default function Leads() {
             </div>
           )}
 
-          {!state.isLoading && view === 'kanban' && (
+          {!isLoading && view === 'kanban' && (
             <div className="overflow-x-auto pb-2">
               <div className="flex gap-3 min-w-max">
                 {LEAD_STAGES.map((stage) => {
@@ -902,9 +899,7 @@ export default function Leads() {
         lead={editingLead}
         users={users}
         leadAreas={leadAreas}
-        leadSubjects={
-          editingLead?.area ? leadSubjectsByArea[editingLead.area] || [] : leadSubjectsFlat
-        }
+        leadSubjects={leadSubjectsFlat}
         onSave={handleSave}
         onCheckDuplicates={checkLeadDuplicates}
       />
