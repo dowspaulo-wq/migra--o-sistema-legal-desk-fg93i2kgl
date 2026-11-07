@@ -3,6 +3,7 @@ import {
   Scale,
   LayoutDashboard,
   Users,
+  UserPlus,
   Briefcase,
   Calendar as CalendarIcon,
   CheckSquare,
@@ -34,6 +35,7 @@ import useLegalStore from '@/stores/useLegalStore'
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Clientes', href: '/clientes', icon: Users },
+  { name: 'Leads', href: '/leads', icon: UserPlus },
   { name: 'Processos', href: '/processos', icon: Briefcase },
   { name: 'Agenda', href: '/agenda', icon: CalendarIcon },
   { name: 'Tarefas', href: '/tarefas', icon: CheckSquare },

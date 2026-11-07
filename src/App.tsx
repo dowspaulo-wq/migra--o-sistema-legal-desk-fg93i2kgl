@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import Leads from '@/pages/Leads'
 import { Toaster } from '@/components/ui/toaster'
 import { Toaster as Sonner } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -45,6 +46,7 @@ const App = () => (
             <Route element={<Layout />}>
               <Route path="/" element={<Index />} />
               <Route path="/clientes" element={<Clients />} />
+              <Route path="/leads" element={<Leads />} />
               <Route path="/clientes/:id" element={<ClientDetail />} />
               <Route path="/processos" element={<Cases />} />
               <Route path="/processos/:id" element={<CaseDetail />} />
