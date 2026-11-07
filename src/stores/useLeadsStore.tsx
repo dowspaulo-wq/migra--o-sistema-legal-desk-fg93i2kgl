@@ -501,6 +501,36 @@ export function useLeadsStore() {
     [addInteraction],
   )
 
+  /**
+   * Atualiza a etapa de todos os leads com oldLabel para newLabel (usado ao renomear etapas nas configurações).
+   */
+  const batchRenameStage = useCallback(
+    async (oldLabel: string, newLabel: string): Promise<boolean> => {
+      if (!oldLabel || !newLabel || oldLabel === newLabel) return true
+      try {
+        const { error } = await supabase
+          .from('leads')
+          .update({ stage: newLabel, updated_at: new Date().toISOString() })
+          .eq('stage', oldLabel)
+        if (error) throw error
+
+        setLeads((prev) => prev.map((l) => (l.stage === oldLabel ? { ...l, stage: newLabel } : l)))
+        return true
+      } catch (err: any) {
+        console.warn('Erro ao atualizar etapa dos leads em lote:', err)
+        toast({
+          title: 'Aviso ao renomear etapa nos leads',
+          description: String(
+            err?.message || 'Falha ao propagar novo nome da etapa nos leads existentes.',
+          ),
+          variant: 'destructive',
+        })
+        return false
+      }
+    },
+    [],
+  )
+
   return {
     leads,
     isLoading,
@@ -510,6 +540,7 @@ export function useLeadsStore() {
     updateLead,
     deleteLead,
     changeStage,
+    batchRenameStage,
     addInteraction,
     convertLead,
     checkLeadDuplicates,

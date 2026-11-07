@@ -61,8 +61,10 @@ interface LeadDialogProps {
   onOpenChange: (open: boolean) => void
   lead?: Lead | null
   users: Array<{ id: string; name: string }>
-  leadAreas: string[]
-  leadSubjects: string[]
+  leadAreas?: string[]
+  leadSubjects?: string[]
+  leadOrigins?: string[]
+  leadStages?: string[]
   onSave: (payload: Partial<Lead>) => Promise<boolean>
   onCheckDuplicates: (
     phone?: string | null,
@@ -76,8 +78,10 @@ export function LeadDialog({
   onOpenChange,
   lead,
   users,
-  leadAreas,
-  leadSubjects,
+  leadAreas = [],
+  leadSubjects = [],
+  leadOrigins,
+  leadStages,
   onSave,
   onCheckDuplicates,
 }: LeadDialogProps) {
@@ -231,11 +235,19 @@ export function LeadDialog({
                   <SelectValue placeholder="Selecione a origem" />
                 </SelectTrigger>
                 <SelectContent>
-                  {LEAD_ORIGINS.map((o) => (
-                    <SelectItem key={o} value={o}>
-                      {o}
-                    </SelectItem>
-                  ))}
+                  {(() => {
+                    const baseOrigins: string[] =
+                      leadOrigins && leadOrigins.length > 0 ? leadOrigins : [...LEAD_ORIGINS]
+                    const allOrigins: string[] =
+                      fd.origin && !baseOrigins.includes(fd.origin)
+                        ? [fd.origin, ...baseOrigins]
+                        : baseOrigins
+                    return allOrigins.map((o) => (
+                      <SelectItem key={o} value={o}>
+                        {o}
+                      </SelectItem>
+                    ))
+                  })()}
                 </SelectContent>
               </Select>
             </div>
@@ -294,11 +306,15 @@ export function LeadDialog({
                   <SelectValue placeholder="Selecione a área" />
                 </SelectTrigger>
                 <SelectContent>
-                  {leadAreas.map((a) => (
-                    <SelectItem key={a} value={a}>
-                      {a}
-                    </SelectItem>
-                  ))}
+                  {(() => {
+                    const allAreas =
+                      fd.area && !leadAreas.includes(fd.area) ? [fd.area, ...leadAreas] : leadAreas
+                    return allAreas.map((a) => (
+                      <SelectItem key={a} value={a}>
+                        {a}
+                      </SelectItem>
+                    ))
+                  })()}
                 </SelectContent>
               </Select>
             </div>
@@ -315,11 +331,17 @@ export function LeadDialog({
                   />
                 </SelectTrigger>
                 <SelectContent>
-                  {leadSubjects.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s}
-                    </SelectItem>
-                  ))}
+                  {(() => {
+                    const allSubjects =
+                      fd.subject && !leadSubjects.includes(fd.subject)
+                        ? [fd.subject, ...leadSubjects]
+                        : leadSubjects
+                    return allSubjects.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s}
+                      </SelectItem>
+                    ))
+                  })()}
                 </SelectContent>
               </Select>
             </div>
@@ -362,11 +384,19 @@ export function LeadDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {LEAD_STAGES.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s}
-                    </SelectItem>
-                  ))}
+                  {(() => {
+                    const baseStages =
+                      leadStages && leadStages.length > 0 ? leadStages : LEAD_STAGES
+                    const allStages =
+                      fd.stage && !baseStages.includes(fd.stage as any)
+                        ? [fd.stage, ...baseStages]
+                        : baseStages
+                    return allStages.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s}
+                      </SelectItem>
+                    ))
+                  })()}
                 </SelectContent>
               </Select>
               {isEdit && !lead?.convertedClientId && (

@@ -6,6 +6,11 @@ import { useAuth } from '@/hooks/use-auth'
 import { LeadDialog } from '@/components/leads/LeadDialog'
 import { LeadDetailSheet } from '@/components/leads/LeadDetailSheet'
 import { ConvertLeadDialog } from '@/components/leads/ConvertLeadDialog'
+import {
+  LeadListsSettingsDialog,
+  LEAD_LISTS_DEFAULTS,
+  type LeadListsConfig,
+} from '@/components/leads/LeadListsSettingsDialog'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -36,6 +41,7 @@ import {
   LayoutGrid,
   List,
   Search,
+  Settings as SettingsIcon,
 } from 'lucide-react'
 
 // ============================================================
@@ -79,12 +85,18 @@ export default function Leads() {
     addLead,
     updateLead,
     changeStage,
+    batchRenameStage,
     addInteraction,
     convertLead,
     checkLeadDuplicates,
   } = useLeadsStore()
   const legal = useLegalStore()
   const { user } = useAuth()
+  const isAdmin =
+    user?.role === 'Admin' ||
+    legal.state.currentUser?.role === 'Admin' ||
+    (user?.email &&
+      ['dowspaulo@gmail.com', 'douglas@advdouglaspsantos.com.br'].includes(user.email))
 
   const [tab, setTab] = useState('painel')
   const [view, setView] = useState<'lista' | 'kanban'>('lista')
@@ -106,6 +118,7 @@ export default function Leads() {
   const [detailOpen, setDetailOpen] = useState(false)
   const [convertLeadObj, setConvertLeadObj] = useState<Lead | null>(null)
   const [convertOpen, setConvertOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   useEffect(() => {
     fetchLeads()
@@ -117,9 +130,45 @@ export default function Leads() {
     [legal.state.users],
   )
 
-  const leadAreas: string[] = ((legal.state.settings as any)?.leadAreas as string[] | null) || []
-  const leadSubjectsFlat: string[] =
-    ((legal.state.settings as any)?.leadSubjects as string[] | null) || []
+  // Configuração de listas com fallback para os padrões
+  const settingsRecord = legal.state.settings as any
+  const leadListsConfig: LeadListsConfig = useMemo(() => {
+    const rawOrigins = settingsRecord?.leadOrigins
+    const rawStages = settingsRecord?.leadStages
+    const rawInteractions = settingsRecord?.leadInteractionTypes
+    const rawAreas = settingsRecord?.leadAreas
+    const rawSubjects = settingsRecord?.leadSubjects
+
+    return {
+      leadOrigins:
+        Array.isArray(rawOrigins) && rawOrigins.length > 0
+          ? rawOrigins
+          : LEAD_LISTS_DEFAULTS.leadOrigins,
+      leadStages:
+        Array.isArray(rawStages) && rawStages.length === 8
+          ? rawStages
+          : LEAD_LISTS_DEFAULTS.leadStages,
+      leadInteractionTypes:
+        Array.isArray(rawInteractions) && rawInteractions.length > 0
+          ? rawInteractions
+          : LEAD_LISTS_DEFAULTS.leadInteractionTypes,
+      leadAreas:
+        Array.isArray(rawAreas) && rawAreas.length > 0 ? rawAreas : LEAD_LISTS_DEFAULTS.leadAreas,
+      leadSubjects:
+        Array.isArray(rawSubjects) && rawSubjects.length > 0
+          ? rawSubjects
+          : LEAD_LISTS_DEFAULTS.leadSubjects,
+    }
+  }, [settingsRecord])
+
+  const configuredStages = useMemo(
+    () => leadListsConfig.leadStages.map((s) => s.label),
+    [leadListsConfig.leadStages],
+  )
+  const configuredOrigins = leadListsConfig.leadOrigins
+  const configuredAreas = leadListsConfig.leadAreas
+  const configuredSubjects = leadListsConfig.leadSubjects
+  const configuredInteractionTypes = leadListsConfig.leadInteractionTypes
 
   const userName = (id?: string | null) => users.find((u) => u.id === id)?.name || '—'
 
@@ -406,6 +455,51 @@ export default function Leads() {
     return updateLead(id, { nextContactAt: date })
   }
 
+  const handleSaveListsConfig = async (newConfig: LeadListsConfig): Promise<boolean> => {
+    try {
+      const oldStages = leadListsConfig.leadStages
+      const renameMap: Array<{ oldLabel: string; newLabel: string }> = []
+      newConfig.leadStages.forEach((ns) => {
+        const prev = oldStages.find((os) => os.id === ns.id)
+        if (prev && prev.label !== ns.label) {
+          renameMap.push({ oldLabel: prev.label, newLabel: ns.label })
+        }
+      })
+
+      // Atualiza o registro de settings usando o updateItem existente do useLegalStore
+      const currentSettings = legal.state.settings as any
+      const settingsId = currentSettings?.id || 'default'
+      const payload = {
+        leadOrigins: newConfig.leadOrigins,
+        leadStages: newConfig.leadStages,
+        leadInteractionTypes: newConfig.leadInteractionTypes,
+        leadAreas: newConfig.leadAreas,
+        leadSubjects: newConfig.leadSubjects,
+      }
+
+      await legal.updateItem('settings', settingsId, payload)
+
+      // Propaga renomeações de etapas aos leads existentes
+      for (const { oldLabel, newLabel } of renameMap) {
+        await batchRenameStage(oldLabel, newLabel)
+      }
+
+      toast({
+        title: 'Listas atualizadas',
+        description: 'As alterações nas listas de leads foram salvas com sucesso.',
+      })
+      return true
+    } catch (err: any) {
+      console.warn('Erro ao salvar listas de leads:', err)
+      toast({
+        title: 'Erro ao salvar listas',
+        description: String(err?.message || 'Tente novamente.'),
+        variant: 'destructive',
+      })
+      return false
+    }
+  }
+
   const clients = (legal.state.clients || []) as Array<Record<string, any>>
 
   return (
@@ -418,9 +512,20 @@ export default function Leads() {
             manual e confirmada.
           </p>
         </div>
-        <Button onClick={openNew}>
-          <UserPlus className="h-4 w-4 mr-2" /> Novo lead
-        </Button>
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <Button
+              variant="outline"
+              onClick={() => setSettingsOpen(true)}
+              title="Configurar listas de origem, etapa, área, assunto e interação"
+            >
+              <SettingsIcon className="h-4 w-4 mr-2" /> Configurar listas
+            </Button>
+          )}
+          <Button onClick={openNew}>
+            <UserPlus className="h-4 w-4 mr-2" /> Novo lead
+          </Button>
+        </div>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
@@ -638,11 +743,19 @@ export default function Leads() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="todos">Todas as etapas</SelectItem>
-                  {LEAD_STAGES.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s}
-                    </SelectItem>
-                  ))}
+                  {(() => {
+                    const allStages = [
+                      ...configuredStages,
+                      ...leads
+                        .map((l) => l.stage)
+                        .filter((s) => s && !configuredStages.includes(s)),
+                    ]
+                    return allStages.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s}
+                      </SelectItem>
+                    ))
+                  })()}
                 </SelectContent>
               </Select>
               <Select value={fOrigin} onValueChange={setFOrigin}>
@@ -651,11 +764,19 @@ export default function Leads() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="todas">Todas as origens</SelectItem>
-                  {[...new Set(leads.map((l) => l.origin).filter(Boolean))].map((o) => (
-                    <SelectItem key={o as string} value={o as string}>
-                      {o as string}
-                    </SelectItem>
-                  ))}
+                  {(() => {
+                    const uniqueOrigins = [
+                      ...configuredOrigins,
+                      ...leads
+                        .map((l) => l.origin)
+                        .filter((o): o is string => !!o && !configuredOrigins.includes(o)),
+                    ]
+                    return uniqueOrigins.map((o) => (
+                      <SelectItem key={o} value={o}>
+                        {o}
+                      </SelectItem>
+                    ))
+                  })()}
                 </SelectContent>
               </Select>
               <Select value={fArea} onValueChange={setFArea}>
@@ -664,11 +785,19 @@ export default function Leads() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="todas">Todas as áreas</SelectItem>
-                  {leadAreas.map((a) => (
-                    <SelectItem key={a} value={a}>
-                      {a}
-                    </SelectItem>
-                  ))}
+                  {(() => {
+                    const uniqueAreas = [
+                      ...configuredAreas,
+                      ...leads
+                        .map((l) => l.area)
+                        .filter((a): a is string => !!a && !configuredAreas.includes(a)),
+                    ]
+                    return uniqueAreas.map((a) => (
+                      <SelectItem key={a} value={a}>
+                        {a}
+                      </SelectItem>
+                    ))
+                  })()}
                 </SelectContent>
               </Select>
               <Select value={fResponsible} onValueChange={setFResponsible}>
@@ -828,7 +957,7 @@ export default function Leads() {
           {!isLoading && view === 'kanban' && (
             <div className="overflow-x-auto pb-2">
               <div className="flex gap-3 min-w-max">
-                {LEAD_STAGES.map((stage) => {
+                {configuredStages.map((stage) => {
                   const cols = filtered.filter((l) => l.stage === stage)
                   return (
                     <div key={stage} className="w-72 shrink-0">
@@ -873,11 +1002,17 @@ export default function Leads() {
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                {LEAD_STAGES.map((s) => (
-                                  <SelectItem key={s} value={s}>
-                                    {s === 'Contratado' ? 'Contratado (via conversão)' : s}
-                                  </SelectItem>
-                                ))}
+                                {(() => {
+                                  const allSelectStages =
+                                    l.stage && !configuredStages.includes(l.stage)
+                                      ? [l.stage, ...configuredStages]
+                                      : configuredStages
+                                  return allSelectStages.map((s) => (
+                                    <SelectItem key={s} value={s}>
+                                      {s === 'Contratado' ? 'Contratado (via conversão)' : s}
+                                    </SelectItem>
+                                  ))
+                                })()}
                               </SelectContent>
                             </Select>
                           </div>
@@ -898,8 +1033,10 @@ export default function Leads() {
         onOpenChange={setDialogOpen}
         lead={editingLead}
         users={users}
-        leadAreas={leadAreas}
-        leadSubjects={leadSubjectsFlat}
+        leadAreas={configuredAreas}
+        leadSubjects={configuredSubjects}
+        leadOrigins={configuredOrigins}
+        leadStages={configuredStages}
         onSave={handleSave}
         onCheckDuplicates={checkLeadDuplicates}
       />
@@ -908,6 +1045,8 @@ export default function Leads() {
         onOpenChange={setDetailOpen}
         lead={detailLead}
         users={users}
+        leadStages={configuredStages}
+        leadInteractionTypes={configuredInteractionTypes}
         fetchInteractions={fetchInteractions}
         addInteraction={addInteraction}
         onChangeStage={changeStage}
@@ -924,6 +1063,12 @@ export default function Leads() {
         lead={convertLeadObj}
         clients={clients}
         onConvert={convertLead}
+      />
+      <LeadListsSettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        config={leadListsConfig}
+        onSave={handleSaveListsConfig}
       />
     </div>
   )

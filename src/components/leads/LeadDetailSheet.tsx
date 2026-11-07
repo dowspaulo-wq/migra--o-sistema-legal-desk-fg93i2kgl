@@ -30,10 +30,12 @@ import { toast } from '@/hooks/use-toast'
 import { Phone, MessageSquare, CalendarClock, CheckCircle2, ArrowRight } from 'lucide-react'
 
 interface LeadDetailSheetProps {
-  lead: Lead | null
+  lead?: Lead | null
   open: boolean
   onOpenChange: (open: boolean) => void
   users: Array<{ id: string; name: string }>
+  leadStages?: string[]
+  leadInteractionTypes?: string[]
   fetchInteractions: (leadId: string) => Promise<LeadInteraction[]>
   addInteraction: (
     leadId: string,
@@ -46,7 +48,6 @@ interface LeadDetailSheetProps {
   onConvert: (lead: Lead) => void
   onEdit: (lead: Lead) => void
 }
-
 function typeIcon(type: string) {
   switch (type) {
     case 'Ligação':
@@ -67,6 +68,8 @@ export function LeadDetailSheet({
   open,
   onOpenChange,
   users,
+  leadStages,
+  leadInteractionTypes,
   fetchInteractions,
   addInteraction,
   onChangeStage,
@@ -216,11 +219,19 @@ export function LeadDetailSheet({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {LEAD_STAGES.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s}
-                    </SelectItem>
-                  ))}
+                  {(() => {
+                    const baseStages =
+                      leadStages && leadStages.length > 0 ? leadStages : LEAD_STAGES
+                    const allStages =
+                      lead.stage && !baseStages.includes(lead.stage as any)
+                        ? [lead.stage, ...baseStages]
+                        : baseStages
+                    return allStages.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s}
+                      </SelectItem>
+                    ))
+                  })()}
                 </SelectContent>
               </Select>
             </div>
@@ -239,11 +250,22 @@ export function LeadDetailSheet({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {LEAD_INTERACTION_TYPES.filter((t) => t !== 'Mudança de etapa').map((t) => (
-                      <SelectItem key={t} value={t}>
-                        {t}
-                      </SelectItem>
-                    ))}
+                    {(() => {
+                      const baseTypes = (
+                        leadInteractionTypes && leadInteractionTypes.length > 0
+                          ? leadInteractionTypes
+                          : LEAD_INTERACTION_TYPES
+                      ).filter((t) => t !== 'Mudança de etapa')
+                      const allTypes =
+                        newType && !baseTypes.includes(newType)
+                          ? [newType, ...baseTypes]
+                          : baseTypes
+                      return allTypes.map((t) => (
+                        <SelectItem key={t} value={t}>
+                          {t}
+                        </SelectItem>
+                      ))
+                    })()}
                   </SelectContent>
                 </Select>
               </div>

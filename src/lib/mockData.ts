@@ -268,6 +268,11 @@ export interface Settings {
   onboardingChecklist?: OnboardingStep[]
   caseOnboardingChecklist?: OnboardingStep[]
   automationRules?: AutomationRule[]
+  leadOrigins?: string[]
+  leadStages?: any
+  leadInteractionTypes?: string[]
+  leadAreas?: string[]
+  leadSubjects?: string[]
 }
 export interface WhatsAppMessage {
   id: string
