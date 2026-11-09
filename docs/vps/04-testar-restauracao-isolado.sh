@@ -3,9 +3,26 @@
 # DPSjur / SBJur — Fase 6: Teste de restauração de backup PostgreSQL em
 #                          contêiner Docker EFÊMERO e ISOLADO, 100% local no VPS
 # Script:   docs/vps/04-testar-restauracao-isolado.sh
-# Versão:   v2.6.0
+# Versão:   v2.6.1
 #
 # HISTÓRICO
+#   v2.6.1    : correções de segurança solicitadas na auditoria independente:
+#        (1) SEGURANÇA REFORÇADA CONTRA FALHAS DE CONSULTA NO CLEANUP:
+#            Eliminado todo uso de '|| true' nas verificações de volumes e
+#            contêineres (docker ps, docker inspect, docker volume inspect,
+#            docker volume ls). Falhas de consulta nunca são tratadas como
+#            resultado vazio/seguro: se a verificação de contêineres conectados,
+#            a inspeção de label de sessão ou a listagem de recursos falhar, a
+#            remoção do volume/contêiner é recusada, o recurso é preservado, a
+#            ocorrência é registrada em CLEANUP_OBS e no log restrito com
+#            alerta de console, e o cleanup termina classificado como INCOMPLETO.
+#        (2) SELEÇÃO MANUAL ESTRITA DO CONTÊINER DE PRODUÇÃO (PROD_CONTAINER):
+#            O nome informado manualmente via variável de ambiente PROD_CONTAINER
+#            deve pertencer EXCLUSIVAMENTE aos nomes de PROD_CONTAINER_CANDIDATES.
+#            Qualquer nome não autorizado (incluindo 'dpsjur-db', que segue
+#            explicitamente fora de escopo com mensagem própria) resulta em
+#            interrupção imediata (die com exit 30), MESMO que o contêiner
+#            exista e esteja em execução no Docker.
 #   v2.2.0-r1 : proposta inicial (isolamento completo, roles via pg_dumpall -g).
 #   v2.3.0    : versão auditada pelo usuário; o trabalho de correção ficou
 #               mapeado, porém NÃO consolidado/persistido (commit v0.0.659).
@@ -13,8 +30,7 @@
 #               roles terminativo, origem NÃO COMPROVADA por padrão, supressão
 #               de erro SQL, escopo estrutural delimitado, cleanup com
 #               identidade nome+label).
-#   v2.6.0    : ESTA versão — correções de segurança solicitadas na auditoria
-#               independente (nenhuma outra funcionalidade alterada):
+#   v2.6.0    : correções de segurança solicitadas na auditoria independente:
 #        (1) SEGURANÇA REFORÇADA NA REMOÇÃO DE VOLUMES:
 #            O cleanup remove SOMENTE volumes comprovadamente pertencentes a
 #            esta sessão de teste. Todo volume avaliado tem obrigatoriamente
@@ -172,7 +188,7 @@
 #                              descomprimido, inteiro (default: 2)
 #   LAB_DISK_RESERVE           reserva de segurança em disco p/ a produção
 #                              (default: 2g)
-#   PROD_CONTAINER             nome exato do contêiner de produção (opcional)
+#   PROD_CONTAINER             nome exato do contêiner de produção (opcional, restrito a PROD_CONTAINER_CANDIDATES)
 #
 # CÓDIGOS DE SAÍDA
 #    0  EXIT_OK                    sucesso (ver observações do relatório)
@@ -203,7 +219,7 @@
 set -u -o pipefail
 
 # ------------------------------------------------------------------ constantes
-SCRIPT_VERSION="v2.6.0"
+SCRIPT_VERSION="v2.6.1"
 BACKUP_ROOT="/root/sbjur-backups"
 DIAG_DIR="${BACKUP_ROOT}/logs/diagnostico-restauracao"   # restrito (chmod 700)
 TS_STAMP="$(date +%Y%m%d-%H%M%S)"
@@ -359,21 +375,39 @@ run_psql_lab() {
 # ------------------------------------ cleanup com conferência de identidade
 do_cleanup() {
     local fails=0
-    local label vlabel f v
+    local label="" vlabel="" f="" v=""
+    local ps_names="" vol_list="" v_users=""
+    local anon_vol_list="" anon_vlabel="" anon_users=""
+    local final_ps="" final_vols=""
 
     log "Iniciando cleanup com verificação de identidade..."
 
     # --- contêiner do laboratório: remover SOMENTE se nome + label conferem
-    if docker ps -a --format '{{.Names}}' 2>>"${LOG_FILE}" | grep -qx -- "${LAB_NAME}"; then
-        label="$(docker inspect -f "{{index .Config.Labels \"${LAB_LABEL}\"}}" "${LAB_NAME}" 2>>"${LOG_FILE}" || true)"
-        if [ "${label}" = "${LAB_LABEL_VALUE}" ]; then
+    if ! ps_names="$(docker ps -a --format '{{.Names}}' 2>>"${LOG_FILE}")"; then
+        fails=$((fails + 1))
+        CLEANUP_OBS="${CLEANUP_OBS} falha ao listar containers para verificar '${LAB_NAME}';"
+        say "🛑 RECUSA DE LIMPEZA: falha ao listar containers no Docker. Não foi possível verificar o container '${LAB_NAME}'. Preservando o recurso por segurança."
+        log "RECUSA DE LIMPEZA: docker ps falhou ao consultar container '${LAB_NAME}'."
+    elif printf '%s\n' "${ps_names}" | grep -qx -- "${LAB_NAME}"; then
+        if ! label="$(docker inspect -f "{{index .Config.Labels \"${LAB_LABEL}\"}}" "${LAB_NAME}" 2>>"${LOG_FILE}")"; then
+            fails=$((fails + 1))
+            CLEANUP_OBS="${CLEANUP_OBS} falha ao inspecionar label do container '${LAB_NAME}';"
+            say "🛑 RECUSA DE LIMPEZA: falha ao inspecionar label do container '${LAB_NAME}'. Preservando o recurso por segurança."
+            log "RECUSA DE LIMPEZA: docker inspect falhou ao consultar label do container '${LAB_NAME}'."
+        elif [ "${label}" = "${LAB_LABEL_VALUE}" ]; then
             # (v2.5.1) captura de volumes ANÔNIMOS eventuais ANTES de remover o
             # contêiner: todo .Name de .Mounts deste contêiner (exceto o volume
             # nomeado desta sessão) pertence a ESTE laboratório e será removido
-           # abaixo, após o contêiner. Se a label divergir, nada é capturado
-           # nem removido (recusa de escopo preservada).
-           LAB_ANON_VOLUMES="$(docker inspect -f '{{range .Mounts}}{{if .Name}}{{.Name}} {{end}}{{end}}' "${LAB_NAME}" 2>>"${LOG_FILE}" || true)"
-           if docker rm -f "${LAB_NAME}" >>"${LOG_FILE}" 2>&1; then
+            # abaixo, após o contêiner. Se a label divergir, nada é capturado
+            # nem removido (recusa de escopo preservada).
+            if ! LAB_ANON_VOLUMES="$(docker inspect -f '{{range .Mounts}}{{if .Name}}{{.Name}} {{end}}{{end}}' "${LAB_NAME}" 2>>"${LOG_FILE}")"; then
+                fails=$((fails + 1))
+                CLEANUP_OBS="${CLEANUP_OBS} falha ao inspecionar montagens do container '${LAB_NAME}';"
+                say "🛑 RECUSA DE LIMPEZA: falha ao inspecionar montagens do container '${LAB_NAME}'. Preservando recursos por segurança."
+                log "RECUSA DE LIMPEZA: falha ao inspecionar montagens do container '${LAB_NAME}'."
+                LAB_ANON_VOLUMES=""
+            fi
+            if docker rm -f "${LAB_NAME}" >>"${LOG_FILE}" 2>&1; then
                 log "Container do laboratório '${LAB_NAME}' removido."
             else
                 fails=$((fails + 1))
@@ -384,16 +418,32 @@ do_cleanup() {
             fails=$((fails + 1))
             CLEANUP_OBS="${CLEANUP_OBS} container '${LAB_NAME}' NÃO removido por divergência de identidade (label);"
             say "🛑 RECUSA DE LIMPEZA: container '${LAB_NAME}' existe, porém a label de identidade do laboratório NÃO confere. Nada foi removido — verificar manualmente."
+            log "RECUSA DE LIMPEZA: container '${LAB_NAME}' label '${label}' != '${LAB_LABEL_VALUE}'."
         fi
     fi
 
     # --- volume dedicado do laboratório: remover SOMENTE se nome + label conferem E sem uso externo
-    if docker volume ls -q 2>>"${LOG_FILE}" | grep -qx -- "${LAB_VOLUME}"; then
-        vlabel="$(docker volume inspect -f "{{index .Labels \"${LAB_LABEL}\"}}" "${LAB_VOLUME}" 2>>"${LOG_FILE}" || true)"
-        if [ "${vlabel}" = "${LAB_LABEL_VALUE}" ]; then
-            # (v2.6.0) Checagem de uso compartilhado/externo: nenhum contêiner remanescente pode estar conectado
-            v_users="$(docker ps -a --filter "volume=${LAB_VOLUME}" --format '{{.Names}}' 2>>"${LOG_FILE}" || true)"
-            if [ -n "${v_users}" ]; then
+    # (v2.6.1 — Correção 1) Erro de listagem ou de inspeção nunca é tratado como resultado vazio:
+    # se a consulta falhar, a remoção é RECUSADA, o recurso é PRESERVADO e fails é incrementado.
+    if ! vol_list="$(docker volume ls -q 2>>"${LOG_FILE}")"; then
+        fails=$((fails + 1))
+        CLEANUP_OBS="${CLEANUP_OBS} falha ao listar volumes para verificar '${LAB_VOLUME}';"
+        say "🛑 RECUSA DE LIMPEZA: falha ao listar volumes no Docker. Não foi possível verificar o volume '${LAB_VOLUME}'. Preservando o recurso por segurança."
+        log "RECUSA DE LIMPEZA: docker volume ls falhou ao consultar volume '${LAB_VOLUME}'."
+    elif printf '%s\n' "${vol_list}" | grep -qx -- "${LAB_VOLUME}"; then
+        if ! vlabel="$(docker volume inspect -f "{{index .Labels \"${LAB_LABEL}\"}}" "${LAB_VOLUME}" 2>>"${LOG_FILE}")"; then
+            fails=$((fails + 1))
+            CLEANUP_OBS="${CLEANUP_OBS} falha ao inspecionar label do volume '${LAB_VOLUME}';"
+            say "🛑 RECUSA DE LIMPEZA: falha ao inspecionar label do volume '${LAB_VOLUME}'. Limpeza automática recusada por segurança para preservar o recurso."
+            log "RECUSA DE LIMPEZA: docker volume inspect falhou ao consultar label do volume '${LAB_VOLUME}'."
+        elif [ "${vlabel}" = "${LAB_LABEL_VALUE}" ]; then
+            # Checagem de uso compartilhado/externo: nenhum contêiner remanescente pode estar conectado
+            if ! v_users="$(docker ps -a --filter "volume=${LAB_VOLUME}" --format '{{.Names}}' 2>>"${LOG_FILE}")"; then
+                fails=$((fails + 1))
+                CLEANUP_OBS="${CLEANUP_OBS} falha ao verificar containers associados ao volume '${LAB_VOLUME}';"
+                say "🛑 RECUSA DE LIMPEZA: falha ao verificar containers associados ao volume '${LAB_VOLUME}'. Limpeza automática recusada por segurança para preservar o recurso."
+                log "Falha ao consultar containers associados ao volume '${LAB_VOLUME}'. Remoção recusada por segurança."
+            elif [ -n "${v_users}" ]; then
                 fails=$((fails + 1))
                 CLEANUP_OBS="${CLEANUP_OBS} volume '${LAB_VOLUME}' NÃO removido por estar associado a outro(s) container(s): ${v_users};"
                 say "🛑 RECUSA DE LIMPEZA: volume '${LAB_VOLUME}' está associado a outro(s) container(s) (${v_users}). Limpeza automática recusada por segurança para preservar o recurso."
@@ -413,24 +463,38 @@ do_cleanup() {
         fi
     fi
 
-    # --- (v2.5.1 / v2.6.0 — Correção 1) volumes adicionais/anônimos capturados:
+    # --- (v2.5.1 / v2.6.0 / v2.6.1 — Correção 1) volumes adicionais/anônimos capturados:
     # SOMENTE volumes comprovadamente pertencentes a esta sessão de teste podem
     # ser removidos. Regras estritas:
     #   1. Volume deve possuir comprovadamente a label da sessão (LAB_LABEL=LAB_LABEL_VALUE);
     #   2. Volume não pode estar em uso por nenhum contêiner externo ou compartilhado;
-    #   3. Na dúvida (label ausente, divergente, em uso, erro de inspeção), a limpeza é
-    #      interrompida/recusada, a pendência registrada em log/observações e o recurso preservado.
+    #   3. Na dúvida (label ausente, divergente, em uso, erro de inspeção/listagem), a limpeza é
+    #      recusada, a pendência registrada em log/observações e o recurso preservado.
     for v in ${LAB_ANON_VOLUMES}; do
         [ "${v}" = "${LAB_VOLUME}" ] && continue
-        if docker volume ls -q 2>>"${LOG_FILE}" | grep -qx -- "${v}"; then
-            anon_vlabel="$(docker volume inspect -f "{{index .Labels \"${LAB_LABEL}\"}}" "${v}" 2>>"${LOG_FILE}" || true)"
-            anon_users="$(docker ps -a --filter "volume=${v}" --format '{{.Names}}' 2>>"${LOG_FILE}" || true)"
-
-            if [ "${anon_vlabel}" != "${LAB_LABEL_VALUE}" ]; then
+        if ! anon_vol_list="$(docker volume ls -q 2>>"${LOG_FILE}")"; then
+            fails=$((fails + 1))
+            CLEANUP_OBS="${CLEANUP_OBS} falha ao listar volumes para verificar volume adicional '${v}';"
+            say "🛑 RECUSA DE LIMPEZA: falha ao listar volumes no Docker para volume adicional '${v}'. Preservando o recurso por segurança."
+            log "RECUSA DE LIMPEZA: docker volume ls falhou ao consultar volume adicional '${v}'."
+            continue
+        fi
+        if printf '%s\n' "${anon_vol_list}" | grep -qx -- "${v}"; then
+            if ! anon_vlabel="$(docker volume inspect -f "{{index .Labels \"${LAB_LABEL}\"}}" "${v}" 2>>"${LOG_FILE}")"; then
+                fails=$((fails + 1))
+                CLEANUP_OBS="${CLEANUP_OBS} falha ao inspecionar label do volume adicional '${v}';"
+                say "🛑 RECUSA DE LIMPEZA: falha ao inspecionar label do volume adicional '${v}'. Preservando o recurso por segurança."
+                log "RECUSA DE LIMPEZA: docker volume inspect falhou ao consultar label do volume adicional '${v}'."
+            elif [ "${anon_vlabel}" != "${LAB_LABEL_VALUE}" ]; then
                 fails=$((fails + 1))
                 CLEANUP_OBS="${CLEANUP_OBS} volume adicional '${v}' NÃO removido por ausência/divergência de label da sessão;"
                 say "🛑 RECUSA DE LIMPEZA: volume adicional '${v}' não possui label desta sessão de teste. Preservando o recurso por segurança."
                 log "Volume adicional '${v}' recusado no cleanup: label '${anon_vlabel}' diverge de '${LAB_LABEL_VALUE}'."
+            elif ! anon_users="$(docker ps -a --filter "volume=${v}" --format '{{.Names}}' 2>>"${LOG_FILE}")"; then
+                fails=$((fails + 1))
+                CLEANUP_OBS="${CLEANUP_OBS} falha ao verificar containers associados ao volume adicional '${v}';"
+                say "🛑 RECUSA DE LIMPEZA: falha ao verificar containers associados ao volume adicional '${v}'. Preservando o recurso por segurança."
+                log "Falha ao consultar containers associados ao volume adicional '${v}'. Remoção recusada por segurança."
             elif [ -n "${anon_users}" ]; then
                 fails=$((fails + 1))
                 CLEANUP_OBS="${CLEANUP_OBS} volume adicional '${v}' NÃO removido por estar associado a container(s): ${anon_users};"
@@ -448,7 +512,7 @@ do_cleanup() {
         fi
     done
 
-   # --- arquivos temporários restritos desta sessão
+    # --- arquivos temporários restritos desta sessão
     for f in "${GLOBALS_RAW_FILE}" "${GLOBALS_SANITIZED_FILE}" \
              "${EXPECTED_ROLES_FILE}" "${LAB_ROLES_FILE}"; do
         if [ -f "${f}" ]; then
@@ -462,10 +526,22 @@ do_cleanup() {
     done
 
     # --- conferência final: sobrou recurso do laboratório?
-    if docker ps -a --format '{{.Names}}' 2>>"${LOG_FILE}" | grep -qx -- "${LAB_NAME}" \
-        || docker volume ls -q 2>>"${LOG_FILE}" | grep -qx -- "${LAB_VOLUME}"; then
+    if ! final_ps="$(docker ps -a --format '{{.Names}}' 2>>"${LOG_FILE}")"; then
         fails=$((fails + 1))
-        CLEANUP_OBS="${CLEANUP_OBS} recurso do laboratório ainda presente após a limpeza;"
+        CLEANUP_OBS="${CLEANUP_OBS} falha ao listar containers na conferência final;"
+        log "Aviso de cleanup: falha ao rodar docker ps na conferência final."
+    elif printf '%s\n' "${final_ps}" | grep -qx -- "${LAB_NAME}"; then
+        fails=$((fails + 1))
+        CLEANUP_OBS="${CLEANUP_OBS} container do laboratório '${LAB_NAME}' ainda presente após a limpeza;"
+    fi
+
+    if ! final_vols="$(docker volume ls -q 2>>"${LOG_FILE}")"; then
+        fails=$((fails + 1))
+        CLEANUP_OBS="${CLEANUP_OBS} falha ao listar volumes na conferência final;"
+        log "Aviso de cleanup: falha ao rodar docker volume ls na conferência final."
+    elif printf '%s\n' "${final_vols}" | grep -qx -- "${LAB_VOLUME}"; then
+        fails=$((fails + 1))
+        CLEANUP_OBS="${CLEANUP_OBS} volume do laboratório '${LAB_VOLUME}' ainda presente após a limpeza;"
     fi
 
     if [ "${fails}" -eq 0 ]; then
@@ -751,15 +827,19 @@ if ! docker info >>"${LOG_FILE}" 2>&1; then
 fi
 
 # --------------------------- localização do contêiner de produção (só-leitura)
-# (v2.6.0 — Correção 2) Identificação INEQUÍVOCA do contêiner de produção:
+# (v2.6.0 / v2.6.1 — Correção 2) Identificação INEQUÍVOCA do contêiner de produção:
 #  - Eliminada qualquer seleção automática por padrão solto (grep 'supabase-db').
-#  - Aceita EXCLUSIVAMENTE o nome informado via PROD_CONTAINER (validado se
-#    está em execução) ou os nomes exatos de PROD_CONTAINER_CANDIDATES.
-#  - O contêiner 'dpsjur-db' permanece expressamente fora de escopo.
+#  - Aceita EXCLUSIVAMENTE o nome informado via PROD_CONTAINER (que deve pertencer
+#    obrigatoriamente a PROD_CONTAINER_CANDIDATES E estar em execução) ou os
+#    nomes exatos de PROD_CONTAINER_CANDIDATES.
+#  - O contêiner 'dpsjur-db' permanece expressamente fora de escopo (rejeição imediata).
+#  - Se o nome informado via PROD_CONTAINER não pertencer a PROD_CONTAINER_CANDIDATES,
+#    o teste aborta imediatamente (die com exit 30), MESMO que o contêiner
+#    exista e esteja em execução no Docker.
 #  - Se nenhum candidato exato ou mais de um candidato concorrente for
 #    identificado (ambiguidade), o procedimento aborta imediatamente com exit 30.
 find_prod_container() {
-    local c found_candidates="" count_found=0
+    local c found_candidates="" count_found=0 valid_env=0
 
     # 1. Variável de ambiente informada explicitamente
     if [ -n "${PROD_CONTAINER_ENV}" ]; then
@@ -767,6 +847,20 @@ find_prod_container() {
             log "PROD_CONTAINER='dpsjur-db' rejeitado por segurança (contêiner fora de escopo)."
             die "O contêiner 'dpsjur-db' está explicitamente fora do escopo deste procedimento. Operação cancelada." "${EXIT_ROLES_EXTRACT_FAILED}"
         fi
+
+        # Validação estrita: PROD_CONTAINER deve ser EXCLUSIVAMENTE um dos candidatos autorizados
+        for c in ${PROD_CONTAINER_CANDIDATES}; do
+            if [ "${c}" = "${PROD_CONTAINER_ENV}" ]; then
+                valid_env=1
+                break
+            fi
+        done
+
+        if [ "${valid_env}" -ne 1 ]; then
+            log "PROD_CONTAINER='${PROD_CONTAINER_ENV}' rejeitado: nome não autorizado (candidatos permitidos: ${PROD_CONTAINER_CANDIDATES})."
+            die "O contêiner informado em PROD_CONTAINER ('${PROD_CONTAINER_ENV}') NÃO é um candidato autorizado (candidatos permitidos: ${PROD_CONTAINER_CANDIDATES}). Operação cancelada por segurança." "${EXIT_ROLES_EXTRACT_FAILED}"
+        fi
+
         if docker ps --format '{{.Names}}' 2>>"${LOG_FILE}" | grep -qx -- "${PROD_CONTAINER_ENV}"; then
             PROD_CONTAINER="${PROD_CONTAINER_ENV}"
             log "Contêiner de produção definido via PROD_CONTAINER informado e validado em execução: ${PROD_CONTAINER}"
