@@ -3,7 +3,7 @@
 # DPSjur / SBJur — Fase 6: Teste de restauração de backup PostgreSQL em
 #                          contêiner Docker EFÊMERO e ISOLADO, 100% local no VPS
 # Script:   docs/vps/04-testar-restauracao-isolado.sh
-# Versão:   v2.5.1
+# Versão:   v2.6.0
 #
 # HISTÓRICO
 #   v2.2.0-r1 : proposta inicial (isolamento completo, roles via pg_dumpall -g).
@@ -13,8 +13,37 @@
 #               roles terminativo, origem NÃO COMPROVADA por padrão, supressão
 #               de erro SQL, escopo estrutural delimitado, cleanup com
 #               identidade nome+label).
-#   v2.5.1    : ESTA versão — correções pontuais da terceira revisão (nenhuma
-#               outra funcionalidade alterada):
+#   v2.6.0    : ESTA versão — correções de segurança solicitadas na auditoria
+#               independente (nenhuma outra funcionalidade alterada):
+#        (1) SEGURANÇA REFORÇADA NA REMOÇÃO DE VOLUMES:
+#            O cleanup remove SOMENTE volumes comprovadamente pertencentes a
+#            esta sessão de teste. Todo volume avaliado tem obrigatoriamente
+#            sua label de identidade (sbjur-restore-lab-session = PID)
+#            conferida E passa por verificação de uso compartilhado: se
+#            qualquer outro contêiner estiver conectado a ele, ou se a label
+#            estiver ausente/divergente, a remoção automática é recusada, a
+#            pendência é registrada em log/relatório e o recurso é preservado.
+#        (2) IDENTIFICAÇÃO INEQUÍVOCA DO BANCO DE PRODUÇÃO:
+#            Eliminada completamente a seleção automática por padrão solto
+#            (grep 'supabase-db'). O script aceita exclusivamente nomes exatos
+#            previamente autorizados em PROD_CONTAINER_CANDIDATES ou um nome
+#            informado explicitamente via variável PROD_CONTAINER validado
+#            (deve existir e estar em execução). Se houver ambiguidade ou
+#            nenhum candidato inequívoco for localizado, o teste aborta
+#            imediatamente com exit 30 (EXIT_ROLES_EXTRACT_FAILED). O contêiner
+#            dpsjur-db permanece totalmente fora do escopo.
+#        (3) DISTINÇÃO CLARA DA ORIGEM DO BACKUP NO RELATÓRIO:
+#            Revisada a classificação de origem. Um manifesto com hash SHA-256
+#            e identidade do contêiner atesta correspondência técnica, mas não
+#            comprova por si só origem física inquestionável sem evidências
+#            adicionais (ex.: assinatura/carimbo confiável). Diferenciação
+#            explícita entre: (a) integridade física do arquivo; (b)
+#            correspondência com o manifesto; (c) comprovação de origem. A
+#            expressão "ORIGEM COMPROVADA" nunca é emitida sem tais evidências
+#            adicionais — o status torna-se "CORRESPONDENTE AO MANIFESTO (não
+#            comprova origem)" quando hash+identidade batem, mantendo a
+#            origem como NÃO COMPROVADA.
+#   v2.5.1    : correções pontuais da terceira revisão:
 #        (1) VOLUME MONTADO NO CAMINHO DE DADOS DA IMAGEM OFICIAL. Na imagem
 #            oficial postgres, majors <= 17 declaram PGDATA/VOLUME em
 #            /var/lib/postgresql/data; majors >= 18 mudaram para VOLUME
@@ -174,7 +203,7 @@
 set -u -o pipefail
 
 # ------------------------------------------------------------------ constantes
-SCRIPT_VERSION="v2.5.1"
+SCRIPT_VERSION="v2.6.0"
 BACKUP_ROOT="/root/sbjur-backups"
 DIAG_DIR="${BACKUP_ROOT}/logs/diagnostico-restauracao"   # restrito (chmod 700)
 TS_STAMP="$(date +%Y%m%d-%H%M%S)"
@@ -238,7 +267,8 @@ EXIT_CLEANUP_FAILED=60
 RESULT_BACKUP="NÃO EXECUTADO"
 RESULT_CHECKSUM="NÃO CALCULADO"
 CHECKSUM_SHA256=""
-ORIGEM_BACKUP_STATUS="NÃO COMPROVADA"     # (correção 5b) padrão seguro
+ORIGEM_BACKUP_STATUS="NÃO COMPROVADA"     # (correção 5b / v2.6.0) padrão seguro
+MANIFESTO_STATUS="NÃO EXECUTADO"
 ORIGEM_DETALHE="Nenhum manifesto de criação verificado."
 RESULT_ROLES="NÃO EXECUTADO"
 RESULT_RESTORE="NÃO EXECUTADO"
@@ -357,11 +387,18 @@ do_cleanup() {
         fi
     fi
 
-    # --- volume do laboratório: remover SOMENTE se nome + label conferem
+    # --- volume dedicado do laboratório: remover SOMENTE se nome + label conferem E sem uso externo
     if docker volume ls -q 2>>"${LOG_FILE}" | grep -qx -- "${LAB_VOLUME}"; then
         vlabel="$(docker volume inspect -f "{{index .Labels \"${LAB_LABEL}\"}}" "${LAB_VOLUME}" 2>>"${LOG_FILE}" || true)"
         if [ "${vlabel}" = "${LAB_LABEL_VALUE}" ]; then
-            if docker volume rm "${LAB_VOLUME}" >>"${LOG_FILE}" 2>&1; then
+            # (v2.6.0) Checagem de uso compartilhado/externo: nenhum contêiner remanescente pode estar conectado
+            v_users="$(docker ps -a --filter "volume=${LAB_VOLUME}" --format '{{.Names}}' 2>>"${LOG_FILE}" || true)"
+            if [ -n "${v_users}" ]; then
+                fails=$((fails + 1))
+                CLEANUP_OBS="${CLEANUP_OBS} volume '${LAB_VOLUME}' NÃO removido por estar associado a outro(s) container(s): ${v_users};"
+                say "🛑 RECUSA DE LIMPEZA: volume '${LAB_VOLUME}' está associado a outro(s) container(s) (${v_users}). Limpeza automática recusada por segurança para preservar o recurso."
+                log "Volume '${LAB_VOLUME}' compartilhado/em uso por: ${v_users}. Remoção recusada."
+            elif docker volume rm "${LAB_VOLUME}" >>"${LOG_FILE}" 2>&1; then
                 log "Volume do laboratório '${LAB_VOLUME}' removido."
             else
                 fails=$((fails + 1))
@@ -372,25 +409,44 @@ do_cleanup() {
             fails=$((fails + 1))
             CLEANUP_OBS="${CLEANUP_OBS} volume '${LAB_VOLUME}' NÃO removido por divergência de identidade (label);"
             say "🛑 RECUSA DE LIMPEZA: volume '${LAB_VOLUME}' existe, porém a label de identidade do laboratório NÃO confere. Nada foi removido — verificar manualmente."
+            log "RECUSA DE LIMPEZA: volume '${LAB_VOLUME}' label '${vlabel}' != '${LAB_LABEL_VALUE}'."
         fi
     fi
 
-    # --- (v2.5.1) volumes anônimos eventuais anexados ao contêiner do lab:
-    # removidos APÓS o contêiner (estavam em uso por ele), apenas os nomes
-    # capturados no .Mounts do contêiner desta sessão; o volume nomeado
-    # dedicado é tratado no bloco anterior com conferência própria.
-   for v in ${LAB_ANON_VOLUMES}; do
-       [ "${v}" = "${LAB_VOLUME}" ] && continue
-       if docker volume ls -q 2>>"${LOG_FILE}" | grep -qx -- "${v}"; then
-           if docker volume rm "${v}" >>"${LOG_FILE}" 2>&1; then
-               log "Volume anônimo do laboratório '${v}' removido."
-           else
-               fails=$((fails + 1))
-               CLEANUP_OBS="${CLEANUP_OBS} falha ao remover o volume anônimo '${v}';"
-               say "⚠️ FALHA DE LIMPEZA: o volume anônimo do laboratório '${v}' não pôde ser removido. Remova manualmente. Detalhes: ${LOG_FILE}"
-           fi
-       fi
-   done
+    # --- (v2.5.1 / v2.6.0 — Correção 1) volumes adicionais/anônimos capturados:
+    # SOMENTE volumes comprovadamente pertencentes a esta sessão de teste podem
+    # ser removidos. Regras estritas:
+    #   1. Volume deve possuir comprovadamente a label da sessão (LAB_LABEL=LAB_LABEL_VALUE);
+    #   2. Volume não pode estar em uso por nenhum contêiner externo ou compartilhado;
+    #   3. Na dúvida (label ausente, divergente, em uso, erro de inspeção), a limpeza é
+    #      interrompida/recusada, a pendência registrada em log/observações e o recurso preservado.
+    for v in ${LAB_ANON_VOLUMES}; do
+        [ "${v}" = "${LAB_VOLUME}" ] && continue
+        if docker volume ls -q 2>>"${LOG_FILE}" | grep -qx -- "${v}"; then
+            anon_vlabel="$(docker volume inspect -f "{{index .Labels \"${LAB_LABEL}\"}}" "${v}" 2>>"${LOG_FILE}" || true)"
+            anon_users="$(docker ps -a --filter "volume=${v}" --format '{{.Names}}' 2>>"${LOG_FILE}" || true)"
+
+            if [ "${anon_vlabel}" != "${LAB_LABEL_VALUE}" ]; then
+                fails=$((fails + 1))
+                CLEANUP_OBS="${CLEANUP_OBS} volume adicional '${v}' NÃO removido por ausência/divergência de label da sessão;"
+                say "🛑 RECUSA DE LIMPEZA: volume adicional '${v}' não possui label desta sessão de teste. Preservando o recurso por segurança."
+                log "Volume adicional '${v}' recusado no cleanup: label '${anon_vlabel}' diverge de '${LAB_LABEL_VALUE}'."
+            elif [ -n "${anon_users}" ]; then
+                fails=$((fails + 1))
+                CLEANUP_OBS="${CLEANUP_OBS} volume adicional '${v}' NÃO removido por estar associado a container(s): ${anon_users};"
+                say "🛑 RECUSA DE LIMPEZA: volume adicional '${v}' está conectado a container(s) (${anon_users}). Preservando o recurso."
+                log "Volume adicional '${v}' recusado no cleanup: em uso por contêineres: ${anon_users}."
+            else
+                if docker volume rm "${v}" >>"${LOG_FILE}" 2>&1; then
+                    log "Volume adicional/anônimo do laboratório '${v}' conferido e removido."
+                else
+                    fails=$((fails + 1))
+                    CLEANUP_OBS="${CLEANUP_OBS} falha ao remover o volume adicional '${v}';"
+                    say "⚠️ FALHA DE LIMPEZA: o volume adicional '${v}' não pôde ser removido. Remova manualmente. Detalhes: ${LOG_FILE}"
+                fi
+            fi
+        fi
+    done
 
    # --- arquivos temporários restritos desta sessão
     for f in "${GLOBALS_RAW_FILE}" "${GLOBALS_SANITIZED_FILE}" \
@@ -439,17 +495,20 @@ emit_report() {
         echo "2. INTEGRIDADE FÍSICA DO ARQUIVO"
         echo "   ${RESULT_CHECKSUM}"
         echo ""
-        echo "3. ORIGEM DO BACKUP: ${ORIGEM_BACKUP_STATUS}"
-        echo "   ${ORIGEM_DETALHE}"
-        echo "   NOTA EXPRESSA: o checksum (sha256) e os metadados do arquivo"
-        echo "   (nome, tamanho, data) atestam APENAS a integridade física do"
-        echo "   arquivo. Eles NÃO comprovam a identidade do banco de origem do"
-        echo "   dump. A origem só é considerada comprovada se existir um"
-        echo "   manifesto gerado NO MOMENTO da criação do backup (pelo próprio"
-        echo "   rotineiro de backup), contendo hash + identidade do banco de"
-        echo "   origem, com o hash conferido de forma inequívoca (caixa/"
-        echo "   whitespace normalizados) E a identidade do banco/container de"
-        echo "   origem CONFERIDA contra o contêiner de produção detectado."
+        echo "3. COMPROVAÇÃO DE ORIGEM E MANIFESTO"
+        echo "   a) Integridade Física: ${RESULT_CHECKSUM}"
+        echo "   b) Correspondência com Manifesto: ${MANIFESTO_STATUS}"
+        echo "   c) Origem Efetiva: ${ORIGEM_BACKUP_STATUS}"
+        echo "   Detalhe: ${ORIGEM_DETALHE}"
+        echo "   NOTA EXPRESSA (v2.6.0): O checksum SHA-256 e os metadados do"
+        echo "   arquivo (nome, data, tamanho) comprovam EXCLUSIVAMENTE a"
+        echo "   integridade física. Um arquivo de manifesto contendo hash e nome"
+        echo "   de contêiner comprova correspondência entre arquivo e manifesto,"
+        echo "   mas isoladamente NÃO comprova que o dump foi produzido na criação"
+        echo "   pelo banco de produção. A designação 'ORIGEM COMPROVADA' é"
+        echo "   estritamente reservada a procedimentos com evidência criptográfica"
+        echo "   ou assinatura indelével; sem tais garantias, a origem permanece"
+        echo "   formalmente classificada como NÃO COMPROVADA."
         echo "   Status desta execução: ${ORIGEM_BACKUP_STATUS}"
         echo ""
         echo "4. PRODUÇÃO (inspeção só-leitura) E PRÉ-REQUISITOS DO LABORATÓRIO"
@@ -692,33 +751,61 @@ if ! docker info >>"${LOG_FILE}" 2>&1; then
 fi
 
 # --------------------------- localização do contêiner de produção (só-leitura)
+# (v2.6.0 — Correção 2) Identificação INEQUÍVOCA do contêiner de produção:
+#  - Eliminada qualquer seleção automática por padrão solto (grep 'supabase-db').
+#  - Aceita EXCLUSIVAMENTE o nome informado via PROD_CONTAINER (validado se
+#    está em execução) ou os nomes exatos de PROD_CONTAINER_CANDIDATES.
+#  - O contêiner 'dpsjur-db' permanece expressamente fora de escopo.
+#  - Se nenhum candidato exato ou mais de um candidato concorrente for
+#    identificado (ambiguidade), o procedimento aborta imediatamente com exit 30.
 find_prod_container() {
-    local c
+    local c found_candidates="" count_found=0
+
+    # 1. Variável de ambiente informada explicitamente
     if [ -n "${PROD_CONTAINER_ENV}" ]; then
+        if [ "${PROD_CONTAINER_ENV}" = "dpsjur-db" ]; then
+            log "PROD_CONTAINER='dpsjur-db' rejeitado por segurança (contêiner fora de escopo)."
+            die "O contêiner 'dpsjur-db' está explicitamente fora do escopo deste procedimento. Operação cancelada." "${EXIT_ROLES_EXTRACT_FAILED}"
+        fi
         if docker ps --format '{{.Names}}' 2>>"${LOG_FILE}" | grep -qx -- "${PROD_CONTAINER_ENV}"; then
             PROD_CONTAINER="${PROD_CONTAINER_ENV}"
-        fi
-        return
-    fi
-    for c in ${PROD_CONTAINER_CANDIDATES}; do
-        if docker ps --format '{{.Names}}' 2>>"${LOG_FILE}" | grep -qx -- "${c}"; then
-            PROD_CONTAINER="${c}"
+            log "Contêiner de produção definido via PROD_CONTAINER informado e validado em execução: ${PROD_CONTAINER}"
             return
+        else
+            log "PROD_CONTAINER='${PROD_CONTAINER_ENV}' informado não está em execução no Docker."
+            die "O contêiner de produção informado em PROD_CONTAINER ('${PROD_CONTAINER_ENV}') não foi localizado em execução. Sem contêiner de produção inequívoco o teste não prossegue." "${EXIT_ROLES_EXTRACT_FAILED}"
+        fi
+    fi
+
+    # 2. Busca estrita por correspondência EXATA na lista autorizada
+    for c in ${PROD_CONTAINER_CANDIDATES}; do
+        if [ "${c}" = "dpsjur-db" ]; then
+            continue
+        fi
+        if docker ps --format '{{.Names}}' 2>>"${LOG_FILE}" | grep -qx -- "${c}"; then
+            found_candidates="${found_candidates} ${c}"
+            count_found=$((count_found + 1))
         fi
     done
-    # Fallback por padrão de nome, SEMPRE excluindo dpsjur-db (intocado) e o
-    # próprio laboratório desta ou de outras sessões.
-    PROD_CONTAINER="$(docker ps --format '{{.Names}}' 2>>"${LOG_FILE}" \
-        | grep -E 'supabase-db' \
-        | grep -v -E "^dpsjur-db$|^${LAB_NAME_PREFIX}" \
-        | head -n 1 || true)"
+
+    # 3. Validação de unicidade e ausência de dúvida
+    if [ "${count_found}" -eq 1 ]; then
+        PROD_CONTAINER="$(echo "${found_candidates}" | awk '{print $1}')"
+        log "Contêiner de produção localizado de forma unívoca na lista autorizada: ${PROD_CONTAINER}"
+        return
+    elif [ "${count_found}" -gt 1 ]; then
+        log "Ambiguidade detectada: múltiplos contêineres candidatos autorizados em execução:${found_candidates}"
+        die "Múltiplos contêineres candidatos autorizados foram encontrados em execução (${found_candidates# }). Por segurança, havendo dúvida sobre qual contêiner corresponde à produção, o teste foi interrompido (defina PROD_CONTAINER=<nome_exato> para desambiguar)." "${EXIT_ROLES_EXTRACT_FAILED}"
+    fi
+
+    # Sem correspondência exata autorizada: NENHUM fallback por regex solto é tolerado
+    PROD_CONTAINER=""
 }
 
 find_prod_container
 if [ -z "${PROD_CONTAINER}" ]; then
-    # sem produção acessível não há como extrair roles reais: ABORTA — sem
-    # fallback para roles genéricas.
-    die "Contêiner de produção de banco não localizado (padrões: ${PROD_CONTAINER_CANDIDATES}). Sem acesso às roles reais da produção o teste NÃO prossegue — nenhuma role genérica/sintética é utilizada." "${EXIT_ROLES_EXTRACT_FAILED}"
+    # sem produção acessível de forma inequívoca não há como extrair roles reais: ABORTA
+    die "Contêiner de produção de banco não localizado (candidatos autorizados: ${PROD_CONTAINER_CANDIDATES}). Sem contêiner inequívoco e sem acesso às roles reais da produção o teste NÃO prossegue — nenhuma role genérica/sintética é utilizada e nenhum padrão solto é aceito." "${EXIT_ROLES_EXTRACT_FAILED}"
 fi
 log "Contêiner de produção (inspeção só-leitura): ${PROD_CONTAINER}"
 
@@ -855,13 +942,17 @@ else
     esac
 fi
 
-# ============ (correção 5b) ORIGEM DO BACKUP — hash + identidade =============
-# Padrão seguro: NÃO COMPROVADA. Só muda se existir manifesto gerado NO MOMENTO
-# da criação do backup contendo o hash sha256 (comparação inequívoca: caixa e
-# whitespace normalizados) E um campo EXPLÍCITO de identidade do
-# banco/container de origem CONFERIDO contra o contêiner de produção detectado.
+# ============ (v2.6.0 — Correção 3) COMPROVAÇÃO DE ORIGEM DO BACKUP ==========
+# Diferenciação inequívoca:
+#   (a) Integridade física do arquivo: conferida via gzip -t + sha256 calculado;
+#   (b) Correspondência com manifesto: hash bate com arquivo .manifesto/.sha256;
+#   (c) Comprovação de origem: requer evidência adicional confiável e verificável
+#       (ex.: carimbo/assinatura criptográfica imutável). Sem isso, um manifesto
+#       com hash e nome de contêiner comprova apenas CORRESPONDÊNCIA, não origem.
+# Expressão "ORIGEM COMPROVADA" NUNCA é emitida sem tais evidências suficientes.
 ORIGEM_BACKUP_STATUS="NÃO COMPROVADA"
 ORIGEM_DETALHE="Checksum e metadados de arquivo atestam apenas integridade física; não comprovam a identidade do banco de origem."
+MANIFESTO_STATUS="NENHUM MANIFESTO ENCONTRADO"
 BASE_NAME="$(basename "${BACKUP_FILE}")"
 CHECKSUM_NORM="$(norm_hash "${CHECKSUM_SHA256}")"
 for MF in \
@@ -888,23 +979,29 @@ for MF in \
             PROD_IDENT_NORM="$(norm_hash "${PROD_CONTAINER}")"
             log "Manifesto ${MF}: hash conferido; linha de identidade e valor registrados apenas neste log restrito; identidade normalizada: ${MF_IDENT_NORM:-vazia} vs produção: ${PROD_IDENT_NORM}"
             if [ -z "${MF_IDENT_NORM}" ]; then
-                ORIGEM_BACKUP_STATUS="NÃO COMPROVADA (manifesto com hash conferido, porém SEM campo explícito e verificável de identidade do banco/container de origem)"
-                ORIGEM_DETALHE="Manifesto: ${MF}. O hash confere (comparação normalizada), mas falta o campo de identidade do banco/container de origem."
+                ORIGEM_BACKUP_STATUS="NÃO COMPROVADA (correspondência parcial com manifesto: hash conferido, porém SEM identificador do banco/container de origem)"
+                MANIFESTO_STATUS="CORRESPONDÊNCIA DE HASH (sem identificador de contêiner)"
+                ORIGEM_DETALHE="Manifesto: ${MF}. O hash confere (comparação normalizada), mas falta campo de identidade de contêiner. Checksum isolado não comprova origem."
             elif [ "${MF_IDENT_NORM}" != "${PROD_IDENT_NORM}" ]; then
-                ORIGEM_BACKUP_STATUS="NÃO COMPROVADA (manifesto com hash conferido, porém a identidade de origem NÃO confere com o contêiner de produção detectado)"
-                ORIGEM_DETALHE="Manifesto: ${MF}. A identidade de origem declarada difere da produção detectada (valores apenas no log restrito)."
+                ORIGEM_BACKUP_STATUS="NÃO COMPROVADA (divergência de identidade: contêiner declarado difere da produção detectada)"
+                MANIFESTO_STATUS="DIVERGÊNCIA DE IDENTIDADE NO MANIFESTO"
+                ORIGEM_DETALHE="Manifesto: ${MF}. A identidade de origem declarada diverge da produção detectada (valores registrados apenas no log restrito)."
             else
-                ORIGEM_BACKUP_STATUS="COMPROVADA (manifesto gerado na criação do backup: hash sha256 conferido de forma inequívoca + identidade do banco/container de origem CONFERIDA com a produção detectada)"
-                ORIGEM_DETALHE="Manifesto de criação: ${MF} (hash e valores de identidade registrados apenas no log restrito)."
+                # Hash confere e identidade bate com a produção, mas isoladamente isso comprova CORRESPONDÊNCIA, não origem indelével.
+                ORIGEM_BACKUP_STATUS="NÃO COMPROVADA (correspondente ao manifesto: hash sha256 e contêiner conferem, porém sem assinatura/carimbo indelével na criação)"
+                MANIFESTO_STATUS="CORRESPONDENTE AO MANIFESTO (hash sha256 e identidade do contêiner conferidos)"
+                ORIGEM_DETALHE="Manifesto: ${MF}. Hash e contêiner conferem com o arquivo e com a produção. A correspondência técnica está verificada, mas a origem efetiva permanece formalmente classificada como NÃO COMPROVADA por ausência de evidência criptográfica/assinada produzida na criação."
             fi
         else
-            ORIGEM_BACKUP_STATUS="NÃO COMPROVADA (manifesto presente, porém hash DIVERGENTE do arquivo atual — comparação normalizada)"
-            ORIGEM_DETALHE="Manifesto: ${MF}. O arquivo atual não corresponde ao registrado na criação."
+            ORIGEM_BACKUP_STATUS="NÃO COMPROVADA (manifesto presente, porém hash DIVERGENTE do arquivo atual)"
+            MANIFESTO_STATUS="HASH DIVERGENTE DO MANIFESTO"
+            ORIGEM_DETALHE="Manifesto: ${MF}. O hash registrado no manifesto diverge do hash calculado do arquivo de backup."
         fi
         break
     fi
 done
 log "ORIGEM_BACKUP_STATUS: ${ORIGEM_BACKUP_STATUS}"
+log "MANIFESTO_STATUS: ${MANIFESTO_STATUS}"
 
 # ================ EXTRAÇÃO DAS ROLES REAIS DA PRODUÇÃO (obrigatória) =========
 # Sem isso o teste é abortado. Nenhuma role genérica/de fallback é criada.
