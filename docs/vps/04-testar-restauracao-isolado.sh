@@ -3,7 +3,7 @@
 # DPSjur / SBJur — Fase 6: Teste de restauração de backup PostgreSQL em
 #                          contêiner Docker EFÊMERO e ISOLADO, 100% local no VPS
 # Script:   docs/vps/04-testar-restauracao-isolado.sh
-# Versão:   v2.5.0
+# Versão:   v2.5.1
 #
 # HISTÓRICO
 #   v2.2.0-r1 : proposta inicial (isolamento completo, roles via pg_dumpall -g).
@@ -13,7 +13,29 @@
 #               roles terminativo, origem NÃO COMPROVADA por padrão, supressão
 #               de erro SQL, escopo estrutural delimitado, cleanup com
 #               identidade nome+label).
-#   v2.5.0    : ESTA versão — as 5 correções da SEGUNDA auditoria independente
+#   v2.5.1    : ESTA versão — correções pontuais da terceira revisão (nenhuma
+#               outra funcionalidade alterada):
+#        (1) VOLUME MONTADO NO CAMINHO DE DADOS DA IMAGEM OFICIAL. Na imagem
+#            oficial postgres, majors <= 17 declaram PGDATA/VOLUME em
+#            /var/lib/postgresql/data; majors >= 18 mudaram para VOLUME
+#            /var/lib/postgresql com PGDATA /var/lib/postgresql/<major>/docker
+#            (docker-library/postgres PR #1259). O volume do laboratório passa
+#            a ser montado EXATAMENTE no VOLUME declarado pela imagem
+#            correspondente à major detectada (e o PGDATA é fixado de forma
+#            explícita e coerente), eliminando o VOLUME ANÔNIMO que sobrava
+#            com os dados restaurados. O cleanup passou a capturar (docker
+#            inspect .Mounts do contêiner do lab, ANTES de removê-lo) e
+#            remover QUALQUER volume anônimo eventual — sempre restrito aos
+#            recursos desta sessão (nome ^sbjur-restore-lab-<PID>$ + label de
+#            sessão; nada fora do laboratório é tocado).
+#        (2) RELATÓRIO × CÓDIGO DE SAÍDA CONSISTENTES. O código de saída FINAL
+#            passou a ser calculado ANTES da emissão do relatório: quando a
+#            restauração termina bem mas a limpeza é incompleta, o relatório é
+#            emitido já com o código final (60), registrando ambos — falha
+#            principal (MAIN_RC) e status do cleanup — de forma coerente com o
+#            exit final. O código da falha principal NUNCA é mascarado (rc != 0
+#            permanece rc), e nenhuma falha é ocultada.
+#   v2.5.0    : as 5 correções da SEGUNDA auditoria independente
 #               (nenhuma outra funcionalidade alterada):
 #        (1) TRAP DE LIMPEZA REGISTRADO ANTES DE CRIAR QUALQUER RECURSO Docker.
 #            do_cleanup/emit_report/on_exit passam a ser definidos e o
@@ -100,7 +122,10 @@
 #   - Override: LAB_IMAGE=postgres:17 bash 04-testar-restauracao-isolado.sh ...
 #     (a imagem informada é usada tal qual; a verificação de versão publicada
 #     da imagem oficial é dispensada, mas a DETECÇÃO da major da produção
-#     continua obrigatória — exit 14 se não detectável).
+#     continua obrigatória — exit 14 se não detectável). NOTA (v2.5.1): a
+#     montagem do volume e o PGDATA do laboratório seguem o layout da imagem
+#     OFICIAL postgres correspondente à major detectada; um override deve ser
+#     compatível com esse layout.
 #
 # COMO EXECUTAR (no VPS; NÃO usar via curl|bash — baixar o arquivo primeiro):
 #   bash 04-testar-restauracao-isolado.sh /root/sbjur-backups/diario/sbjur_backup_YYYYMMDD.sql.gz
@@ -136,7 +161,9 @@
 #   31  EXIT_ROLES_RESTORE_FAILED  falha ao CARREGAR/verificar roles no lab (ABORTA)
 #   40  EXIT_RESTORE_FAILED        falha na restauração do dump no laboratório
 #   50  EXIT_VALIDATION_FAILED     divergências estruturais de contagem
-#   60  EXIT_CLEANUP_FAILED        limpeza não foi 100% (recursos remanescentes)
+#   60  EXIT_CLEANUP_FAILED        limpeza não foi 100% (recursos remanescentes;
+#                                  também quando a restauração termina bem mas
+#                                  a limpeza falha — relatório registra ambos)
 #  130  interrompido pelo usuário (SIGINT/SIGTERM)
 #
 # ATENÇÃO: nenhum comando deste script altera a produção. Todas as consultas à
@@ -147,7 +174,7 @@
 set -u -o pipefail
 
 # ------------------------------------------------------------------ constantes
-SCRIPT_VERSION="v2.5.0"
+SCRIPT_VERSION="v2.5.1"
 BACKUP_ROOT="/root/sbjur-backups"
 DIAG_DIR="${BACKUP_ROOT}/logs/diagnostico-restauracao"   # restrito (chmod 700)
 TS_STAMP="$(date +%Y%m%d-%H%M%S)"
@@ -164,6 +191,7 @@ CONFERIDOS_FILE="${DIAG_DIR}/conferidos-contagem-${TS_STAMP}-$$.txt"
 LAB_NAME_PREFIX="sbjur-restore-lab-"
 LAB_NAME="${LAB_NAME_PREFIX}$$"                    # nome único desta sessão (PID)
 LAB_VOLUME="sbjur-restore-lab-data-$$"             # volume dedicado desta sessão
+LAB_ANON_VOLUMES=""                                # volumes anônimos eventuais do lab (v2.5.1)
 LAB_LABEL="sbjur-restore-lab-session"              # label de identidade do recurso
 LAB_LABEL_VALUE="$$"
 PROD_CONTAINER_ENV="${PROD_CONTAINER:-}"
@@ -173,6 +201,8 @@ PROD_CONTAINER_CANDIDATES="sbljur-local_supabase-db-1 sbjur-local_supabase-db-1"
 PROD_CONTAINER=""
 LAB_IMAGE="${LAB_IMAGE:-}"                         # override opcional (documentado)
 LAB_IMAGE_FINAL=""                                 # imagem efetivamente usada
+LAB_VOLUME_MOUNT=""                                # caminho de dados da imagem (v2.5.1)
+LAB_PGDATA=""                                      # PGDATA fixado no lab (v2.5.1)
 LAB_IMAGE_OVERRIDDEN=0
 LAB_WAIT_SECONDS="${LAB_WAIT_SECONDS:-300}"
 LAB_MEMORY_LIMIT="${LAB_MEMORY_LIMIT:-2g}"
@@ -299,7 +329,7 @@ run_psql_lab() {
 # ------------------------------------ cleanup com conferência de identidade
 do_cleanup() {
     local fails=0
-    local label vlabel f
+    local label vlabel f v
 
     log "Iniciando cleanup com verificação de identidade..."
 
@@ -307,7 +337,13 @@ do_cleanup() {
     if docker ps -a --format '{{.Names}}' 2>>"${LOG_FILE}" | grep -qx -- "${LAB_NAME}"; then
         label="$(docker inspect -f "{{index .Config.Labels \"${LAB_LABEL}\"}}" "${LAB_NAME}" 2>>"${LOG_FILE}" || true)"
         if [ "${label}" = "${LAB_LABEL_VALUE}" ]; then
-            if docker rm -f "${LAB_NAME}" >>"${LOG_FILE}" 2>&1; then
+            # (v2.5.1) captura de volumes ANÔNIMOS eventuais ANTES de remover o
+            # contêiner: todo .Name de .Mounts deste contêiner (exceto o volume
+            # nomeado desta sessão) pertence a ESTE laboratório e será removido
+           # abaixo, após o contêiner. Se a label divergir, nada é capturado
+           # nem removido (recusa de escopo preservada).
+           LAB_ANON_VOLUMES="$(docker inspect -f '{{range .Mounts}}{{if .Name}}{{.Name}} {{end}}{{end}}' "${LAB_NAME}" 2>>"${LOG_FILE}" || true)"
+           if docker rm -f "${LAB_NAME}" >>"${LOG_FILE}" 2>&1; then
                 log "Container do laboratório '${LAB_NAME}' removido."
             else
                 fails=$((fails + 1))
@@ -339,7 +375,24 @@ do_cleanup() {
         fi
     fi
 
-    # --- arquivos temporários restritos desta sessão
+    # --- (v2.5.1) volumes anônimos eventuais anexados ao contêiner do lab:
+    # removidos APÓS o contêiner (estavam em uso por ele), apenas os nomes
+    # capturados no .Mounts do contêiner desta sessão; o volume nomeado
+    # dedicado é tratado no bloco anterior com conferência própria.
+   for v in ${LAB_ANON_VOLUMES}; do
+       [ "${v}" = "${LAB_VOLUME}" ] && continue
+       if docker volume ls -q 2>>"${LOG_FILE}" | grep -qx -- "${v}"; then
+           if docker volume rm "${v}" >>"${LOG_FILE}" 2>&1; then
+               log "Volume anônimo do laboratório '${v}' removido."
+           else
+               fails=$((fails + 1))
+               CLEANUP_OBS="${CLEANUP_OBS} falha ao remover o volume anônimo '${v}';"
+               say "⚠️ FALHA DE LIMPEZA: o volume anônimo do laboratório '${v}' não pôde ser removido. Remova manualmente. Detalhes: ${LOG_FILE}"
+           fi
+       fi
+   done
+
+   # --- arquivos temporários restritos desta sessão
     for f in "${GLOBALS_RAW_FILE}" "${GLOBALS_SANITIZED_FILE}" \
              "${EXPECTED_ROLES_FILE}" "${LAB_ROLES_FILE}"; do
         if [ -f "${f}" ]; then
@@ -504,27 +557,33 @@ emit_report() {
 }
 
 # ------------------------------------------------------------- trap de saída
-# (correção 1 e 2) ativo ANTES de qualquer recurso Docker; emite relatório em
-# TODOS os caminhos (die/exit/sinal) e reflete falha de limpeza no exit code
-# sem nunca mascarar o código da falha principal.
+# (correção 1 e 2; v2.5.1 — Pendência 2) ativo ANTES de qualquer recurso Docker;
+# emite relatório em TODOS os caminhos (die/exit/sinal) e reflete falha de
+# limpeza no exit code sem nunca mascarar o código da falha principal. O
+# código de saída FINAL é calculado ANTES do relatório: o relatório registra
+# exatamente o código com que o script termina (coerência relatório × exit).
 on_exit() {
     local rc="$?"
+    local final_rc
     trap - EXIT INT TERM
     MAIN_RC="${rc}"
     do_cleanup || true
-    emit_report "${rc}"
-    if [ "${CLEANUP_STATUS#INCOMPLETO}" != "${CLEANUP_STATUS}" ]; then
-        if [ "${rc}" -eq "${EXIT_OK}" ]; then
-            # Sucesso aparente, mas a limpeza falhou: o exit code DEVE refletir.
-            say "⚠️ Falha de limpeza registrada: código de saída ajustado de 0 para ${EXIT_CLEANUP_FAILED} (relatório registra ambos)."
-            exit "${EXIT_CLEANUP_FAILED}"
-        fi
+    final_rc="${rc}"
+    if [ "${CLEANUP_STATUS#INCOMPLETO}" != "${CLEANUP_STATUS}" ] \
+            && [ "${rc}" -eq "${EXIT_OK}" ]; then
+        # Sucesso aparente, mas a limpeza falhou: o exit code DEVE refletir.
+        final_rc="${EXIT_CLEANUP_FAILED}"
+    fi
+    emit_report "${final_rc}"
+    if [ "${final_rc}" -ne "${rc}" ]; then
+        say "⚠️ Falha de limpeza registrada: código de saída ajustado de 0 para ${EXIT_CLEANUP_FAILED} (relatório registra ambos)."
+    elif [ "${CLEANUP_STATUS#INCOMPLETO}" != "${CLEANUP_STATUS}" ]; then
         # rc != 0: o código da falha principal é PRESERVADO (nunca mascarado);
         # o relatório e o console acima registram AMBOS — falha principal e
         # status INCOMPLETO do cleanup — em TODOS os caminhos de saída.
         say "⚠️ ATENÇÃO: falha principal (código ${rc}) E limpeza INCOMPLETA — ambos registrados no relatório."
     fi
-    exit "${rc}"
+    exit "${final_rc}"
 }
 trap on_exit EXIT
 
@@ -936,6 +995,23 @@ log "Verificação pós-geração da sanitização: OK (nenhum resíduo de CREAT
 # dedicado desta sessão, contêiner com label de identidade.
 say "🐳 Imagem do laboratório: ${LAB_IMAGE_FINAL} (rede: nenhuma — isolamento total)"
 
+# ---- (v2.5.1 — Pendência 1) caminho de dados da imagem oficial postgres ----
+# Majors <= 17: PGDATA/VOLUME da imagem = /var/lib/postgresql/data.
+# Majors >= 18: VOLUME = /var/lib/postgresql e PGDATA =
+#               /var/lib/postgresql/<major>/docker (docker-library/postgres
+#               PR #1259). Montar o volume EXATAMENTE no VOLUME declarado
+#               pela imagem correspondente à major detectada evita que o
+#               Docker crie um VOLUME ANÔNIMO para o subcaminho de dados —
+#               resíduo com os dados restaurados que o cleanup não alcançava.
+if [ "${PROD_MAJOR}" -ge 18 ]; then
+    LAB_VOLUME_MOUNT="/var/lib/postgresql"
+    LAB_PGDATA="/var/lib/postgresql/${PROD_MAJOR}/docker"
+else
+    LAB_VOLUME_MOUNT="/var/lib/postgresql/data"
+    LAB_PGDATA="/var/lib/postgresql/data"
+fi
+log "Montagem do volume do lab: ${LAB_VOLUME} -> ${LAB_VOLUME_MOUNT} (PGDATA: ${LAB_PGDATA})"
+
 if ! docker image inspect "${LAB_IMAGE_FINAL}" >>"${LOG_FILE}" 2>&1; then
     say "ℹ️ Imagem ${LAB_IMAGE_FINAL} ausente localmente; efetuando docker pull..."
     if ! docker pull "${LAB_IMAGE_FINAL}" >>"${LOG_FILE}" 2>&1; then
@@ -959,7 +1035,8 @@ if ! docker run -d \
         -e POSTGRES_USER=postgres \
         -e POSTGRES_PASSWORD=lab-sbjur-recovery-unico-$$ \
         -e POSTGRES_DB=postgres \
-        -v "${LAB_VOLUME}:/var/lib/postgresql" \
+        -e PGDATA="${LAB_PGDATA}" \
+        -v "${LAB_VOLUME}:${LAB_VOLUME_MOUNT}" \
         "${LAB_IMAGE_FINAL}" >>"${LOG_FILE}" 2>&1; then
     die "Falha ao iniciar o contêiner do laboratório. O teste foi INTERROMPIDO (exit ${EXIT_DOCKER_UNAVAILABLE})." "${EXIT_DOCKER_UNAVAILABLE}"
 fi
