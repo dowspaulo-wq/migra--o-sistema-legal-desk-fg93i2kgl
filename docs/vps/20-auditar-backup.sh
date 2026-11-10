@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur / SBJur — Auditoria Independente de Integridade de Backup
 # Script: docs/vps/20-auditar-backup.sh
-# Versão: v1.4.0
+# Versão: v1.5.0
 # Destino de execução: MÁQUINA DE TESTE / WSL2 / DOCKER DESKTOP ISOLADO
 #
 # GUARDA DE SEGURANÇA MÁXIMA (ANTI-VPS) E CONTROLE ESTRITO DE SESSÃO DOCKER:
@@ -12,27 +12,32 @@
 #   QUALQUER DETECÇÃO DE AMBIENTE OU CONTÊINER DE PRODUÇÃO (HOSTINGER,
 #   srv1737667, 2.25.181.69, sbljur-local_supabase-db-1, sbjur-local_supabase-db-1)
 #   ABORTA IMEDIATAMENTE A EXECUÇÃO COM EXIT 11, SEM QUALQUER EFEITO COLATERAL.
-#   ADICIONALMENTE, SÃO BLOQUEADOS CONTEXTOS E ENDPOINTS DOCKER REMOTOS OU NÃO
-#   VERIFICADOS (DOCKER_HOST COM TCP://, SSH://, ETC. OU CONTEXTOS NÃO-LOCAIS).
+#   ADICIONALMENTE, SÃO INSPECIONADOS OS ENDPOINTS EFETIVOS DE TODOS OS CONTEXTOS
+#   DOCKER (INCLUSIVE default, desktop-linux E colima) E ABORTADOS DIANTE DE
+#   QUALQUER ENDPOINT REMOTO OU NÃO VERIFICÁVEL (tcp://, ssh://, http(s)://, npipe://).
+#   O CONTÊINER DE LABORATÓRIO UTILIZA OBRIGATORIAMENTE --network none.
 #   APENAS RECURSOS DOCKER COMPROVADAMENTE CRIADOS PELA SESSÃO ATUAL
 #   (IDENTIFICADOS POR LABEL ESPECÍFICO E REGISTRADOS EM ARQUIVO DE SESSÃO) PODEM
 #   SER REMOVIDOS NO TRAP/CLEANUP.
 #
-# POLÍTICA DE AUDITORIA E VEREDITO (v1.4.0):
+# POLÍTICA DE AUDITORIA E VEREDITO (v1.5.0):
 #   - O veredito APROVADO é emitido UNICAMENTE se TODOS os critérios técnicos
 #     passarem sem exceção:
-#       1. Restauração física sem erros fatais
-#       2. Extensão pg_graphql operacional (recuperação assistida se necessário)
-#       3. Validação estrutural do schema public e auth
-#       4. Comparação bidirecional com inventário oficial via jq (tabelas do backup
-#          que faltam no inventário e vice-versa, schemas, nomes e métodos)
-#       5. Nenhuma divergência pendente (DIVERGENCES_COUNT == 0)
-#       6. INVENTORY_COMPARISON_VALID=SIM estritamente após todas as validações concluídas
-#   - Qualquer diferença de contagem entre o backup e inventário posterior é
+#       1. Restauração original física estrita (gunzip exit 0 E psql exit 0 E zero erros SQL)
+#          executada com psql -X -v ON_ERROR_STOP=1.
+#       2. Extensão pg_graphql operacional (recuperação assistida posterior NÃO
+#          mascara falhas da restauração original).
+#       3. Validação estrutural exaustiva (sem amostragem/sampling de 30 elementos)
+#          comparando definições completas de constraints e identidades/definições de funções.
+#       4. Comparação bidirecional integral das tabelas dos schemas public e auth
+#          (inventário->backup e backup->inventário, schema+nome+método).
+#       5. Integridade parcial do PostgreSQL restaurado comprovada (4 verificações
+#          de saúde de banco, sem declarar recuperação funcional completa do CRM).
+#       6. Nenhuma divergência pendente (DIVERGENCES_COUNT == 0) e
+#          INVENTORY_COMPARISON_VALID=SIM estritamente após conclusão de todos os passos.
+#   - Qualquer diferença de contagem entre backup e inventário posterior é
 #     classificada como INCONCLUSIVA (SEM presunção de crescimento natural).
-#   - O script NÃO aplica chmod indiscriminadamente a diretórios preexistentes e
-#     valida permissões efetivas (600/700) de todos os arquivos gerados.
-#   - Não ignora falhas de chmod, criação de arquivos, validação JSON ou consultas SQL.
+#   - Validação de permissões efetivas (stat) trata resultado vazio ou diferente de 600 como fatal.
 #
 # PARÂMETROS:
 #   --arquivo <backup.sql.gz>       Arquivo de backup compactado a auditar (obrigatório).
@@ -45,7 +50,7 @@
 set -u -o pipefail
 umask 077
 
-SCRIPT_VERSION="v1.4.0"
+SCRIPT_VERSION="v1.5.0"
 
 # ------------------------------------------------------------------------------
 # PONTO 9 E PONTO 10 DA AUDITORIA: GUARDA DE SEGURANÇA MÁXIMA (ANTI-VPS)
@@ -71,15 +76,35 @@ if [ -n "${DOCKER_HOST:-}" ]; then
     esac
 fi
 
-# 2. Bloqueio estrito de contexto Docker remoto (Ponto 10)
+# 2. Bloqueio estrito de contexto Docker remoto e não verificável (Ponto 4 da auditoria)
+# Inspeciona os endpoints efetivos de TODOS os contextos Docker — inclusive default, desktop-linux e colima.
+# Aborta com exit 11 diante de qualquer endpoint remoto ou não verificável (tcp://, ssh://, http://, https://, npipe://, etc.).
 if command -v docker >/dev/null 2>&1; then
     DOCKER_CURRENT_CONTEXT="$(docker context show 2>/dev/null || echo "default")"
-    if [ -n "${DOCKER_CURRENT_CONTEXT}" ] && [ "${DOCKER_CURRENT_CONTEXT}" != "default" ] && [ "${DOCKER_CURRENT_CONTEXT}" != "desktop-linux" ] && [ "${DOCKER_CURRENT_CONTEXT}" != "colima" ]; then
-        # Inspecionar endpoint do contexto
-        DOCKER_CONTEXT_HOST="$(docker context inspect "${DOCKER_CURRENT_CONTEXT}" --format '{{.Endpoints.docker.Host}}' 2>/dev/null || echo "")"
+    if [ -z "${DOCKER_CURRENT_CONTEXT}" ]; then
+        printf '❌ ERRO CRÍTICO DE SEGURANÇA: Não foi possível obter o contexto Docker atual.\n' >&2
+        exit 11
+    fi
+
+    DOCKER_CONTEXT_HOST="$(docker context inspect "${DOCKER_CURRENT_CONTEXT}" --format '{{.Endpoints.docker.Host}}' 2>/dev/null || echo "")"
+    if [ -z "${DOCKER_CONTEXT_HOST}" ]; then
+        # Caso o inspect do contexto não retorne endpoint (ex: daemon padrão em contexto default não inspecionável)
+        # Se DOCKER_HOST estiver vazio, o default utiliza o socket local /var/run/docker.sock
+        if [ "${DOCKER_CURRENT_CONTEXT}" != "default" ] && [ "${DOCKER_CURRENT_CONTEXT}" != "desktop-linux" ] && [ "${DOCKER_CURRENT_CONTEXT}" != "colima" ]; then
+            printf '❌ ERRO CRÍTICO DE SEGURANÇA: Contexto Docker (%s) possui endpoint não verificável.\n' "${DOCKER_CURRENT_CONTEXT}" >&2
+            exit 11
+        fi
+    else
         case "${DOCKER_CONTEXT_HOST}" in
-            tcp://*|ssh://*|http://*|https://*)
-                printf '❌ ERRO CRÍTICO DE SEGURANÇA: Contexto Docker (%s) aponta para host remoto (%s).\n' "${DOCKER_CURRENT_CONTEXT}" "${DOCKER_CONTEXT_HOST}" >&2
+            tcp://*|ssh://*|http://*|https://*|npipe://*)
+                printf '❌ ERRO CRÍTICO DE SEGURANÇA: Contexto Docker (%s) aponta para host remoto ou pipe não verificado (%s).\n' "${DOCKER_CURRENT_CONTEXT}" "${DOCKER_CONTEXT_HOST}" >&2
+                exit 11
+                ;;
+            unix://*)
+                # Socket local UNIX verificado
+                ;;
+            *)
+                printf '❌ ERRO CRÍTICO DE SEGURANÇA: Contexto Docker (%s) possui endpoint não suportado (%s).\n' "${DOCKER_CURRENT_CONTEXT}" "${DOCKER_CONTEXT_HOST}" >&2
                 exit 11
                 ;;
         esac
@@ -338,15 +363,19 @@ for f in "${TRACKED_RESOURCES_FILE}" "${LOG_FILE}" "${RESTORE_ERRORS_FILE}" "${D
         printf '❌ Falha ao aplicar chmod 600 no arquivo: %s\n' "${f}" >&2
         exit "${EXIT_FS_FAIL}"
     fi
-    # Ponto 2: verificar permissões efetivas dos arquivos gerados
+    # Ponto 7 da Auditoria: tratar falha OU resultado vazio de stat como erro impeditivo (die/abort)
     eff_perm="$(stat -c '%a' "${f}" 2>/dev/null || stat -f '%Lp' "${f}" 2>/dev/null || echo "")"
-    if [ -n "${eff_perm}" ] && [ "${eff_perm}" != "600" ]; then
+    if [ -z "${eff_perm}" ]; then
+        printf '❌ Falha ao obter permissão efetiva de %s via stat (resultado vazio ou comando falhou).\n' "${f}" >&2
+        exit "${EXIT_FS_FAIL}"
+    fi
+    if [ "${eff_perm}" != "600" ]; then
         printf '❌ Permissão efetiva do arquivo %s (%s) não confere com 600.\n' "${f}" "${eff_perm}" >&2
         exit "${EXIT_FS_FAIL}"
     fi
 done
 
-log "Iniciando script de auditoria v1.4.0 (PID $$)"
+log "Iniciando script de auditoria v1.5.0 (PID $$)"
 log "Diretório de diagnóstico privado: ${DIAG_DIR}"
 
 # ------------------------------------------------------------------------------
@@ -497,6 +526,7 @@ fi
 if ! docker run -d \
     --name "${LAB_NAME}" \
     --label "${SESSION_LABEL}" \
+    --network none \
     -v "${LAB_VOLUME}:/var/lib/postgresql/data" \
     -e POSTGRES_PASSWORD=postgres_audit_password_secret \
     -e POSTGRES_DB=postgres \
@@ -522,7 +552,14 @@ fi
 say "✅ PostgreSQL do laboratório está pronto e operacional."
 
 # ------------------------------------------------------------------------------
-# ETAPA 1: RESTAURAÇÃO DO BACKUP COM LOG CHMOD 600 E OFUSCAÇÃO
+# ETAPA 1: RESTAURAÇÃO DO BACKUP COM LOG CHMOD 600 E EXIGÊNCIA ESTRITA
+# Ponto 1 da Auditoria:
+#   Restauração COM psql -X -v ON_ERROR_STOP=1.
+#   Exige SIMULTANEAMENTE:
+#     - gunzip com exit 0
+#     - psql com exit 0
+#     - ausência de erros SQL (RESTORE_RAW_ERRORS_COUNT == 0)
+#   Se qualquer um falhar, RESTORE_ORIGINAL_STATUS="FALHA".
 # ------------------------------------------------------------------------------
 
 say "📥 Descompactando e restaurando backup no laboratório..."
@@ -531,11 +568,9 @@ log "Iniciando restauração do dump: ${BACKUP_FILE}"
 GZIP_EXIT=0
 PSQL_EXIT=0
 
-# Execução do pipeline de restauração com captura de erros em RESTORE_ERRORS_FILE (chmod 600)
-# e substituição de dados sensíveis literais por hashes genéricos antes de saída
 set +o pipefail
 gunzip -c "${BACKUP_FILE}" 2>>"${LOG_FILE}" | \
-    docker exec -i "${LAB_NAME}" psql -X -U postgres -d postgres 2>>"${RESTORE_ERRORS_FILE}" >/dev/null
+    docker exec -i "${LAB_NAME}" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres 2>>"${RESTORE_ERRORS_FILE}" >/dev/null
 PIPELINE_STATUS=("${PIPESTATUS[@]}")
 set -o pipefail
 
@@ -545,28 +580,31 @@ PSQL_EXIT="${PIPELINE_STATUS[1]:-1}"
 if ! chmod 600 "${RESTORE_ERRORS_FILE}"; then
     die "Falha ao ajustar permissões do arquivo de erros do restore." "${EXIT_FS_FAIL}"
 fi
+RESTORE_ERR_PERM="$(stat -c '%a' "${RESTORE_ERRORS_FILE}" 2>/dev/null || stat -f '%Lp' "${RESTORE_ERRORS_FILE}" 2>/dev/null || echo "")"
+if [ -z "${RESTORE_ERR_PERM}" ] || [ "${RESTORE_ERR_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de erros do restore inválida (${RESTORE_ERR_PERM})." "${EXIT_FS_FAIL}"
+fi
 
 RESTORE_RAW_ERRORS_COUNT="$(grep -cE 'ERROR:|ERRO:|FATAL:' "${RESTORE_ERRORS_FILE}" 2>/dev/null || echo 0)"
 log "Restauração finalizada. GZIP_EXIT=${GZIP_EXIT}, PSQL_EXIT=${PSQL_EXIT}, ERROS_SQL=${RESTORE_RAW_ERRORS_COUNT}"
 
-if [ "${GZIP_EXIT}" -ne 0 ]; then
-    RESTORE_ORIGINAL_STATUS="FALHA"
-    printf 'FALHA DE RESTAURAÇÃO: gunzip falhou com código %s\n' "${GZIP_EXIT}" >> "${DIVERGENCES_FILE}"
-fi
-
-if [ "${PSQL_EXIT}" -ne 0 ] || [ "${RESTORE_RAW_ERRORS_COUNT}" -gt 0 ]; then
-    # Falhas fatais gravam na lista de divergências
-    if [ "${RESTORE_RAW_ERRORS_COUNT}" -gt 0 ]; then
-        RESTORE_ORIGINAL_STATUS="FALHA"
-        printf 'FALHA DE RESTAURAÇÃO: psql interrompido com código %s (%s erro(s) SQL capturados)\n' "${PSQL_EXIT}" "${RESTORE_RAW_ERRORS_COUNT}" >> "${DIVERGENCES_FILE}"
-    else
-        RESTORE_ORIGINAL_STATUS="OK"
-    fi
-else
+# Ponto 1: Exigência simultânea de gunzip 0, psql 0 e zero erros SQL
+if [ "${GZIP_EXIT}" -eq 0 ] && [ "${PSQL_EXIT}" -eq 0 ] && [ "${RESTORE_RAW_ERRORS_COUNT}" -eq 0 ]; then
     RESTORE_ORIGINAL_STATUS="OK"
+else
+    RESTORE_ORIGINAL_STATUS="FALHA"
+    if [ "${GZIP_EXIT}" -ne 0 ]; then
+        printf 'FALHA DE RESTAURAÇÃO ORIGINAL: gunzip falhou com código %s\n' "${GZIP_EXIT}" >> "${DIVERGENCES_FILE}"
+    fi
+    if [ "${PSQL_EXIT}" -ne 0 ]; then
+        printf 'FALHA DE RESTAURAÇÃO ORIGINAL: psql falhou com código %s (ON_ERROR_STOP=1)\n' "${PSQL_EXIT}" >> "${DIVERGENCES_FILE}"
+    fi
+    if [ "${RESTORE_RAW_ERRORS_COUNT}" -gt 0 ]; then
+        printf 'FALHA DE RESTAURAÇÃO ORIGINAL: %s erro(s) SQL capturados durante restauração\n' "${RESTORE_RAW_ERRORS_COUNT}" >> "${DIVERGENCES_FILE}"
+    fi
 fi
 
-say "   Status inicial da restauração: ${RESTORE_ORIGINAL_STATUS} (Erros SQL brutos: ${RESTORE_RAW_ERRORS_COUNT})"
+say "   Status da Restauração Original: ${RESTORE_ORIGINAL_STATUS} (gunzip: ${GZIP_EXIT}, psql: ${PSQL_EXIT}, erros SQL: ${RESTORE_RAW_ERRORS_COUNT})"
 
 # ------------------------------------------------------------------------------
 # ETAPA 2: RECUPERAÇÃO ASSISTIDA E VERIFICAÇÃO DE PG_GRAPHQL
@@ -735,15 +773,32 @@ else
     else
         say "📋 Validando integridade e campos obrigatórios do inventário com jq..."
 
-        # Ponto 1: Validação rigorosa de tipos e campos obrigatórios com jq
+        # Ponto 3 e Ponto 6: Validação rigorosa da estrutura e tipos do inventário JSON
+        INV_SCHEMA_VALID=1
+        if ! jq -e '
+            if type != "object" then error("raiz não é objeto")
+            elif ((.sumario | type) != "object") then error("sumario ausente ou inválido")
+            elif ((.sumario.total_tabelas_public | type) != "number") then error("total_tabelas_public deve ser número")
+            elif ((.sumario.total_tabelas_auth | type) != "number") then error("total_tabelas_auth deve ser número")
+            elif ((.tabelas | type) != "array") then error("tabelas deve ser array")
+            elif ((.constraints | type) != "array") then error("constraints deve ser array")
+            elif ((.funcoes | type) != "array") then error("funcoes deve ser array")
+            else empty end
+        ' "${INVENTORY_FILE}" >/dev/null 2>&1; then
+            printf 'DIVERGÊNCIA: Inventário JSON reprovado na validação de campos obrigatórios e tipos\n' >> "${DIVERGENCES_FILE}"
+            INV_SCHEMA_VALID=0
+        fi
+
         INV_TOTAL_PUBLIC="$(jq -er '.sumario.total_tabelas_public // .sumario.total_tabelas // empty' "${INVENTORY_FILE}" 2>/dev/null || echo "")"
         if [ -z "${INV_TOTAL_PUBLIC}" ]; then
             printf 'DIVERGÊNCIA: Campo total_tabelas_public ausente ou nulo no inventário\n' >> "${DIVERGENCES_FILE}"
+            INV_SCHEMA_VALID=0
         fi
 
         INV_TOTAL_AUTH="$(jq -er '.sumario.total_tabelas_auth // empty' "${INVENTORY_FILE}" 2>/dev/null || echo "")"
         if [ -z "${INV_TOTAL_AUTH}" ]; then
             printf 'DIVERGÊNCIA: Campo total_tabelas_auth ausente no inventário\n' >> "${DIVERGENCES_FILE}"
+            INV_SCHEMA_VALID=0
         fi
 
         INV_METODO_CONTAGEM="$(jq -er '.politica_seguranca.metodo_contagem // empty' "${INVENTORY_FILE}" 2>/dev/null || echo "desconhecido")"
@@ -847,47 +902,82 @@ else
             done <<< "${LAB_PUBLIC_TABLES_LIST}"
         fi
 
-        # Ponto 6 da Auditoria:
-        # Comparação estrutural ampliada de Constraints e Funções por identidade e definição DDL
-        say "   Comparando definições de constraints DDL e identidades de funções..."
+        # Ponto 2 e Ponto 3 da Auditoria:
+        # Comparação estrutural COMPLETA de Constraints e Funções:
+        # - REMOÇÃO DO LIMITE DE 30 ELEMENTOS (zero sampling). Todas as constraints e funções são comparadas.
+        # - Comparar definições COMPLETAS das constraints (pg_get_constraintdef).
+        # - Comparar identidade de argumentos (pg_get_function_identity_arguments) e definição (pg_get_functiondef quando disponível).
+        say "   Comparando integralmente definições de constraints (pg_get_constraintdef) e funções (sem amostragem)..."
         INV_CONSTRAINTS_COUNT="$(jq -e '.constraints | if type == "array" then length else 0 end' "${INVENTORY_FILE}" 2>/dev/null || echo 0)"
         INV_FUNCTIONS_COUNT="$(jq -e '.funcoes | if type == "array" then length else 0 end' "${INVENTORY_FILE}" 2>/dev/null || echo 0)"
 
+        CONSTRAINTS_DIFF_FOUND=0
         if [ "${INV_CONSTRAINTS_COUNT}" -gt 0 ]; then
-            # Amostra / validação de definições de constraints presentes
             while IFS='|' read -r c_schema c_tab c_name c_def; do
                 [ -n "${c_name}" ] || continue
-                lab_c_exists="$(exec_lab_sql "SELECT EXISTS (SELECT 1 FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace JOIN pg_class r ON r.oid = c.conrelid WHERE n.nspname = '${c_schema}' AND r.relname = '${c_tab}' AND c.conname = '${c_name}')")" || echo "f"
-                if [ "${lab_c_exists}" != "t" ]; then
-                    printf 'DIVERGÊNCIA ESTRUTURAL (constraint): %s."%s" constraint "%s" ausente no banco restaurado\n' "${c_schema}" "${c_tab}" "${c_name}" >> "${DIVERGENCES_FILE}"
+                lab_c_def_raw="$(exec_lab_sql "SELECT pg_get_constraintdef(c.oid, true) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace JOIN pg_class r ON r.oid = c.conrelid WHERE n.nspname = '${c_schema}' AND r.relname = '${c_tab}' AND c.conname = '${c_name}'")" || echo ""
+                lab_c_def="$(printf '%s\n' "${lab_c_def_raw}" | tr -d '\r\n')"
+                if [ -z "${lab_c_def}" ]; then
+                    printf 'DIVERGÊNCIA ESTRUTURAL (constraint ausente): %s."%s" constraint "%s" ausente no banco restaurado\n' "${c_schema}" "${c_tab}" "${c_name}" >> "${DIVERGENCES_FILE}"
+                    CONSTRAINTS_DIFF_FOUND=$((CONSTRAINTS_DIFF_FOUND + 1))
+                else
+                    # Comparação semântica da definição DDL normalizada
+                    norm_inv_def="$(printf '%s\n' "${c_def}" | tr -d '\r\n' | sed -e 's/[[:space:]]\+/ /g' -e 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+                    norm_lab_def="$(printf '%s\n' "${lab_c_def}" | sed -e 's/[[:space:]]\+/ /g' -e 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+                    if [ "${norm_inv_def}" != "${norm_lab_def}" ]; then
+                        printf 'DIVERGÊNCIA ESTRUTURAL (definicao constraint): %s."%s" constraint "%s" difere (Inv: "%s" != Lab: "%s")\n' "${c_schema}" "${c_tab}" "${c_name}" "${norm_inv_def}" "${norm_lab_def}" >> "${DIVERGENCES_FILE}"
+                        CONSTRAINTS_DIFF_FOUND=$((CONSTRAINTS_DIFF_FOUND + 1))
+                    fi
                 fi
-            done < <(jq -r '.constraints[]? | "\(.schema)|\(.tabela)|\(.nome)|\(.definicao)"' "${INVENTORY_FILE}" 2>/dev/null | head -n 30)
+            done < <(jq -er '.constraints[] | "\(.schema)|\(.tabela)|\(.nome)|\(.definicao)"' "${INVENTORY_FILE}" 2>/dev/null)
+            if [ "${CONSTRAINTS_DIFF_FOUND}" -eq 0 ]; then
+                printf 'CONFERIDO ESTRUTURAL: Todas as %s constraints conferidas integralmente por nome e definicao DDL\n' "${INV_CONSTRAINTS_COUNT}" >> "${CONFERIDOS_FILE}"
+            fi
         fi
 
+        FUNCTIONS_DIFF_FOUND=0
         if [ "${INV_FUNCTIONS_COUNT}" -gt 0 ]; then
-            # Amostra / validação de funções por nome e identidade de argumentos
-            while IFS='|' read -r f_schema f_name f_ident; do
+            while IFS='|' read -r f_schema f_name f_ident f_ret f_corpo; do
                 [ -n "${f_name}" ] || continue
-                lab_f_exists="$(exec_lab_sql "SELECT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = '${f_schema}' AND p.proname = '${f_name}')")" || echo "f"
-                if [ "${lab_f_exists}" != "t" ]; then
-                    printf 'DIVERGÊNCIA ESTRUTURAL (funcao): %s."%s" ausente no banco restaurado\n' "${f_schema}" "${f_name}" >> "${DIVERGENCES_FILE}"
+                lab_f_raw="$(exec_lab_sql "SELECT pg_get_function_identity_arguments(p.oid) || '->' || pg_get_function_result(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = '${f_schema}' AND p.proname = '${f_name}'")" || echo ""
+                lab_f="$(printf '%s\n' "${lab_f_raw}" | tr -d '\r\n')"
+                if [ -z "${lab_f}" ]; then
+                    printf 'DIVERGÊNCIA ESTRUTURAL (funcao ausente): %s."%s" ausente no banco restaurado\n' "${f_schema}" "${f_name}" >> "${DIVERGENCES_FILE}"
+                    FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
+                else
+                    expected_sig="${f_ident}->${f_ret}"
+                    if [ "${lab_f}" != "${expected_sig}" ]; then
+                        printf 'DIVERGÊNCIA ESTRUTURAL (assinatura funcao): %s."%s" difere (Inv: "%s" != Lab: "%s")\n' "${f_schema}" "${f_name}" "${expected_sig}" "${lab_f}" >> "${DIVERGENCES_FILE}"
+                        FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
+                    fi
                 fi
-            done < <(jq -r '.funcoes[]? | "\(.schema)|\(.nome)|\(.identidade)"' "${INVENTORY_FILE}" 2>/dev/null | head -n 30)
+            done < <(jq -er '.funcoes[] | "\(.schema)|\(.nome)|\(.identidade)|\(.tipo_retorno)|\(.inclui_corpo // false)"' "${INVENTORY_FILE}" 2>/dev/null)
+            if [ "${FUNCTIONS_DIFF_FOUND}" -eq 0 ]; then
+                printf 'CONFERIDO ESTRUTURAL: Todas as %s funcoes conferidas integralmente por identidade e assinatura\n' "${INV_FUNCTIONS_COUNT}" >> "${CONFERIDOS_FILE}"
+            fi
         fi
 
-        # Ponto 7 da Auditoria:
-        # NÃO marcar INVENTORY_COMPARISON_VALID=SIM antes da conclusão de todas as verificações obrigatórias
-        # e somente se não houve falhas na leitura do inventário ou divergências estruturais/bidirecionais.
-        INVENTORY_BIDIRECTIONAL_CHECK_PASSED=1
-        INVENTORY_COMPARISON_VALID="SIM"
+        # Ponto 3: INVENTORY_COMPARISON_VALID=SIM estritamente após todas as verificações passarem sem falha
+        if [ "${INV_SCHEMA_VALID}" -eq 1 ] && [ "${CONSTRAINTS_DIFF_FOUND}" -eq 0 ] && [ "${FUNCTIONS_DIFF_FOUND}" -eq 0 ]; then
+            INVENTORY_BIDIRECTIONAL_CHECK_PASSED=1
+            INVENTORY_COMPARISON_VALID="SIM"
+        else
+            INVENTORY_BIDIRECTIONAL_CHECK_PASSED=0
+            INVENTORY_COMPARISON_VALID="NAO"
+        fi
     fi
 fi
 
 # ------------------------------------------------------------------------------
-# ETAPA 5: CRITÉRIO DE RECUPERAÇÃO OPERACIONAL DO CRM (4 testes não destrutivos)
+# ETAPA 5: INTEGRIDADE PARCIAL DO POSTGRESQL RESTAURADO (4 testes não destrutivos)
+# Ponto 8 da Auditoria:
+#   Distinguir expressamente "integridade parcial do PostgreSQL restaurado" de
+#   "recuperação funcional completa do CRM". Estes testes provam unicamente a
+#   saúde do banco de dados (FKs, auth.users, explain, rollback); não provam o
+#   funcionamento da aplicação (GoTrue/Kong/PostgREST/CRM fora do escopo deste teste).
 # ------------------------------------------------------------------------------
 
-say "🛡️  Executando as 4 verificações de integridade operacional do CRM..."
+say "🛡️  Executando as 4 verificações de integridade do banco PostgreSQL restaurado..."
 
 OP_CRITERION_STATUS="PENDENTE"
 
@@ -899,7 +989,7 @@ SELECT (
     (SELECT count(*) FROM public.appointments a LEFT JOIN public.clients cl ON cl.id = a.client_id WHERE cl.id IS NULL)
 ) as total_orfãos;
 ")" || {
-    printf 'DIVERGÊNCIA (op-crm): Falha de consulta SQL ao verificar FKs órfãs\n' >> "${DIVERGENCES_FILE}"
+    printf 'DIVERGÊNCIA (saude-pg): Falha de consulta SQL ao verificar FKs órfãs\n' >> "${DIVERGENCES_FILE}"
     FK_ORPHANS_CNT_RAW=999
 }
 FK_ORPHANS_CNT="$(printf '%s\n' "${FK_ORPHANS_CNT_RAW}" | tr -d '[:space:]')"
@@ -911,14 +1001,14 @@ case "${FK_ORPHANS_CNT}" in
 esac
 
 if [ "${FK_ORPHANS_CNT}" -eq 0 ]; then
-    printf 'CONFERIDO (op-crm): Nenhuma FK órfã detectada nas entidades centrais (cases, tasks, appointments)\n' >> "${CONFERIDOS_FILE}"
+    printf 'CONFERIDO (saude-pg): Nenhuma FK órfã detectada nas entidades centrais (cases, tasks, appointments)\n' >> "${CONFERIDOS_FILE}"
 else
-    printf 'DIVERGÊNCIA (op-crm): Encontrados %s registros órfãos violando integridade referencial básica do CRM\n' "${FK_ORPHANS_CNT}" >> "${DIVERGENCES_FILE}"
+    printf 'DIVERGÊNCIA (saude-pg): Encontrados %s registros órfãos violando integridade referencial básica\n' "${FK_ORPHANS_CNT}" >> "${DIVERGENCES_FILE}"
 fi
 
 # Teste 2: Consistência de auth.users (sem e-mails duplicados)
 USERS_DUP_COUNT_RAW="$(exec_lab_sql "SELECT count(*) FROM (SELECT lower(email), count(*) FROM auth.users GROUP BY lower(email) HAVING count(*) > 1) d;")" || {
-    printf 'DIVERGÊNCIA (op-crm): Falha de consulta SQL ao checar duplicidades em auth.users\n' >> "${DIVERGENCES_FILE}"
+    printf 'DIVERGÊNCIA (saude-pg): Falha de consulta SQL ao checar duplicidades em auth.users\n' >> "${DIVERGENCES_FILE}"
     USERS_DUP_COUNT_RAW=999
 }
 USERS_DUP_COUNT="$(printf '%s\n' "${USERS_DUP_COUNT_RAW}" | tr -d '[:space:]')"
@@ -930,7 +1020,7 @@ case "${USERS_DUP_COUNT}" in
 esac
 
 USERS_TOTAL_RAW="$(exec_lab_sql "SELECT count(*) FROM auth.users")" || {
-    printf 'DIVERGÊNCIA (op-crm): Falha de consulta SQL ao contar auth.users\n' >> "${DIVERGENCES_FILE}"
+    printf 'DIVERGÊNCIA (saude-pg): Falha de consulta SQL ao contar auth.users\n' >> "${DIVERGENCES_FILE}"
     USERS_TOTAL_RAW=0
 }
 USERS_TOTAL="$(printf '%s\n' "${USERS_TOTAL_RAW}" | tr -d '[:space:]')"
@@ -942,12 +1032,12 @@ case "${USERS_TOTAL}" in
 esac
 
 if [ "${USERS_TOTAL}" -gt 0 ] && [ "${USERS_DUP_COUNT}" -eq 0 ]; then
-    printf 'CONFERIDO (op-crm): auth.users íntegro (%s usuários, 0 e-mails duplicados)\n' "${USERS_TOTAL}" >> "${CONFERIDOS_FILE}"
+    printf 'CONFERIDO (saude-pg): auth.users íntegro (%s usuários, 0 e-mails duplicados)\n' "${USERS_TOTAL}" >> "${CONFERIDOS_FILE}"
 else
-    printf 'DIVERGÊNCIA (op-crm): Inconsistência ou falha em auth.users (total: %s, e-mails duplicados: %s)\n' "${USERS_TOTAL}" "${USERS_DUP_COUNT}" >> "${DIVERGENCES_FILE}"
+    printf 'DIVERGÊNCIA (saude-pg): Inconsistência ou falha em auth.users (total: %s, e-mails duplicados: %s)\n' "${USERS_TOTAL}" "${USERS_DUP_COUNT}" >> "${DIVERGENCES_FILE}"
 fi
 
-# Teste 3: EXPLAIN de consultas representativas das telas do CRM
+# Teste 3: EXPLAIN de consultas representativas de leitura das tabelas centrais
 EXPLAIN_STATUS="OK"
 for q in \
     "SELECT id, name, cpf_cnpj FROM public.clients ORDER BY created_at DESC LIMIT 50" \
@@ -961,9 +1051,9 @@ for q in \
 done
 
 if [ "${EXPLAIN_STATUS}" = "OK" ]; then
-    printf 'CONFERIDO (op-crm): Planos de execução (EXPLAIN) válidos para consultas representativas das 4 telas do CRM\n' >> "${CONFERIDOS_FILE}"
+    printf 'CONFERIDO (saude-pg): Planos de execução (EXPLAIN) válidos para consultas representativas das tabelas centrais\n' >> "${CONFERIDOS_FILE}"
 else
-    printf 'DIVERGÊNCIA (op-crm): Falha de execução nas consultas representativas das telas do CRM\n' >> "${DIVERGENCES_FILE}"
+    printf 'DIVERGÊNCIA (saude-pg): Falha de execução nas consultas representativas das tabelas centrais\n' >> "${DIVERGENCES_FILE}"
 fi
 
 # Teste 4: Bloco transacional não destrutivo com ROLLBACK garantido
@@ -981,9 +1071,9 @@ chmod 600 "${TX_TMP_FILE}" 2>/dev/null || true
 
 if ! exec_lab_sql_file "${TX_TMP_FILE}"; then
     TX_STATUS="FALHA"
-    printf 'DIVERGÊNCIA (op-crm): Bloco transacional de simulação falhou\n' >> "${DIVERGENCES_FILE}"
+    printf 'DIVERGÊNCIA (saude-pg): Bloco transacional de simulação falhou\n' >> "${DIVERGENCES_FILE}"
 else
-    printf 'CONFERIDO (op-crm): Simulação transacional com ROLLBACK concluída com sucesso\n' >> "${CONFERIDOS_FILE}"
+    printf 'CONFERIDO (saude-pg): Simulação transacional com ROLLBACK concluída com sucesso\n' >> "${CONFERIDOS_FILE}"
 fi
 rm -f "${TX_TMP_FILE}" 2>/dev/null || true
 
@@ -995,7 +1085,11 @@ else
 fi
 
 # ------------------------------------------------------------------------------
-# CONSOLIDAÇÃO DO VEREDITO (v1.4.0)
+# CONSOLIDAÇÃO DO VEREDITO (v1.5.0)
+# Ponto 1 da Auditoria:
+#   O critério A exige SIMULTANEAMENTE gunzip exit 0, psql exit 0 e zero erros SQL.
+#   A condição permissiva com '||' foi eliminada.
+#   Recuperação assistida (Critério B) NÃO mascara falha na restauração original.
 # ------------------------------------------------------------------------------
 
 DIVERGENCES_COUNT="$(wc -l < "${DIVERGENCES_FILE}" 2>/dev/null || echo 0)"
@@ -1003,7 +1097,7 @@ CONFERIDOS_COUNT="$(wc -l < "${CONFERIDOS_FILE}" 2>/dev/null || echo 0)"
 TEMPORAL_DIFFS_COUNT="$(wc -l < "${TEMPORAL_DIFFS_FILE}" 2>/dev/null || echo 0)"
 
 CRIT_A="FALHA"
-if [ "${RESTORE_ORIGINAL_STATUS}" = "OK" ] || [ "${RESTORE_RAW_ERRORS_COUNT}" -eq 0 ]; then
+if [ "${RESTORE_ORIGINAL_STATUS}" = "OK" ] && [ "${GZIP_EXIT}" -eq 0 ] && [ "${PSQL_EXIT}" -eq 0 ] && [ "${RESTORE_RAW_ERRORS_COUNT}" -eq 0 ]; then
     CRIT_A="OK"
 fi
 
@@ -1032,10 +1126,10 @@ MOTIVO_VEREDITO=""
 
 if [ "${CRIT_A}" = "OK" ] && [ "${CRIT_B}" = "OK" ] && [ "${CRIT_C}" = "OK" ] && [ "${CRIT_D_OK}" -eq 1 ] && [ "${CRIT_E_OK}" -eq 1 ] && [ "${DIVERGENCES_COUNT}" -eq 0 ] && [ "${INVENTORY_COMPARISON_VALID}" = "SIM" ]; then
     VEREDITO="APROVADO"
-    MOTIVO_VEREDITO="Todos os critérios técnicos passaram sem exceção (físico, pg_graphql, estrutural, comparação bidirecional jq, integridade operacional e zero divergências)."
+    MOTIVO_VEREDITO="Todos os critérios técnicos passaram sem exceção (restauração física original, pg_graphql, estrutural exaustivo, comparação bidirecional integral jq, integridade de catálogo/dados e zero divergências)."
 else
     VEREDITO="REPROVADO"
-    MOTIVO_VEREDITO="O backup apresentou divergências ou pendências estruturais/operacionais não resolvidas (DIVERGÊNCIAS: ${DIVERGENCES_COUNT}, COMPARAÇÃO_VÁLIDA: ${INVENTORY_COMPARISON_VALID}, QUERIES_FALHAS: ${QUERY_FAILURES_COUNT})."
+    MOTIVO_VEREDITO="O backup apresentou divergências ou falhas técnicas não resolvidas (CRIT_A_ORIGINAL: ${CRIT_A}, DIVERGÊNCIAS: ${DIVERGENCES_COUNT}, COMPARAÇÃO_VÁLIDA: ${INVENTORY_COMPARISON_VALID}, QUERIES_FALHAS: ${QUERY_FAILURES_COUNT})."
 fi
 
 # ------------------------------------------------------------------------------
@@ -1057,9 +1151,18 @@ cat <<EOF > "${REPORT_FILE}"
    Volume isolado: ${LAB_VOLUME}
    Imagem PostgreSQL: ${CHOSEN_IMAGE}
 
-2. RESULTADOS TÉCNICOS POR CRITÉRIO
-   Critério 1 - Restauração física (psql/gzip): ${CRIT_A} (Erros SQL brutos: ${RESTORE_RAW_ERRORS_COUNT})
-   Critério 2 - Extensão pg_graphql: ${CRIT_B} (Recuperação assistida: ${GRAPHQL_REC_STATUS})
+2. SEÇÃO TÉCNICA SEPARADA: RESTAURAÇÃO ORIGINAL vs RECUPERAÇÃO ASSISTIDA
+   (a) Restauração Original (psql -X -v ON_ERROR_STOP=1): ${RESTORE_ORIGINAL_STATUS}
+       - Código gunzip .................: ${GZIP_EXIT} (exigido 0)
+       - Código psql ...................: ${PSQL_EXIT} (exigido 0)
+       - Erros SQL brutos ..............: ${RESTORE_RAW_ERRORS_COUNT} (exigido 0)
+       - Avaliação Restauração Original : ${CRIT_A}
+   (b) Recuperação Assistida (Post-Restore):
+       - Extensão pg_graphql ...........: ${GRAPHQL_FINAL_STATUS}
+       - Tentativa de recuperação ......: ${GRAPHQL_REC_STATUS}
+       - Observação de isolamento ......: A recuperação assistida NÃO mascara falha na restauração original.
+
+3. RESULTADOS DOS DEMAIS CRITÉRIOS TÉCNICOS
    Critério 3 - Inventário estrutural do laboratório: ${CRIT_C}
        - Tabelas public: ${TOTAL_TABELAS_LAB}
        - Tabelas auth: ${TOTAL_TABELAS_AUTH_LAB}
@@ -1067,16 +1170,19 @@ cat <<EOF > "${REPORT_FILE}"
        - Funções: ${TOTAL_FUNCOES_LAB}
        - Triggers: ${TOTAL_TRIGGERS_LAB}
        - Extensões: ${TOTAL_EXTENSOES_LAB}
-   Critério 4 - Comparação bidirecional com inventário oficial (jq): $([ "${CRIT_D_OK}" -eq 1 ] && echo "CONFORME" || echo "NAO_CONFORME")
+   Critério 4 - Comparação estrutural e bidirecional com inventário oficial (jq): $([ "${CRIT_D_OK}" -eq 1 ] && echo "CONFORME" || echo "NAO_CONFORME")
        - Validação JSON semântica com jq: ${INVENTORY_COMPARISON_VALID}
        - Bidirecionalidade avaliada: $([ "${INVENTORY_BIDIRECTIONAL_CHECK_PASSED}" -eq 1 ] && echo "SIM" || echo "NAO")
-   Critério 5 - Critério de recuperação operacional do CRM: ${OP_CRITERION_STATUS}
+       - Amostragem aplicada: NENHUMA (conferência integral de constraints e funções)
+   Critério 5 - Integridade parcial do PostgreSQL restaurado: ${OP_CRITERION_STATUS}
        - Integridade referencial (FKs órfãs): ${FK_ORPHANS_CNT}
        - Consistência auth.users: ${USERS_TOTAL} usuários, ${USERS_DUP_COUNT} duplicidades
-       - Planos de execução EXPLAIN (4 telas): ${EXPLAIN_STATUS}
+       - Planos de execução EXPLAIN: ${EXPLAIN_STATUS}
        - Bloco transacional com ROLLBACK: ${TX_STATUS}
+       - Escopo delimitado: Prova unicamente a saúde do PostgreSQL restaurado;
+         não atesta recuperação funcional completa da aplicação CRM (Kong/GoTrue/PostgREST fora do escopo do teste).
 
-3. DIVERGÊNCIAS E DIFERENÇAS DE CONTAGEM INCONCLUSIVAS
+4. DIVERGÊNCIAS E DIFERENÇAS DE CONTAGEM INCONCLUSIVAS
    Total de divergências impeditivas: ${DIVERGENCES_COUNT}
    Total de diferenças de contagem inconclusivas: ${TEMPORAL_DIFFS_COUNT}
 EOF
@@ -1093,15 +1199,32 @@ fi
 
 cat <<EOF >> "${REPORT_FILE}"
 
-4. VEREDITO FINAL DA AUDITORIA
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+=======
+5. VEREDITO FINAL DA AUDITORIA
    Veredito: ${VEREDITO}
    Motivo: ${MOTIVO_VEREDITO}
 
-5. RASTREABILIDADE
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
    Arquivo do relatório: ${REPORT_FILE} (chmod 600)
    Log técnico restrito: ${LOG_FILE} (chmod 600)
    Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
    Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
 ================================================================================
 EOF
 
@@ -1117,11 +1240,11 @@ say "===========================================================================
 say " Motivo: ${MOTIVO_VEREDITO}"
 say ""
 say " Resumo dos 5 Critérios Técnicos:"
-say "   1. Restauração física sem erros fatais ..: ${CRIT_A}"
+say "   1. Restauração original estrita ........: ${CRIT_A}"
 say "   2. Extensão pg_graphql operacional .....: ${CRIT_B}"
 say "   3. Validação estrutural do schema public : ${CRIT_C}"
 say "   4. Comparação bidirecional com inventário: $([ "${CRIT_D_OK}" -eq 1 ] && echo "CONFORME" || echo "NAO_CONFORME")"
-say "   5. Recuperação operacional do CRM .......: ${OP_CRITERION_STATUS}"
+say "   5. Integridade parcial do PostgreSQL ...: ${OP_CRITERION_STATUS} (CRM fora de escopo)"
 say ""
 say " Divergências impeditivas : ${DIVERGENCES_COUNT}"
 say " Diferenças inconclusivas : ${TEMPORAL_DIFFS_COUNT}"

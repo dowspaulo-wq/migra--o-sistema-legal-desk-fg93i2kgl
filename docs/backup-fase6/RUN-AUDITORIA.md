@@ -1,20 +1,32 @@
-# Manual de Execução: Auditoria Independente de Backup (v1.4.0)
+# Manual de Execução: Auditoria Independente de Backup (v1.5.0)
 
-> **Status da Solução**: **NÃO PRONTA PARA USO OPERACIONAL IMEDIATO** — aguarda nova auditoria e aprovação independente (4ª rodada de correções técnicas aplicada, v1.4.0).  
-> **Objetivo**: Testar restauração de backup com validação semântica estrita, integridade referencial do CRM, proteção contra execução indevida em produção (Guarda Anti-VPS estrita no topo absoluto), bloqueio de endpoints Docker remotos, serialização segura JSON via `jq`, inventário estrutural ampliado (DDL de constraints e identidades de funções) e classificação estrita de diferenças de contagem como **INCONCLUSIVAS** (sem presunção de crescimento natural).
+> **Status da Solução**: **NÃO PRONTA PARA USO OPERACIONAL IMEDIATO** — aguarda nova auditoria e aprovação independente (5ª rodada de correções técnicas aplicada, v1.5.0).  
+> **Objetivo**: Testar restauração de backup com validação semântica estrita, proteção contra execução indevida em produção (Guarda Anti-VPS estrita no topo absoluto), isolamento total de rede com `--network none`, verificação de endpoints de todos os contextos Docker, restauração física com `psql -X -v ON_ERROR_STOP=1` (exigência simultânea de gunzip 0, psql 0 e zero erros SQL), comparação estrutural completa sem amostragem (definições completas de constraints e funções), delimitação expressa da saúde do PostgreSQL (sem atestar funcionamento da aplicação CRM) e política de sigilo no inventário (sem expor corpos DDL por padrão).
 
 ---
 
 ## 1. Visão Geral dos Scripts
 
-| Script                            | Versão     | Local de Execução                            | Propósito                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| :-------------------------------- | :--------- | :------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `docs/vps/21-gerar-inventario.sh` | **v1.4.0** | **VPS Hostinger de Produção**                | Extrai metadados estruturais DDL e contagens de catálogo em formato JSON sob `umask 077 + chmod 600`, sem nunca extrair dados de clientes. Por padrão faz contagem leve (`reltuples`); a contagem exata (`SELECT count(*)`) exige `--contagem-exata` e é bloqueada no horário de expediente (08h–18h BSB) a menos que se passe `--forcar-horario-expediente`. Serialização estrita via `jq -n --arg/--argjson`.                                             |
-| `docs/vps/20-auditar-backup.sh`   | **v1.4.0** | **Máquina de Teste / WSL2 / Docker Desktop** | Restaura o dump `.sql.gz` em contêiner descartável isolado, verifica `pg_graphql` (sem `DROP EXTENSION CASCADE`), valida schemas `public` e `auth`, realiza comparação bidirecional estrita com o inventário JSON via `jq`, avalia integridade operacional do CRM (4 testes técnicos) e emite veredito fundamentado. Bloqueia endpoints remotos de Docker (`DOCKER_HOST`), protege permissões e remove apenas recursos rastreados e rotulados com a sessão. |
+| Script                            | Versão     | Local de Execução                            | Propósito                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| :-------------------------------- | :--------- | :------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/vps/21-gerar-inventario.sh` | **v1.5.0** | **VPS Hostinger de Produção**                | Extrai metadados estruturais e contagens de catálogo em formato JSON sob `umask 077 + chmod 600`, sem expor dados de clientes ou corpos de funções por padrão. Por padrão faz contagem leve (`reltuples`); a contagem exata (`SELECT count(*)`) exige `--contagem-exata` e é bloqueada no horário de expediente (08h–18h BSB) a menos que se passe `--forcar-horario-expediente`. Serialização estrita via `jq -n --arg/--argjson` com validação de tipos `jq -e`. A inclusão do corpo DDL das funções exige flag explícita `--incluir-corpo-funcoes`. |
+| `docs/vps/20-auditar-backup.sh`   | **v1.5.0** | **Máquina de Teste / WSL2 / Docker Desktop** | Restaura o dump `.sql.gz` em contêiner descartável isolado com `--network none`, verificação rigorosa de endpoints Docker em todos os contextos, restauração original estrita (`psql -X -v ON_ERROR_STOP=1`), seções separadas de restauração original e recuperação assistida, conferência de constraints e funções sem amostragem (zero sampling), comparação bidirecional integral `public`/`auth`, 4 testes de integridade do PostgreSQL e veredito técnico.                                                                                       |
 
 ---
 
-## 2. As 10 Correções Técnicas Aplicadas na Versão v1.4.0
+## 2. As 9 Correções Técnicas Aplicadas na Versão v1.5.0
+
+Em cumprimento à 5ª rodada de auditoria independente, foram incorporadas as seguintes melhorias:
+
+1. **Critério Estrito de Restauração Original**: Eliminada qualquer condição com `||` que permitisse aprovação de restauração com erros residuais. O script agora exige **simultaneamente**: `gunzip` com exit 0, `psql` com exit 0 e zero erros SQL (`RESTORE_RAW_ERRORS_COUNT == 0`), rodando com `psql -X -v ON_ERROR_STOP=1`. O relatório separa estritamente a Restauração Original da Recuperação Assistida posterior (`pg_graphql`), e esta última nunca mascara falhas da restauração original.
+2. **Comparação Estrutural Completa Sem Amostragem**: Removido o limite arbitrário de 30 elementos (`head -n 30`). Todas as constraints são conferidas integralmente por definição DDL completa (`pg_get_constraintdef`), e todas as funções são conferidas integralmente por identidade e assinatura (`pg_get_function_identity_arguments` e tipos de retorno).
+3. **Comparação Bidirecional Integral com Validação Semântica**: As tabelas dos schemas `public` e `auth` são comparadas integralmente nos dois sentidos (`inventário -> backup` e `backup -> inventário`, por schema, nome e método de contagem). O sinalizador `INVENTORY_COMPARISON_VALID="SIM"` só é atribuído após aprovação cumulativa de todas as checagens e integridade semântica do JSON.
+4. **Isolamento de Rede Docker e Inspeção de Contextos**: O contêiner de laboratório utiliza obrigatoriamente a flag `--network none` (o tráfego local do auditor é via `docker exec`). Todos os contextos Docker (inclusive `default`, `desktop-linux` e `colima`) têm seus endpoints inspecionados, abortando imediatamente com exit 11 diante de qualquer endpoint remoto ou não verificável (`tcp://`, `ssh://`, `http://`, `https://`, `npipe://`).
+5. **Política de Sigilo do Inventário DDL**: Avaliado o risco de funções conterem credenciais, chaves ou tokens confidenciais. O script `21-gerar-inventario.sh` armazena apenas identidade/assinatura por padrão (`pg_get_function_identity_arguments`). O corpo completo (`pg_get_functiondef`) só é coletado mediante flag explícita `--incluir-corpo-funcoes`, passando por ofuscação automática de padrões sensíveis (`password`, `secret`, `token`, `api_key`).
+6. **Validação JSON Estrita**: Validação tipada rigorosa com `jq -e` rejeitando elementos malformados. Campos obrigatórios e tipos de `sumario`, `tabelas`, `constraints` e `funcoes` são verificados antes de permitir avanço do auditor.
+7. **Tratamento Impeditivo em Falhas de Permissões**: Falha ou resultado vazio no comando `stat` ao inspecionar arquivos gerados é tratada como erro fatal (`die`/abort imediato), não como mero aviso. Preservada a regra de `mkdir`/`chmod` apenas sobre os artefatos criados pelo próprio script.
+8. **Delimitação Expressa da Integridade Parcial do PostgreSQL**: Distinção textual expressa entre "saúde do banco PostgreSQL restaurado" e "recuperação funcional completa do CRM". Os quatro testes (FKs órfãs, `auth.users`, planos `EXPLAIN` e bloco transacional com `ROLLBACK`) atestam exclusivamente a consistência do banco de dados, sem declarar funcionamento de componentes de aplicação (Kong, GoTrue, PostgREST e CRM fora do escopo do teste).
+9. **Alinhamento do Manual Operacional**: Manual sincronizado com todos os comandos, flags, códigos de saída e arquivos gerados pelos scripts.
 
 Em cumprimento à 4ª rodada de auditoria independente, foram incorporadas as seguintes melhorias:
 
@@ -38,7 +50,7 @@ Em cumprimento à 4ª rodada de auditoria independente, foram incorporadas as se
 Acesse a VPS via SSH e execute o script 21 em modo somente leitura:
 
 ```bash
-# Modo 1: Recomendado / Leve (zero impacto, estimativas pg_class.reltuples)
+# Modo 1: Recomendado / Leve (zero impacto, estimativas pg_class.reltuples, sem expor corpos de funções)
 bash docs/vps/21-gerar-inventario.sh
 
 # Modo 2: Contagem exata fora do horário comercial (SELECT count(*))
@@ -46,6 +58,9 @@ bash docs/vps/21-gerar-inventario.sh --contagem-exata
 
 # Modo 3: Contagem exata forçada durante o expediente (08h-18h BSB)
 bash docs/vps/21-gerar-inventario.sh --contagem-exata --forcar-horario-expediente --saida /root/sbjur-backups/inventarios/inventario-manual.json
+
+# Modo 4: Inclusão explícita do corpo DDL das funções com ofuscação de credenciais
+bash docs/vps/21-gerar-inventario.sh --incluir-corpo-funcoes
 ```
 
 O arquivo gerado (`inventario-AAAAMMDD-HHMMSS.json`) tem permissões `0600` e não contém dados confidenciais de clientes.
@@ -86,25 +101,25 @@ bash docs/vps/20-auditar-backup.sh \
 
 - `0`: Sucesso total (JSON gerado e validado).
 - `10`: Erro de sintaxe de parâmetros (`--help`).
-- `11`: Docker indisponível.
-- `12`: Contêiner de produção não encontrado.
+- `11`: Docker indisponível no host de produção.
+- `12`: Contêiner de produção não encontrado ou inativo.
 - `15`: Bloqueio de horário comercial (tentativa de `--contagem-exata` entre 08h e 18h BSB sem `--forcar-horario-expediente`).
-- `20`: Falha em consulta SQL de catálogo.
-- `25`: Falha em permissão ou sistema de arquivos (`mkdir`, `touch`, `chmod`).
-- `30`: Falha na serialização ou validação do JSON (`jq`).
+- `20`: Falha em consulta SQL de catálogo no contêiner.
+- `25`: Falha em permissão ou sistema de arquivos (`mkdir`, `touch`, `chmod`, `stat`).
+- `30`: Falha na serialização ou validação estrita do JSON (`jq`).
 
 ### `20-auditar-backup.sh`
 
 - `0`: Auditoria APROVADA (todos os critérios técnicos passaram sem divergências).
 - `10`: Erro de sintaxe de parâmetros (`--help`).
-- `11`: Abortado pela Guarda Anti-VPS ou bloqueio de DOCKER_HOST remoto.
-- `12`: Dependência ausente (`docker`, `gunzip`, `psql`, `jq`).
-- `20`: Falha de restauração física do dump.
+- `11`: Abortado pela Guarda Anti-VPS ou detecção de endpoint Docker remoto/não-verificável.
+- `12`: Dependência ausente no host de teste (`docker`, `gunzip`, `psql`, `jq`, `stat`).
+- `20`: Falha de restauração física original do dump (`psql -X -v ON_ERROR_STOP=1` ou `gunzip`).
 - `21`: Falha de recuperação de `pg_graphql`.
 - `22`: Divergência estrutural ou auditoria REPROVADA.
-- `23`: Falha na leitura ou validação semântica do inventário.
-- `24`: Falha nas verificações de recuperação operacional do CRM.
-- `25`: Falha de sistema de arquivos ou permissões.
+- `23`: Falha na leitura ou validação semântica do inventário oficial.
+- `24`: Falha nas verificações de integridade parcial do PostgreSQL restaurado.
+- `25`: Falha de sistema de arquivos ou permissões efetivas (`mkdir`, `touch`, `chmod`, `stat`).
 
 ---
 
