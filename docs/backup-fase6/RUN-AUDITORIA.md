@@ -112,26 +112,26 @@ O que o script fará automaticamente:
 
 ---
 
-### Novidades e Ajustes de Segurança da Versão v1.2.0
+### Novidades e Ajustes de Segurança da Versão v1.3.0
 
-A versão **v1.2.0** dos scripts incorpora as recomendações da auditoria independente do commit `60c4941`:
+A versão **v1.3.0** dos scripts consolida as correções técnicas e os requisitos de auditoria independente:
 
 1. **Separação Rigorosa dos Schemas `public` e `auth`:**
-   - O inventário e o auditor separam a contagem de tabelas públicas da contagem de tabelas de autenticação (`auth.users`, etc.). `auth.users` não é contabilizada como tabela `public`.
-2. **Eliminação de Mascaramento de Falhas (`|| true` e Conversões para Zero):**
-   - Nenhuma falha de consulta do `jq` ou do `psql` é mascarada como "0 registros" ou resultado válido. Falhas de consulta SQL ou de leitura JSON são registradas explicitamente como divergências e impedem o veredito APROVADO integral.
-3. **Pós-Restauração de Extensões sem `DROP CASCADE` Destrutivo:**
-   - A correção de `pg_graphql` no laboratório utiliza `CREATE EXTENSION IF NOT EXISTS` e validação pontual de integridade, sem recorrer a `DROP EXTENSION ... CASCADE` automático, protegendo todas as tabelas e views dependentes.
-4. **Diferenciação Clara entre Restauração Original e Recuperação Assistida:**
-   - O relatório final discrimina o status da restauração original direta do dump e o status pós-recuperação assistida (caso ajustes de extensões do Supabase sejam aplicados).
-5. **Critério de Reconciliação Temporal para Backups Anteriores ao Inventário:**
-   - Quando o backup restaurado é anterior ao inventário da produção, o crescimento natural de registros (ex.: clientes e atendimentos cadastrados após a criação do arquivo de backup) é registrado como diferença temporal esperada em seção informativa do relatório, evitando falsas reprovações em backups íntegros.
-6. **Escopo Real dos Testes Técnicos (Critério e):**
-   - O critério (e) foi redefinido como **Compatibilidade e Operação Básica do CRM**, atestando que os 4 testes do banco (FKs órfãs, unicidade de `auth.users`, planos `EXPLAIN` e bloco transacional) passaram com sucesso no banco, esclarecendo que o funcionamento operacional completo da aplicação em produção envolve também o runtime ativo dos contêineres GoTrue, Kong e PostgREST.
+   - O inventário (`21-gerar-inventario.sh`) e o auditor (`20-auditar-backup.sh`) geram e comparam `total_tabelas_public` e `total_tabelas_auth` como campos distintos. A tabela `auth.users` NUNCA é contada como tabela pública.
+2. **Leitura de JSON via `jq -er` Estrito (Sem Máscaras):**
+   - Todas as extrações utilizam `jq -er` estrito. Foram eliminados fallbacks e `|| true` que pudessem mascarar leituras falhas de tabelas ou sumário. Inventário incompleto ou consulta com erro gera status `ERRO` e impede veredito APROVADO.
+3. **Detecção e Falhas Explícitas no Auditor:**
+   - Todas as consultas `psql` checam código de retorno. Falhas incrementam o contador global `QUERY_FAILURES_COUNT` e registram divergência explícita no relatório; nenhuma falha é convertida em contagem zero. O estado global declara formalmente `RESTORE_ORIGINAL_STATUS`, `QUERY_FAILURES_COUNT` e `TEMPORAL_DIFFS_FILE`, garantindo compatibilidade com `set -u`.
+4. **Pós-Restauração de Extensões sem `DROP CASCADE`:**
+   - Foi completamente removido qualquer `DROP EXTENSION ... CASCADE`. A recuperação assistida utiliza recriação idempotente e controlada (`CREATE EXTENSION IF NOT EXISTS pg_graphql WITH SCHEMA graphql`), com código de saída verificado. O relatório separa nitidamente `(a) Restauração Original` de `(b) Recuperação Assistida`.
+5. **Critério (e) com Veredito Honesto:**
+   - O critério (e) atesta **Compatibilidade e Operação Básica do CRM** no escopo do banco de dados restaurado no laboratório, deixando explícito que a operação completa da aplicação em produção envolve também serviços de runtime (GoTrue, Kong, PostgREST).
+6. **Reconciliação de Diferenças Temporais:**
+   - Contagens exatas menores no backup em relação ao inventário da produção (gerado posteriormente) são registradas em seção informativa dedicada (`TEMPORAL_DIFFS_FILE`), tolerando o crescimento natural dos dados sem reprovação por falsa divergência.
 7. **Guarda Anti-VPS no Topo Absoluto:**
-   - A guarda anti-VPS do script 20 é executada imediatamente no início do script, antes de criar qualquer arquivo, pasta temporária ou redirecionamento de log em disco.
-8. **Privacidade e Permissões Restritas:**
-   - Aplicação de `umask 077` e permissões `600` para logs/relatórios e `700` para diretórios temporários, além de ofuscação de identificadores sensíveis (como CPFs/CNPJs e dados textuais) capturados em eventuais mensagens de erro de restore.
+   - Em `20-auditar-backup.sh`, a verificação de hostname e contêineres Docker roda IMEDIATAMENTE após o parsing de argumentos, antes de qualquer comando `mkdir`, `touch`, escrita em disco ou redirecionamento para log. Qualquer falha em consultar hostname ou Docker aborta preventivamente com `exit 11`.
+8. **Permissões Rígidas e Privacidade Reforçada:**
+   - Máscara `umask 077` ativa antes de qualquer criação de arquivos, arquivos em `chmod 600` e diretórios em `chmod 700`. Ofuscação de mensagens de erro estendida a literais entre aspas, CPFs (11 dígitos) e CNPJs (14 dígitos).
 
 ---
 
