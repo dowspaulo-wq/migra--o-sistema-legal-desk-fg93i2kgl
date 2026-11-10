@@ -3,9 +3,30 @@
 # DPSjur / SBJur — Fase 6: Teste de restauração de backup PostgreSQL em
 #                          contêiner Docker EFÊMERO e ISOLADO, 100% local no VPS
 # Script:   docs/vps/04-testar-restauracao-isolado.sh
-# Versão:   v2.6.1
+# Versão:   v2.6.2
 #
 # HISTÓRICO
+#   v2.6.2    : três ajustes de segurança solicitados na auditoria independente de Douglas:
+#        (1) PRESERVAÇÃO DO CONTÊINER EM FALHA DE INSPEÇÃO DE MONTAGENS (do_cleanup):
+#            Se a inspeção dos volumes montados no contêiner do laboratório
+#            (docker inspect .Mounts) falhar, o contêiner NÃO é removido
+#            automaticamente. O recurso é preservado, 'fails' é incrementado, a
+#            ocorrência é registrada em CLEANUP_OBS e no log com aviso de
+#            RECUSA DE LIMPEZA, e o cleanup é classificado como INCOMPLETO.
+#            A remoção do contêiner só ocorre se a inspeção de montagens succeed.
+#        (2) UMASK 077 ANTES DA CRIAÇÃO DE ARQUIVOS SENSÍVEIS:
+#            Aplicação de 'umask 077' logo no início da execução (após set -u -o pipefail),
+#            garantindo que log, relatório e arquivos temporários com roles
+#            (globals-brutos, globals-sanitizados, roles-esperadas, roles-lab)
+#            nasçam restritos (0600/0700) sem permissões para grupo ou outros,
+#            mantendo os comandos chmod 600/700 existentes como segunda camada de defesa.
+#        (3) ESTIMATIVA DE DISCO CONSERVADORA CONTRA LIMITAÇÃO DE 32 BITS DO GZIP:
+#            O campo ISIZE do rodapé do gzip é de 32 bits (módulo 2^32 = 4 GiB).
+#            O script não confia no valor de 'gzip -l' quando o arquivo descomprimido
+#            puder ultrapassar 4 GiB (arquivos comprimidos grandes >= 1 GiB ou valores
+#            suspeitos). Nesses casos, adota estimativa conservadora (descompressão
+#            de amostra e/ou fator conservador 4x) ou interrompe com EXIT_INSUFFICIENT_DISK,
+#            evitando esgotamento de disco na máquina de produção.
 #   v2.6.1    : correções de segurança solicitadas na auditoria independente:
 #        (1) SEGURANÇA REFORÇADA CONTRA FALHAS DE CONSULTA NO CLEANUP:
 #            Eliminado todo uso de '|| true' nas verificações de volumes e
@@ -217,9 +238,10 @@
 # ==============================================================================
 
 set -u -o pipefail
+umask 077
 
 # ------------------------------------------------------------------ constantes
-SCRIPT_VERSION="v2.6.1"
+SCRIPT_VERSION="v2.6.2"
 BACKUP_ROOT="/root/sbjur-backups"
 DIAG_DIR="${BACKUP_ROOT}/logs/diagnostico-restauracao"   # restrito (chmod 700)
 TS_STAMP="$(date +%Y%m%d-%H%M%S)"
@@ -403,11 +425,10 @@ do_cleanup() {
             if ! LAB_ANON_VOLUMES="$(docker inspect -f '{{range .Mounts}}{{if .Name}}{{.Name}} {{end}}{{end}}' "${LAB_NAME}" 2>>"${LOG_FILE}")"; then
                 fails=$((fails + 1))
                 CLEANUP_OBS="${CLEANUP_OBS} falha ao inspecionar montagens do container '${LAB_NAME}';"
-                say "🛑 RECUSA DE LIMPEZA: falha ao inspecionar montagens do container '${LAB_NAME}'. Preservando recursos por segurança."
+                say "🛑 RECUSA DE LIMPEZA: falha ao inspecionar montagens do container '${LAB_NAME}'. Preservando o recurso por segurança."
                 log "RECUSA DE LIMPEZA: falha ao inspecionar montagens do container '${LAB_NAME}'."
                 LAB_ANON_VOLUMES=""
-            fi
-            if docker rm -f "${LAB_NAME}" >>"${LOG_FILE}" 2>&1; then
+            elif docker rm -f "${LAB_NAME}" >>"${LOG_FILE}" 2>&1; then
                 log "Container do laboratório '${LAB_NAME}' removido."
             else
                 fails=$((fails + 1))
@@ -946,37 +967,76 @@ if [ "${LAB_DISK_EXPANSION_FACTOR}" -lt 1 ] || [ "${LAB_MEMORY_HEADROOM_FACTOR}"
     die "LAB_DISK_EXPANSION_FACTOR e LAB_MEMORY_HEADROOM_FACTOR devem ser inteiros >= 1." "${EXIT_USAGE}"
 fi
 
-# --- estimativa do tamanho DESCOMPRIMIDO do backup
-#     1) gzip -l (rodapé do gzip; não é confiável acima de ~4 GiB);
-#     2) fallback: descompressão de AMOSTRA (8 MiB) e extrapolação;
-#     3) último recurso: fator conservador 4x sobre o tamanho comprimido.
+# --- (v2.6.2 — Ajuste 3) estimativa do tamanho DESCOMPRIMIDO do backup
+#     O campo ISIZE do rodapé do gzip é um inteiro sem sinal de 32 bits (módulo 2^32 = 4 GiB).
+#     Quando o arquivo descomprimido ultrapassa 4 GiB, o gzip -l satura ou sofre wrap-around,
+#     informando um tamanho incorreto e perigosamente subestimado.
+#     Regras de segurança:
+#       1) Não confiar no gzip -l quando o arquivo comprimido for grande (>= 1 GiB, onde
+#          a expansão típica >= 4x já ultrapassa 4 GiB) ou se o valor for suspeito
+#          (GZ_UNC <= GZ_CMP, GZ_UNC >= 4 GiB, ou campos vazios/não numéricos);
+#       2) Aferir a taxa real via descompressão de amostra (8 MiB); se a amostra indicar
+#          que o tamanho descomprimido pode ultrapassar 4 GiB ou for significativamente
+#          maior que GZ_UNC, o gzip -l é descartado;
+#       3) Em caso de incerteza, ser conservador (adotar o maior valor entre os métodos
+#          ou fallback conservador de 4x);
+#       4) Se a estimativa não puder ser obtida, abortar com EXIT_INSUFFICIENT_DISK.
 EST_UNCOMPRESSED=""
 EST_METHOD=""
+GZ_FOUR_GIB=4294967296
+GZ_ONE_GIB=1073741824
+
 GZ_OUT="$(LC_ALL=C gzip -l "${BACKUP_FILE}" 2>>"${LOG_FILE}" || true)"
 GZ_CMP="$(printf '%s\n' "${GZ_OUT}" | awk 'NR==2 {print $1}' | tr -d '[:space:]')"
 GZ_UNC="$(printf '%s\n' "${GZ_OUT}" | awk 'NR==2 {print $2}' | tr -d '[:space:]')"
 case "${GZ_CMP}" in ''|*[!0-9]*) GZ_CMP="" ;; esac
 case "${GZ_UNC}" in ''|*[!0-9]*) GZ_UNC="" ;; esac
-if [ -n "${GZ_UNC}" ] && [ -n "${GZ_CMP}" ] && [ "${GZ_UNC}" -gt "${GZ_CMP}" ] \
-        && [ "${BACKUP_BYTES}" -lt 4294967296 ]; then
-    # gzip -l lê o ISIZE do rodapé (tamanho módulo 2^32): acima de 4 GiB o valor
-    # é inválido — nesse caso cai na descompressão de amostra abaixo.
-     EST_UNCOMPRESSED="${GZ_UNC}"
-     EST_METHOD="gzip -l (rodapé do gzip)"
- fi
- if [ -z "${EST_UNCOMPRESSED}" ]; then
-     SAMPLE_IN=$((8 * 1024 * 1024))
-     SAMPLE_OUT="$(head -c "${SAMPLE_IN}" "${BACKUP_FILE}" 2>>"${LOG_FILE}" \
-         | gunzip -c 2>>"${LOG_FILE}" | wc -c 2>>"${LOG_FILE}" | tr -d '[:space:]')"
-     case "${SAMPLE_OUT}" in ''|*[!0-9]*) SAMPLE_OUT="0" ;; esac
-     if [ "${SAMPLE_OUT}" -gt 0 ]; then
-        EST_UNCOMPRESSED=$(( (BACKUP_BYTES * SAMPLE_OUT + SAMPLE_IN - 1) / SAMPLE_IN ))
-         EST_METHOD="descompressão de amostra (${SAMPLE_IN} bytes → ${SAMPLE_OUT} bytes, extrapolado)"
-     else
-         EST_UNCOMPRESSED=$(( BACKUP_BYTES * 4 ))
+
+SAMPLE_IN=$((8 * 1024 * 1024))
+SAMPLE_OUT="$(head -c "${SAMPLE_IN}" "${BACKUP_FILE}" 2>>"${LOG_FILE}" \
+    | gunzip -c 2>>"${LOG_FILE}" | wc -c 2>>"${LOG_FILE}" | tr -d '[:space:]')"
+case "${SAMPLE_OUT}" in ''|*[!0-9]*) SAMPLE_OUT="0" ;; esac
+SAMPLE_EST=0
+if [ "${SAMPLE_OUT}" -gt 0 ]; then
+    SAMPLE_EST=$(( (BACKUP_BYTES * SAMPLE_OUT + SAMPLE_IN - 1) / SAMPLE_IN ))
+fi
+
+GZ_SUSPECT=0
+if [ -z "${GZ_UNC}" ] || [ -z "${GZ_CMP}" ] || [ "${GZ_UNC}" -le "${GZ_CMP}" ] \
+        || [ "${GZ_UNC}" -ge "${GZ_FOUR_GIB}" ] || [ "${BACKUP_BYTES}" -ge "${GZ_ONE_GIB}" ]; then
+    GZ_SUSPECT=1
+elif [ "${SAMPLE_EST}" -ge "${GZ_FOUR_GIB}" ] || [ "${SAMPLE_EST}" -gt $(( GZ_UNC * 2 )) ]; then
+    # Amostra extrapolada indica >= 4 GiB ou expansão significativamente maior que GZ_UNC (wrap-around de ISIZE)
+    GZ_SUSPECT=1
+fi
+
+if [ "${GZ_SUSPECT}" -eq 0 ]; then
+    # Arquivo pequeno e consistente: adotar o maior valor entre gzip -l e a amostra (conservador)
+    if [ "${SAMPLE_EST}" -gt "${GZ_UNC}" ]; then
+        EST_UNCOMPRESSED="${SAMPLE_EST}"
+        EST_METHOD="descompressão de amostra (${SAMPLE_IN} bytes → ${SAMPLE_OUT} bytes, conservador vs gzip -l)"
+    else
+        EST_UNCOMPRESSED="${GZ_UNC}"
+        EST_METHOD="gzip -l (rodapé do gzip; verificado < 4 GiB)"
+    fi
+else
+    log "gzip -l não confiável ou arquivo grande (BACKUP_BYTES=${BACKUP_BYTES}, GZ_UNC=${GZ_UNC:-vazio}, GZ_CMP=${GZ_CMP:-vazio}, SAMPLE_EST=${SAMPLE_EST}): adotando estimativa conservadora."
+    if [ "${SAMPLE_EST}" -gt 0 ]; then
+        EST_UNCOMPRESSED="${SAMPLE_EST}"
+        EST_METHOD="descompressão de amostra (${SAMPLE_IN} bytes → ${SAMPLE_OUT} bytes, extrapolado; fallback conservador)"
+    else
+        EST_UNCOMPRESSED=$(( BACKUP_BYTES * 4 ))
         EST_METHOD="fallback conservador (4x o tamanho comprimido)"
     fi
 fi
+
+case "${EST_UNCOMPRESSED}" in
+    ''|*[!0-9]*|0)
+        PRECHECK_DISK="FALHA NA ESTIMATIVA DO TAMANHO DESCOMPRIMIDO"
+        die "Não foi possível estimar o tamanho descomprimido do backup de forma confiável. Teste INTERROMPIDO por segurança (exit ${EXIT_INSUFFICIENT_DISK})." "${EXIT_INSUFFICIENT_DISK}"
+        ;;
+esac
+
 REQUIRED_DISK=$(( EST_UNCOMPRESSED * LAB_DISK_EXPANSION_FACTOR + DISK_RESERVE_BYTES ))
 log "Estimativa de tamanho descomprimido: ${EST_UNCOMPRESSED} bytes (${EST_METHOD})"
 log "Disco necessário (fator ${LAB_DISK_EXPANSION_FACTOR}x + reserva ${LAB_DISK_RESERVE}): ${REQUIRED_DISK} bytes"
