@@ -237,6 +237,16 @@ export function TaskDialog({
     return base
   })()
 
+  const availableUsers = (users || [])
+    .filter((u: any) => {
+      // Usuário ativo
+      if (u.is_active !== false) return true
+      // Preserva usuário atual atribuído mesmo se inativo para não corromper dado ao abrir/salvar
+      if (formData.responsibleId && u.id === formData.responsibleId) return true
+      return false
+    })
+    .sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''))
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -447,7 +457,7 @@ export function TaskDialog({
                 <SelectValue placeholder="Selecione..." />
               </SelectTrigger>
               <SelectContent>
-                {users?.map((u: any) => (
+                {availableUsers.map((u: any) => (
                   <SelectItem key={u.id} value={u.id}>
                     {u.name}
                   </SelectItem>

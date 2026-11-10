@@ -36,7 +36,6 @@ export function AppointmentDialog({
 }: any) {
   const { state } = useLegalStore()
   const isAdmin = state.currentUser?.role === 'Admin'
-  const sortedUsers = [...users].sort((a: any, b: any) => a.name.localeCompare(b.name))
   const sortedClients = [...clients].sort((a: any, b: any) => a.name.localeCompare(b.name))
   const DEFAULT_APPOINTMENT_TYPES = [
     'Reunião',
@@ -90,6 +89,16 @@ export function AppointmentDialog({
 
     return Array.from(labels).sort((a, b) => a.localeCompare(b))
   })()
+
+  const sortedUsers = (users || [])
+    .filter((u: any) => {
+      // Usuário ativo
+      if (u.is_active !== false) return true
+      // Preserva usuário atual atribuído mesmo se inativo para evitar perda de dados
+      if (fd.responsibleId && u.id === fd.responsibleId) return true
+      return false
+    })
+    .sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''))
 
   const sortedCases = [...cases]
     .filter((c: any) => !fd.clientId || c.clientId === fd.clientId)
