@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur / SBJur — Inventário Estrutural e de Contagens do Banco de Dados
 # Script: docs/vps/21-gerar-inventario.sh
-# Versão: v1.0.0
+# Versão: v1.1.0
 # Destino de execução: VPS Hostinger de Produção (SOMENTE LEITURA)
 #
 # OBJETIVO:
@@ -44,7 +44,7 @@
 set -u -o pipefail
 umask 077
 
-SCRIPT_VERSION="v1.0.0"
+SCRIPT_VERSION="v1.1.0"
 TS_STAMP="$(date +%Y%m%d-%H%M%S)"
 DEFAULT_OUTPUT_DIR="/root/sbjur-backups/inventarios"
 DEFAULT_OUTPUT_FILE="${DEFAULT_OUTPUT_DIR}/inventario-${TS_STAMP}.json"
@@ -246,42 +246,71 @@ log "Contêiner alvo: ${TARGET_CONTAINER}"
 # Execução segura de consulta SQL só-leitura
 exec_psql_json() {
     local query="$1"
+    local out rc
     if command -v timeout >/dev/null 2>&1; then
-        timeout 60 docker exec "${TARGET_CONTAINER}" psql -U postgres -d postgres -t -A -c "${query}" 2>>"${LOG_FILE}"
+        out="$(timeout 60 docker exec "${TARGET_CONTAINER}" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -t -A -c "${query}" 2>>"${LOG_FILE}")"
+        rc=$?
     else
-        docker exec "${TARGET_CONTAINER}" psql -U postgres -d postgres -t -A -c "${query}" 2>>"${LOG_FILE}"
+        out="$(docker exec "${TARGET_CONTAINER}" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -t -A -c "${query}" 2>>"${LOG_FILE}")"
+        rc=$?
     fi
+    if [ "${rc}" -ne 0 ]; then
+        log "FALHA na consulta exec_psql_json (exit ${rc}): ${query}"
+        return "${rc}"
+    fi
+    printf '%s\n' "${out}"
 }
 
 exec_psql_raw() {
     local query="$1"
+    local out rc
     if command -v timeout >/dev/null 2>&1; then
-        timeout 60 docker exec "${TARGET_CONTAINER}" psql -U postgres -d postgres -t -A -F '|' -c "${query}" 2>>"${LOG_FILE}"
+        out="$(timeout 60 docker exec "${TARGET_CONTAINER}" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -t -A -F '|' -c "${query}" 2>>"${LOG_FILE}")"
+        rc=$?
     else
-        docker exec "${TARGET_CONTAINER}" psql -U postgres -d postgres -t -A -F '|' -c "${query}" 2>>"${LOG_FILE}"
+        out="$(docker exec "${TARGET_CONTAINER}" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -t -A -F '|' -c "${query}" 2>>"${LOG_FILE}")"
+        rc=$?
     fi
+    if [ "${rc}" -ne 0 ]; then
+        log "FALHA na consulta exec_psql_raw (exit ${rc}): ${query}"
+        return "${rc}"
+    fi
+    printf '%s\n' "${out}"
 }
 
 say "📋 Coletando metadados de catálogo (esquemas, tabelas, constraints, funções, triggers, extensões, roles)..."
 
 # 1. Metadados do servidor
-PG_VERSION="$(exec_psql_raw "SELECT version()" | head -n 1)"
-PG_MAJOR="$(exec_psql_raw "SHOW server_version" | head -n 1 | awk -F. '{print $1}' | tr -d '[:space:]')"
-DB_NAME="$(exec_psql_raw "SELECT current_database()" | head -n 1 | tr -d '[:space:]')"
+if ! PG_VERSION="$(exec_psql_raw "SELECT version()")"; then
+    die "Falha ao consultar versão detalhada do PostgreSQL no contêiner." "${EXIT_QUERY_FAILED}"
+fi
+PG_VERSION="$(printf '%s\n' "${PG_VERSION}" | head -n 1)"
+
+if ! PG_MAJOR_RAW="$(exec_psql_raw "SHOW server_version")"; then
+    die "Falha ao consultar server_version do PostgreSQL no contêiner." "${EXIT_QUERY_FAILED}"
+fi
+PG_MAJOR="$(printf '%s\n' "${PG_MAJOR_RAW}" | head -n 1 | awk -F. '{print $1}' | tr -d '[:space:]')"
+
+if ! DB_NAME_RAW="$(exec_psql_raw "SELECT current_database()")"; then
+    die "Falha ao consultar current_database no contêiner." "${EXIT_QUERY_FAILED}"
+fi
+DB_NAME="$(printf '%s\n' "${DB_NAME_RAW}" | head -n 1 | tr -d '[:space:]')"
 
 if [ -z "${PG_MAJOR}" ]; then
-    die "Falha ao consultar versão do PostgreSQL no contêiner." "${EXIT_QUERY_FAILED}"
+    die "Falha ao extrair versão do PostgreSQL no contêiner." "${EXIT_QUERY_FAILED}"
 fi
 
 # 2. Esquemas visíveis
-SCHEMAS_JSON="$(exec_psql_json "
+if ! SCHEMAS_JSON="$(exec_psql_json "
 SELECT COALESCE(json_agg(nspname ORDER BY nspname), '[]'::json)
 FROM pg_namespace
 WHERE nspname NOT LIKE 'pg\_%' AND nspname <> 'information_schema';
-")"
+")" || [ -z "${SCHEMAS_JSON}" ]; then
+    die "Falha ao consultar esquemas do banco no contêiner." "${EXIT_QUERY_FAILED}"
+fi
 
 # 3. Extensões instaladas
-EXTENSIONS_JSON="$(exec_psql_json "
+if ! EXTENSIONS_JSON="$(exec_psql_json "
 SELECT COALESCE(json_agg(json_build_object(
     'nome', extname,
     'versao', extversion,
@@ -289,10 +318,12 @@ SELECT COALESCE(json_agg(json_build_object(
 ) ORDER BY extname), '[]'::json)
 FROM pg_extension e
 JOIN pg_namespace n ON n.oid = e.extnamespace;
-")"
+")" || [ -z "${EXTENSIONS_JSON}" ]; then
+    die "Falha ao consultar extensões do banco no contêiner." "${EXIT_QUERY_FAILED}"
+fi
 
 # 4. Roles visíveis (apenas nomes e privilégios de atributos de catálogo, sem senhas/hashes)
-ROLES_JSON="$(exec_psql_json "
+if ! ROLES_JSON="$(exec_psql_json "
 SELECT COALESCE(json_agg(json_build_object(
     'nome', rolname,
     'superusuario', rolsuper,
@@ -304,10 +335,12 @@ SELECT COALESCE(json_agg(json_build_object(
 ) ORDER BY rolname), '[]'::json)
 FROM pg_roles
 WHERE rolname NOT LIKE 'pg\_%';
-")"
+")" || [ -z "${ROLES_JSON}" ]; then
+    die "Falha ao consultar roles no contêiner." "${EXIT_QUERY_FAILED}"
+fi
 
 # 5. Constraints / Foreign Keys
-CONSTRAINTS_JSON="$(exec_psql_json "
+if ! CONSTRAINTS_JSON="$(exec_psql_json "
 SELECT COALESCE(json_agg(json_build_object(
     'schema', constraint_schema,
     'tabela', table_name,
@@ -316,10 +349,12 @@ SELECT COALESCE(json_agg(json_build_object(
 ) ORDER BY constraint_schema, table_name, constraint_name), '[]'::json)
 FROM information_schema.table_constraints
 WHERE constraint_schema NOT LIKE 'pg\_%' AND constraint_schema <> 'information_schema';
-")"
+")" || [ -z "${CONSTRAINTS_JSON}" ]; then
+    die "Falha ao consultar constraints no contêiner." "${EXIT_QUERY_FAILED}"
+fi
 
-# 6. Funções (apenas catálogo: schema, nome, tipo de retorno)
-FUNCTIONS_JSON="$(exec_psql_json "
+# 6. Funções (apenas catálogo: schema, nome, linguagem)
+if ! FUNCTIONS_JSON="$(exec_psql_json "
 SELECT COALESCE(json_agg(json_build_object(
     'schema', n.nspname,
     'nome', p.proname,
@@ -329,10 +364,12 @@ FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 JOIN pg_language l ON l.oid = p.prolang
 WHERE n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema';
-")"
+")" || [ -z "${FUNCTIONS_JSON}" ]; then
+    die "Falha ao consultar funções no contêiner." "${EXIT_QUERY_FAILED}"
+fi
 
 # 7. Triggers
-TRIGGERS_JSON="$(exec_psql_json "
+if ! TRIGGERS_JSON="$(exec_psql_json "
 SELECT COALESCE(json_agg(json_build_object(
     'schema', trigger_schema,
     'tabela', event_object_table,
@@ -342,14 +379,18 @@ SELECT COALESCE(json_agg(json_build_object(
 ) ORDER BY trigger_schema, event_object_table, trigger_name), '[]'::json)
 FROM information_schema.triggers
 WHERE trigger_schema NOT LIKE 'pg\_%' AND trigger_schema <> 'information_schema';
-")"
+")" || [ -z "${TRIGGERS_JSON}" ]; then
+    die "Falha ao consultar triggers no contêiner." "${EXIT_QUERY_FAILED}"
+fi
 
 # 8. Tabelas e Contagens
 TABLES_JSON=""
 if [ "${EXACT_COUNT}" -eq 1 ]; then
     say "🔢 Calculando contagens exatas por tabela via SELECT count(*)..."
     # Obter lista de tabelas públicas
-    TAB_LIST="$(exec_psql_raw "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename")"
+    if ! TAB_LIST="$(exec_psql_raw "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename")"; then
+        die "Falha ao listar tabelas do schema public para contagem exata." "${EXIT_QUERY_FAILED}"
+    fi
     TAB_ENTRIES=""
     TOTAL_RECORDS=0
     TOTAL_TABLES=0
@@ -357,8 +398,13 @@ if [ "${EXACT_COUNT}" -eq 1 ]; then
     while IFS= read -r t; do
         [ -n "${t}" ] || continue
         TOTAL_TABLES=$((TOTAL_TABLES + 1))
-        cnt="$(exec_psql_raw "SELECT count(*) FROM public.\"${t}\"" | tr -d '[:space:]')"
-        case "${cnt}" in ''|*[!0-9]*) cnt="0" ;; esac
+        cnt_raw="$(exec_psql_raw "SELECT count(*) FROM public.\"${t}\"")" || die "Falha ao executar SELECT count(*) na tabela public.\"${t}\"." "${EXIT_QUERY_FAILED}"
+        cnt="$(printf '%s\n' "${cnt_raw}" | tr -d '[:space:]')"
+        case "${cnt}" in
+            ''|*[!0-9]*)
+                die "Resultado inválido de contagem na tabela public.\"${t}\": '${cnt}'." "${EXIT_QUERY_FAILED}"
+                ;;
+        esac
         TOTAL_RECORDS=$((TOTAL_RECORDS + cnt))
         
         entry="$(printf '{"schema":"public","tabela":"%s","contagem":%s,"tipo_contagem":"exata"}' "${t}" "${cnt}")"
@@ -370,8 +416,13 @@ if [ "${EXACT_COUNT}" -eq 1 ]; then
     done <<< "${TAB_LIST}"
 
     # auth.users como referência padrão do ecossistema Supabase
-    auth_cnt="$(exec_psql_raw "SELECT count(*) FROM auth.users" 2>>"${LOG_FILE}" | tr -d '[:space:]' || echo "0")"
-    case "${auth_cnt}" in ''|*[!0-9]*) auth_cnt="0" ;; esac
+    auth_cnt_raw="$(exec_psql_raw "SELECT count(*) FROM auth.users")" || die "Falha ao executar SELECT count(*) na tabela auth.users." "${EXIT_QUERY_FAILED}"
+    auth_cnt="$(printf '%s\n' "${auth_cnt_raw}" | tr -d '[:space:]')"
+    case "${auth_cnt}" in
+        ''|*[!0-9]*)
+            die "Resultado inválido de contagem em auth.users: '${auth_cnt}'." "${EXIT_QUERY_FAILED}"
+            ;;
+    esac
     entry_auth="$(printf '{"schema":"auth","tabela":"users","contagem":%s,"tipo_contagem":"exata"}' "${auth_cnt}")"
     if [ -n "${TAB_ENTRIES}" ]; then
         TAB_ENTRIES="${TAB_ENTRIES},${entry_auth}"
@@ -383,7 +434,7 @@ if [ "${EXACT_COUNT}" -eq 1 ]; then
     METODO_CONTAGEM="exata"
 else
     say "⚡ Obtendo contagens estimadas leves via pg_class.reltuples..."
-    TABLES_JSON="$(exec_psql_json "
+    if ! TABLES_JSON="$(exec_psql_json "
     SELECT COALESCE(json_agg(json_build_object(
         'schema', n.nspname,
         'tabela', c.relname,
@@ -394,10 +445,12 @@ else
     JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE c.relkind = 'r'
       AND n.nspname = 'public';
-    ")"
+    ")" || [ -z "${TABLES_JSON}" ]; then
+        die "Falha ao consultar contagens estimadas de tabelas públicas via reltuples." "${EXIT_QUERY_FAILED}"
+    fi
 
     # Adicionar estimativa de auth.users
-    auth_est="$(exec_psql_json "
+    if ! auth_est="$(exec_psql_json "
     SELECT COALESCE(json_build_object(
         'schema', 'auth',
         'tabela', 'users',
@@ -407,7 +460,9 @@ else
     FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE c.relkind = 'r' AND n.nspname = 'auth' AND c.relname = 'users';
-    ")"
+    ")"; then
+        die "Falha ao consultar contagem estimada de auth.users via reltuples." "${EXIT_QUERY_FAILED}"
+    fi
 
     if [ -n "${auth_est}" ] && [ "${auth_est}" != "{}" ]; then
         # Combinar com o array
@@ -469,8 +524,9 @@ chmod 600 "${OUTPUT_FILE}" 2>/dev/null || true
 # Validação do JSON gerado
 if command -v jq >/dev/null 2>&1; then
     if ! jq empty "${OUTPUT_FILE}" >/dev/null 2>&1; then
-        say_err "Aviso: Validação sintática do JSON com 'jq' indicou erro estrutural. Verifique ${OUTPUT_FILE}."
-        log "Aviso de sintaxe JSON ao validar com jq."
+        say_err "ERRO CRÍTICO: Validação sintática do JSON com 'jq' falhou. Arquivo inválido: ${OUTPUT_FILE}."
+        log "ERRO: Sintaxe JSON inválida detectada por jq."
+        die "Arquivo JSON de inventário gerado com erro sintático." "${EXIT_QUERY_FAILED}"
     else
         log "JSON validado com sucesso via jq."
     fi

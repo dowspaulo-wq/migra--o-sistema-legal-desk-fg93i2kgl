@@ -99,15 +99,16 @@ bash docs/vps/20-auditar-backup.sh \
 
 O que o script fará automaticamente:
 
-1. **Verificação de Segurança:** Testa se por engano o script está sendo rodado na VPS de produção (se detectar contêineres de produção ou o hostname da VPS, ele aborta imediatamente).
+1. **Guarda Anti-VPS Estrita:** Testa se por engano o script está sendo rodado na VPS de produção. Qualquer falha em consultar o hostname ou inspecionar contêineres Docker bloqueia preventivamente a execução antes de criar qualquer recurso.
 2. **Checagem de Integridade Física:** Executa `gzip -t` e calcula o hash SHA-256 do arquivo.
 3. **Checagem de Recursos:** Confere se a máquina tem memória (≥ 4 GB) e disco suficientes.
 4. **Criação do Laboratório Isolado:** Sobe um contêiner temporário com `--network none` (sem qualquer acesso à internet ou rede local).
-5. **Restauração Bruta:** Carrega o dump PostgreSQL e registra todos os erros e avisos em arquivo restrito (`chmod 600`).
+5. **Restauração com `psql -X -v ON_ERROR_STOP=1`:** Carrega o dump PostgreSQL interrompendo e registrando claramente qualquer erro SQL em arquivo restrito (`chmod 600`), com sanitização de dados sensíveis para privacidade.
 6. **Pós-Restauração Controlada (Supabase):** Verifica dependências do Supabase (como `graphql_public.graphql` da extensão `pg_graphql`) e recria no laboratório se necessário, diferenciando erros reais de lacunas do dump.
-7. **Validação Estrutural e Contagens:** Conta os registros de todas as tabelas públicas e compara com o inventário da produção.
-8. **Limpeza Segura (Cleanup):** Remove os contêineres e volumes efêmeros que ele mesmo criou, sem deixar resíduos.
-9. **Emissão do Relatório:** Exibe o resumo no terminal e salva o relatório completo em texto.
+7. **Validação Estrutural e Comparação de Inventário:** Valida tabelas `public` e `auth.users`. Compara contagens exatas com rigor numérico e contagens estimadas sem exigir igualdade numérica estrita. Exige `jq` e inventário válido para certificar a aprovação integral.
+8. **Testes Operacionais Não Destrutivos do CRM:** Executa 4 baterias técnicas ativas (FKs órfãs, sanidade de usuários, planos de execução `EXPLAIN` e simulação transacional `BEGIN ... ROLLBACK`).
+9. **Limpeza Segura (Cleanup):** Remove os contêineres e volumes efêmeros que ele mesmo criou, sem deixar resíduos.
+10. **Emissão do Relatório:** Exibe o resumo no terminal e salva o relatório completo em texto restrito (`chmod 600`).
 
 ---
 
@@ -126,18 +127,18 @@ bash docs/vps/20-auditar-backup.sh --leve
 
 O relatório gerado avalia a restauração sob **5 critérios independentes e rigorosos**:
 
-| Critério                                  | Descrição                                                                                             | O que significa se der FALHA                                                                                         |
-| :---------------------------------------- | :---------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------- |
-| **(a) Integridade do arquivo**            | Teste físico do compactador `gzip -t` e tamanho mínimo.                                               | O arquivo de backup foi corrompido, interrompido durante a gravação ou truncado.                                     |
-| **(b) Restauração sem erros**             | Verificação se a carga inicial do `psql` ocorreu com zero erros SQL.                                  | O dump gerou mensagens de erro ao ser restaurado (ex.: comandos que dependiam de roles de cluster ausentes no dump). |
-| **(c) Recuperação de estruturas e dados** | Confirmação de que as tabelas existem e os dados foram inseridos, conferindo com o inventário.        | Faltam tabelas essenciais ou a contagem de registros divergiu da produção.                                           |
-| **(d) Dependências Supabase**             | Verificação das extensões e funções internas do ecossistema Supabase (como `graphql_public.graphql`). | Extensão não foi inicializada corretamente pelo dump original (exige o procedimento pós-restauração).                |
-| **(e) Recuperação operacional do CRM**    | Avaliação se o banco está apto a sustentar as operações diárias do escritório DPSjur.                 | O banco não possui todas as tabelas ou funções necessárias para os advogados usarem o sistema.                       |
+| Critério                                  | Descrição                                                                                                                                                                                                                                       | O que significa se der FALHA                                                                                              |
+| :---------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------ |
+| **(a) Integridade do arquivo**            | Teste físico do compactador `gzip -t` e tamanho mínimo.                                                                                                                                                                                         | O arquivo de backup foi corrompido, interrompido durante a gravação ou truncado.                                          |
+| **(b) Restauração sem erros**             | Verificação se a carga inicial do `psql` ocorreu com zero erros SQL.                                                                                                                                                                            | O dump gerou mensagens de erro ao ser restaurado (ex.: comandos que dependiam de roles de cluster ausentes no dump).      |
+| **(c) Recuperação de estruturas e dados** | Confirmação de que as tabelas existem e os dados foram inseridos, conferindo com o inventário.                                                                                                                                                  | Faltam tabelas essenciais ou a contagem de registros divergiu da produção.                                                |
+| **(d) Dependências Supabase**             | Verificação das extensões e funções internas do ecossistema Supabase (como `graphql_public.graphql`).                                                                                                                                           | Extensão não foi inicializada corretamente pelo dump original (exige o procedimento pós-restauração).                     |
+| **(e) Recuperação operacional do CRM**    | Avaliação técnica ativa do banco via 4 testes não destrutivos representativos (integridade referencial de chaves estrangeiras, sanidade de `auth.users`, planos `EXPLAIN` de consultas centrais e simulação transacional `BEGIN ... ROLLBACK`). | Qualquer teste operacional falhou; o critério é classificado como NÃO COMPROVADO ou FALHA, impedindo o veredito APROVADO. |
 
 ### Veredito Final da Auditoria
 
-- **APROVADO (Restauração Integral):** Concedido **única e exclusivamente** se os 5 critérios forem atendidos com sucesso absoluto e sem qualquer divergência pendente.
-- **RECUPERAÇÃO PARCIAL / REPROVADO:** Emitido se houver qualquer divergência estrutural, erro não solucionado ou se a restauração depender de procedimentos manuais não automatizados.
+- **APROVADO (Restauração Integral):** Concedido **única e exclusivamente** se os 5 critérios forem atendidos com sucesso absoluto (todos `OK`), sem divergências pendentes e com inventário oficial validado via `jq` (diferenciando contagens exatas de estimativas estatísticas não vinculantes).
+- **RECUPERAÇÃO PARCIAL / REPROVADO:** Emitido se houver qualquer divergência estrutural, interrupção por erro SQL (`psql -X -v ON_ERROR_STOP=1`), falha de integridade referencial ou se a comparação com o inventário oficial estiver ausente ou corrompida.
 - **INCONCLUSIVO:** Emitido se o teste for interrompido antes do fim por falta de recursos (disco, memória).
 
 ---
