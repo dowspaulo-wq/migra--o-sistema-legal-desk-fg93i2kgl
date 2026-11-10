@@ -150,7 +150,7 @@ CRIT_A="PENDENTE" # Integridade do arquivo
 CRIT_B="PENDENTE" # Restauração concluída sem erros
 CRIT_C="PENDENTE" # Recuperação de estruturas e dados
 CRIT_D="PENDENTE" # Recuperação de dependências Supabase
-CRIT_E="PENDENTE" # Recuperação operacional completa do CRM
+CRIT_E="PENDENTE" # Compatibilidade e operação básica do CRM
 VEREDITO_FINAL="INCONCLUSIVO"
 CLASSIFICACAO_RECUPERACAO="INDEFINIDA" # "RESTAURAÇÃO INTEGRAL", "RECUPERAÇÃO PARCIAL" ou "NÃO RECUPERADO"
 
@@ -320,24 +320,29 @@ emit_report() {
         echo ""
         if [ "${MODE}" = "laboratorio" ]; then
             echo "4. RESULTADO DA RESTAURAÇÃO"
-            echo "   Resultado geral do restore: ${RESTORE_STATUS}"
-            echo "   Quantidade de erros brutos identificados no log: ${RESTORE_RAW_ERRORS_COUNT}"
-            echo "   Resumo dos erros brutos do restore:"
+            echo "   (a) Restauração Original (Bruta do Arquivo):"
+            echo "       Status: ${RESTORE_ORIGINAL_STATUS}"
+            echo "       Quantidade de erros brutos identificados no log: ${RESTORE_RAW_ERRORS_COUNT}"
+            echo "       Resumo dos erros brutos do restore:"
             if [ -s "${RESTORE_ERRORS_FILE}" ]; then
-                # Sanitização de privacidade: ofuscar valores literais em aspas/parênteses para impedir vazamento de dados de clientes
+                # Sanitização rigorosa de privacidade: ofuscar valores literais em aspas/números de documento para impedir vazamento de dados de clientes
                 head -n 25 "${RESTORE_ERRORS_FILE}" \
                     | sed -E "s/'[^']{4,}'/'[DADO_OFUSCADO]'/g" \
-                    | sed 's/^/      [RESTORE ERROR] /'
+                    | sed -E 's/[0-9]{11}/[CPF_OFUSCADO]/g' \
+                    | sed -E 's/[0-9]{14}/[CNPJ_OFUSCADO]/g' \
+                    | sed 's/^/          [RESTORE ERROR] /'
                 if [ "${RESTORE_RAW_ERRORS_COUNT}" -gt 25 ]; then
-                    echo "      ... e mais $((RESTORE_RAW_ERRORS_COUNT - 25)) mensagens de erro no log restrito."
+                    echo "          ... e mais $((RESTORE_RAW_ERRORS_COUNT - 25)) mensagens de erro no log restrito."
                 fi
-                echo "      (Nota de Privacidade: Detalhes literais com dados sensíveis permanecem restritos ao log técnico chmod 600)"
+                echo "          (Nota de Privacidade: Detalhes literais com dados sensíveis permanecem restritos ao log técnico chmod 600)"
             else
-                echo "      (Nenhum erro registrado durante a carga do dump)"
+                echo "          (Nenhum erro registrado durante a carga do dump)"
             fi
             echo ""
-            echo "   Procedimento corretivo pós-restauração no laboratório:"
-            echo "   Status: ${POST_RESTORE_RESULT}"
+            echo "   (b) Recuperação Assistida (Pós-Restauração / Dependências Supabase):"
+            echo "       Procedimento: Recriação controlada sem DROP CASCADE (proteção contra perda de dados)"
+            echo "       Status: ${POST_RESTORE_RESULT}"
+            echo "       Aplicação efetiva: ${POST_RESTORE_APPLIED}"
             echo ""
             echo "5. QUANTIDADE DE TABELAS E REGISTROS (SCHEMA PUBLIC)"
             echo "   Tabelas restauradas no schema public: ${TOTAL_TABELAS_LAB}"
@@ -346,21 +351,27 @@ emit_report() {
             echo "   Funções restauradas: ${TOTAL_FUNCOES_LAB}"
             echo "   Triggers restaurados: ${TOTAL_TRIGGERS_LAB}"
             echo "   Extensões ativas no laboratório: ${TOTAL_EXTENSOES_LAB}"
+            echo "   Falhas de consulta SQL registradas: ${QUERY_FAILURES_COUNT}"
             echo ""
-            echo "6. INCONSISTÊNCIAS / DIVERGÊNCIAS ENCONTRADAS"
+            echo "6. INCONSISTÊNCIAS / DIVERGÊNCIAS E DIFERENÇAS TEMPORAIS"
             if [ -s "${DIVERGENCES_FILE}" ]; then
                 sed 's/^/   [DIVERGÊNCIA] /' "${DIVERGENCES_FILE}"
             else
-                echo "   (Nenhuma divergência estrutural ou de contagem identificada)"
+                echo "   (Nenhuma divergência estrutural crítica pendente)"
             fi
             echo ""
+            if [ -s "${TEMPORAL_DIFFS_FILE}" ]; then
+                echo "   Diferenças temporais esperadas (produção posterior ao backup):"
+                sed 's/^/   /' "${TEMPORAL_DIFFS_FILE}"
+                echo ""
+            fi
             echo "   Itens conferidos com sucesso:"
             if [ -s "${CONFERIDOS_FILE}" ]; then
-                head -n 20 "${CONFERIDOS_FILE}" | sed 's/^/   [CONFERIDO] /'
+                head -n 25 "${CONFERIDOS_FILE}" | sed 's/^/   [CONFERIDO] /'
                 local conf_total
                 conf_total="$(wc -l < "${CONFERIDOS_FILE}" 2>/dev/null || echo 0)"
-                if [ "${conf_total}" -gt 20 ]; then
-                    echo "   ... e mais $((conf_total - 20)) itens conferidos com êxito."
+                if [ "${conf_total}" -gt 25 ]; then
+                    echo "   ... e mais $((conf_total - 25)) itens conferidos com êxito."
                 fi
             else
                 echo "   (Nenhum item catalogado)"
@@ -373,7 +384,7 @@ emit_report() {
         echo "   (b) Restauração concluída sem erros ..........: [ ${CRIT_B} ]"
         echo "   (c) Recuperação de estruturas e dados ........: [ ${CRIT_C} ]"
         echo "   (d) Recuperação de dependências Supabase .....: [ ${CRIT_D} ]"
-        echo "   (e) Recuperação operacional completa do CRM ..: [ ${CRIT_E} ]"
+        echo "   (e) Compatibilidade e operação básica do CRM .: [ ${CRIT_E} ]"
         echo "   -----------------------------------------------------------------------------"
         echo "   CLASSIFICAÇÃO TÉCNICA: ${CLASSIFICACAO_RECUPERACAO}"
         echo "   VEREDITO FINAL DA AUDITORIA: [ ${VEREDITO_FINAL} ]"
@@ -1029,8 +1040,10 @@ else
     say "ℹ️  Nenhum arquivo de inventário fornecido (--inventario). Comparação detalhada de conformidade não pôde ser atestada."
 fi
 
-# 9. Testes Técnicos Não Destrutivos de Recuperação Operacional do CRM
-say "🧪 Executando verificações técnicas de integridade e operação do CRM..."
+# 9. Testes Técnicos Não Destrutivos de Compatibilidade e Operação Básica do CRM
+# (Atenção: estes testes verificam integridade referencial, auth, sintaxe e transação no banco,
+# MAS NÃO comprovam integralmente a aplicação CRM em execução, APIs REST ou autenticação GoTrue ativa).
+say "🧪 Executando verificações técnicas de integridade e compatibilidade básica do CRM..."
 CRM_OPERATIONAL_TESTS_OK=0
 CRM_OPERATIONAL_TESTS_TOTAL=4
 CRM_OPERATIONAL_DETAILS=""
@@ -1047,42 +1060,63 @@ SELECT count(*) FROM (
     SELECT tr.id FROM public.transactions tr WHERE tr.client_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.clients cl WHERE cl.id = tr.client_id)
 ) orphans;
 "
-FK_ORPHANS_CNT="$(run_lab_psql "${ORPHAN_CHECK_QUERY}" "${AUDIT_DB}" 2>>"${LOG_FILE}" | tr -d '[:space:]')"
-case "${FK_ORPHANS_CNT}" in ''|*[!0-9]*) FK_ORPHANS_CNT="-1" ;; esac
-
-if [ "${FK_ORPHANS_CNT}" = "0" ]; then
-    CRM_OPERATIONAL_TESTS_OK=$((CRM_OPERATIONAL_TESTS_OK + 1))
-    printf 'CONFERIDO (op-crm): Integridade referencial intacta (0 chaves estrangeiras órfãs em cases/tasks/transactions)\n' >> "${CONFERIDOS_FILE}"
-    CRM_OPERATIONAL_DETAILS="${CRM_OPERATIONAL_DETAILS} [FK: 0 órfãs]"
+FK_ORPHANS_CNT=""
+if ! FK_ORPHANS_CNT="$(run_lab_psql "${ORPHAN_CHECK_QUERY}" "${AUDIT_DB}")"; then
+    say_err "Falha na consulta SQL de verificação de FKs órfãs."
+    printf 'DIVERGÊNCIA (op-crm): Falha de consulta SQL ao verificar FKs órfãs\n' >> "${DIVERGENCES_FILE}"
+    CRM_OPERATIONAL_DETAILS="${CRM_OPERATIONAL_DETAILS} [FK: falha de consulta]"
 else
-    printf 'DIVERGÊNCIA (op-crm): Encontrados %s registros órfãos violando integridade referencial básica do CRM\n' "${FK_ORPHANS_CNT}" >> "${DIVERGENCES_FILE}"
-    CRM_OPERATIONAL_DETAILS="${CRM_OPERATIONAL_DETAILS} [FK: ${FK_ORPHANS_CNT} órfãs]"
+    FK_ORPHANS_CNT="$(echo "${FK_ORPHANS_CNT}" | tr -d '[:space:]')"
+    case "${FK_ORPHANS_CNT}" in ''|*[!0-9]*) FK_ORPHANS_CNT="-1" ;; esac
+
+    if [ "${FK_ORPHANS_CNT}" = "0" ]; then
+        CRM_OPERATIONAL_TESTS_OK=$((CRM_OPERATIONAL_TESTS_OK + 1))
+        printf 'CONFERIDO (op-crm): Integridade referencial intacta (0 chaves estrangeiras órfãs em cases/tasks/transactions)\n' >> "${CONFERIDOS_FILE}"
+        CRM_OPERATIONAL_DETAILS="${CRM_OPERATIONAL_DETAILS} [FK: 0 órfãs]"
+    else
+        printf 'DIVERGÊNCIA (op-crm): Encontrados %s registros órfãos violando integridade referencial básica do CRM\n' "${FK_ORPHANS_CNT}" >> "${DIVERGENCES_FILE}"
+        CRM_OPERATIONAL_DETAILS="${CRM_OPERATIONAL_DETAILS} [FK: ${FK_ORPHANS_CNT} órfãs]"
+    fi
 fi
 
 # Teste Operacional 2: Estado e unicidade da base de usuários (auth.users e perfis)
-USERS_DUP_COUNT="$(run_lab_psql "SELECT count(*) FROM (SELECT email FROM auth.users WHERE email IS NOT NULL GROUP BY lower(email) HAVING count(*) > 1) d;" "${AUDIT_DB}" 2>>"${LOG_FILE}" | tr -d '[:space:]')"
-case "${USERS_DUP_COUNT}" in ''|*[!0-9]*) USERS_DUP_COUNT="-1" ;; esac
+USERS_DUP_COUNT=""
+if ! USERS_DUP_COUNT="$(run_lab_psql "SELECT count(*) FROM (SELECT email FROM auth.users WHERE email IS NOT NULL GROUP BY lower(email) HAVING count(*) > 1) d;" "${AUDIT_DB}")"; then
+    say_err "Falha na consulta SQL de verificação de duplicidades de e-mail em auth.users."
+    printf 'DIVERGÊNCIA (op-crm): Falha de consulta SQL ao checar duplicidades em auth.users\n' >> "${DIVERGENCES_FILE}"
+    USERS_DUP_COUNT="-1"
+else
+    USERS_DUP_COUNT="$(echo "${USERS_DUP_COUNT}" | tr -d '[:space:]')"
+    case "${USERS_DUP_COUNT}" in ''|*[!0-9]*) USERS_DUP_COUNT="-1" ;; esac
+fi
 
-USERS_TOTAL="$(run_lab_psql "SELECT count(*) FROM auth.users;" "${AUDIT_DB}" 2>>"${LOG_FILE}" | tr -d '[:space:]')"
-case "${USERS_TOTAL}" in ''|*[!0-9]*) USERS_TOTAL="0" ;; esac
+USERS_TOTAL=""
+if ! USERS_TOTAL="$(run_lab_psql "SELECT count(*) FROM auth.users;" "${AUDIT_DB}")"; then
+    say_err "Falha na consulta SQL de contagem de auth.users."
+    printf 'DIVERGÊNCIA (op-crm): Falha de consulta SQL ao contar auth.users\n' >> "${DIVERGENCES_FILE}"
+    USERS_TOTAL="0"
+else
+    USERS_TOTAL="$(echo "${USERS_TOTAL}" | tr -d '[:space:]')"
+    case "${USERS_TOTAL}" in ''|*[!0-9]*) USERS_TOTAL="0" ;; esac
+fi
 
 if [ "${USERS_DUP_COUNT}" = "0" ] && [ "${USERS_TOTAL}" -ge 1 ]; then
     CRM_OPERATIONAL_TESTS_OK=$((CRM_OPERATIONAL_TESTS_OK + 1))
     printf 'CONFERIDO (op-crm): Tabela auth.users íntegra (%s usuários, 0 duplicidades de e-mail)\n' "${USERS_TOTAL}" >> "${CONFERIDOS_FILE}"
     CRM_OPERATIONAL_DETAILS="${CRM_OPERATIONAL_DETAILS} [Users: ${USERS_TOTAL} ok]"
 else
-    printf 'DIVERGÊNCIA (op-crm): Inconsistência em auth.users (total: %s, e-mails duplicados: %s)\n' "${USERS_TOTAL}" "${USERS_DUP_COUNT}" >> "${DIVERGENCES_FILE}"
-    CRM_OPERATIONAL_DETAILS="${CRM_OPERATIONAL_DETAILS} [Users: inconsistente]"
+    printf 'DIVERGÊNCIA (op-crm): Inconsistência ou falha em auth.users (total: %s, e-mails duplicados: %s)\n' "${USERS_TOTAL}" "${USERS_DUP_COUNT}" >> "${DIVERGENCES_FILE}"
+    CRM_OPERATIONAL_DETAILS="${CRM_OPERATIONAL_DETAILS} [Users: inconsistente ou falha]"
 fi
 
 # Teste Operacional 3: Execução de consultas representativas de tela do CRM com EXPLAIN
 EXPLAIN_CLIENTS_RC=0
-if ! run_lab_psql "EXPLAIN SELECT c.id, c.name, count(cs.id) FROM public.clients c LEFT JOIN public.cases cs ON cs.client_id = c.id GROUP BY c.id, c.name LIMIT 20;" "${AUDIT_DB}" >/dev/null 2>>"${LOG_FILE}"; then
+if ! run_lab_psql "EXPLAIN SELECT c.id, c.name, count(cs.id) FROM public.clients c LEFT JOIN public.cases cs ON cs.client_id = c.id GROUP BY c.id, c.name LIMIT 20;" "${AUDIT_DB}" >/dev/null; then
     EXPLAIN_CLIENTS_RC=1
 fi
 
 EXPLAIN_FINANCE_RC=0
-if ! run_lab_psql "EXPLAIN SELECT id, amount, type, status, due_date FROM public.transactions WHERE deleted_at IS NULL ORDER BY due_date DESC LIMIT 50;" "${AUDIT_DB}" >/dev/null 2>>"${LOG_FILE}"; then
+if ! run_lab_psql "EXPLAIN SELECT id, amount, type, status, due_date FROM public.transactions WHERE deleted_at IS NULL ORDER BY due_date DESC LIMIT 50;" "${AUDIT_DB}" >/dev/null; then
     EXPLAIN_FINANCE_RC=1
 fi
 
@@ -1097,7 +1131,7 @@ fi
 
 # Teste Operacional 4: Transação de leitura/simulação idempotente (BEGIN ... ROLLBACK)
 ROLLBACK_SIM_OK=0
-if run_lab_psql "BEGIN; SELECT count(*) FROM public.clients; SELECT count(*) FROM public.cases; ROLLBACK;" "${AUDIT_DB}" >/dev/null 2>>"${LOG_FILE}"; then
+if run_lab_psql "BEGIN; SELECT count(*) FROM public.clients; SELECT count(*) FROM public.cases; ROLLBACK;" "${AUDIT_DB}" >/dev/null; then
     ROLLBACK_SIM_OK=1
 fi
 
@@ -1112,20 +1146,29 @@ fi
 
 # 10. Avaliação dos Critérios Rigorosos e Veredito Final
 # Critério C: Recuperação de estruturas e dados
-if [ "${TOTAL_TABELAS_LAB}" -gt 0 ] && [ "${TOTAL_REGISTROS_LAB}" -gt 0 ] && [ ! -s "${DIVERGENCES_FILE}" ]; then
-    CRIT_C="OK"
-elif [ "${TOTAL_TABELAS_LAB}" -gt 0 ]; then
-    CRIT_C="PARCIAL"
-else
-    CRIT_C="FALHA"
-fi
+case "${TOTAL_TABELAS_LAB}" in
+    ERRO)
+        CRIT_C="FALHA"
+        ;;
+    *)
+        if [ "${TOTAL_TABELAS_LAB}" -gt 0 ] && [ "${TOTAL_REGISTROS_STATUS}" = "OK" ] && [ ! -s "${DIVERGENCES_FILE}" ]; then
+            CRIT_C="OK"
+        elif [ "${TOTAL_TABELAS_LAB}" -gt 0 ]; then
+            CRIT_C="PARCIAL"
+        else
+            CRIT_C="FALHA"
+        fi
+        ;;
+esac
 
-# Critério E: Recuperação operacional completa do CRM
-# Exige que os testes técnicos representativos não destrutivos tenham passado 100%
-if [ "${CRM_OPERATIONAL_TESTS_OK}" -eq "${CRM_OPERATIONAL_TESTS_TOTAL}" ] && [ "${CRIT_C}" = "OK" ] && [ "${CRIT_D}" = "OK" ]; then
-    CRIT_E="OK"
+# Critério E: Recuperação operacional e compatibilidade básica
+# (Atenção: restrito ao escopo do banco de dados; funcionamento pleno do CRM requer backend GoTrue/Kong ativos)
+if [ "${QUERY_FAILURES_COUNT}" -gt 0 ]; then
+    CRIT_E="FALHA (${QUERY_FAILURES_COUNT} falha(s) de consulta SQL detectadas)"
+elif [ "${CRM_OPERATIONAL_TESTS_OK}" -eq "${CRM_OPERATIONAL_TESTS_TOTAL}" ] && [ "${CRIT_C}" = "OK" ] && [ "${CRIT_D#OK}" != "${CRIT_D}" ]; then
+    CRIT_E="COMPATIBILIDADE BÁSICA VERIFICADA (4/4 testes técnicos de banco ok; operação integral do CRM depende de stack GoTrue/Kong)"
 elif [ "${CRM_OPERATIONAL_TESTS_OK}" -gt 0 ]; then
-    CRIT_E="NÃO COMPROVADO (apenas ${CRM_OPERATIONAL_TESTS_OK}/${CRM_OPERATIONAL_TESTS_TOTAL} verificações operacionais sucedidas)"
+    CRIT_E="NÃO COMPROVADO (${CRM_OPERATIONAL_TESTS_OK}/${CRM_OPERATIONAL_TESTS_TOTAL} verificações sucedidas)"
 else
     CRIT_E="FALHA"
 fi
@@ -1133,20 +1176,41 @@ fi
 # Classificação e Veredito Final
 DIVERGENCES_COUNT="$(wc -l < "${DIVERGENCES_FILE}" 2>/dev/null || echo 0)"
 
-# Para APROVADO, exige todos os 5 critérios em OK, sem divergências E com inventário validado por jq
-if [ "${CRIT_A}" = "OK" ] && [ "${CRIT_B}" = "OK" ] && [ "${CRIT_C}" = "OK" ] && [ "${CRIT_D}" = "OK" ] && [ "${CRIT_E}" = "OK" ] && [ "${DIVERGENCES_COUNT}" -eq 0 ] && [ "${INVENTORY_COMPARISON_VALID}" = "SIM" ]; then
+# Para APROVADO, exige:
+# - Critério A em OK
+# - Critério B em OK (restauração sem erros SQL brutos)
+# - Critério C em OK (estruturas e dados sem divergência estrutural)
+# - Critério D iniciando com OK (extensões presentes, seja na restauração original ou recuperação assistida)
+# - Critério E com compatibilidade básica verificada
+# - Sem divergências críticas pendentes (DIVERGENCES_COUNT == 0)
+# - E comparação semântica com inventário oficial validada por jq (INVENTORY_COMPARISON_VALID == SIM)
+CRIT_D_OK=0
+if [ "${CRIT_D#OK}" != "${CRIT_D}" ]; then
+    CRIT_D_OK=1
+fi
+
+CRIT_E_OK=0
+if [ "${CRIT_E#COMPATIBILIDADE BÁSICA VERIFICADA}" != "${CRIT_E}" ] || [ "${CRIT_E}" = "OK" ]; then
+    CRIT_E_OK=1
+fi
+
+if [ "${CRIT_A}" = "OK" ] && [ "${CRIT_B}" = "OK" ] && [ "${CRIT_C}" = "OK" ] && [ "${CRIT_D_OK}" -eq 1 ] && [ "${CRIT_E_OK}" -eq 1 ] && [ "${DIVERGENCES_COUNT}" -eq 0 ] && [ "${INVENTORY_COMPARISON_VALID}" = "SIM" ]; then
     VEREDITO_FINAL="APROVADO"
-    CLASSIFICACAO_RECUPERACAO="RESTAURAÇÃO INTEGRAL"
-elif [ "${CRIT_A}" = "OK" ] && [ "${CRIT_B}" = "OK" ] && [ "${CRIT_C}" = "OK" ] && [ "${CRIT_D}" = "OK" ] && [ "${CRIT_E}" = "OK" ] && [ "${DIVERGENCES_COUNT}" -eq 0 ]; then
+    if [ "${POST_RESTORE_APPLIED}" = "SIM" ]; then
+        CLASSIFICACAO_RECUPERACAO="RECUPERAÇÃO ASSISTIDA VALIDADA (banco restaurado íntegro após ajuste de pg_graphql; compatibilidade básica confirmada)"
+    else
+        CLASSIFICACAO_RECUPERACAO="RESTAURAÇÃO INTEGRAL (restauração direta sem erros; compatibilidade básica confirmada)"
+    fi
+elif [ "${CRIT_A}" = "OK" ] && [ "${CRIT_B}" = "OK" ] && [ "${CRIT_C}" = "OK" ] && [ "${CRIT_D_OK}" -eq 1 ] && [ "${CRIT_E_OK}" -eq 1 ] && [ "${DIVERGENCES_COUNT}" -eq 0 ]; then
     # Todos os critérios técnicos passaram, mas não houve inventário válido para certificar integralidade absoluta
     VEREDITO_FINAL="REPROVADO"
-    CLASSIFICACAO_RECUPERACAO="RECUPERAÇÃO PARCIAL (auditoria técnica aprovada, mas comparação com inventário oficial ausente ou incompleta)"
-elif [ "${CRIT_A}" = "OK" ] && [ "${TOTAL_TABELAS_LAB}" -gt 0 ]; then
+    CLASSIFICACAO_RECUPERACAO="RECUPERAÇÃO PARCIAL (auditoria técnica no banco aprovada, mas comparação com inventário oficial ausente ou incompleta)"
+elif [ "${CRIT_A}" = "OK" ] && [ "${TOTAL_TABELAS_LAB}" != "ERRO" ] && [ "${TOTAL_TABELAS_LAB}" -gt 0 ]; then
     VEREDITO_FINAL="REPROVADO"
     CLASSIFICACAO_RECUPERACAO="RECUPERAÇÃO PARCIAL (inconsistências, dependências ou validações operacionais pendentes)"
 else
     VEREDITO_FINAL="REPROVADO"
-    CLASSIFICACAO_RECUPERACAO="NÃO RECUPERADO (falha crítica de restauração)"
+    CLASSIFICACAO_RECUPERACAO="NÃO RECUPERADO (falha crítica de restauração ou de integridade física)"
 fi
 
 log "Auditoria concluída. Veredito: ${VEREDITO_FINAL}, Classificação: ${CLASSIFICACAO_RECUPERACAO}"

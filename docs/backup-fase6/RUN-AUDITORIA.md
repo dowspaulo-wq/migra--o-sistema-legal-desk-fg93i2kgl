@@ -108,7 +108,30 @@ O que o script fará automaticamente:
 7. **Validação Estrutural e Comparação de Inventário:** Valida tabelas `public` e `auth.users`. Compara contagens exatas com rigor numérico e contagens estimadas sem exigir igualdade numérica estrita. Exige `jq` e inventário válido para certificar a aprovação integral.
 8. **Testes Operacionais Não Destrutivos do CRM:** Executa 4 baterias técnicas ativas (FKs órfãs, sanidade de usuários, planos de execução `EXPLAIN` e simulação transacional `BEGIN ... ROLLBACK`).
 9. **Limpeza Segura (Cleanup):** Remove os contêineres e volumes efêmeros que ele mesmo criou, sem deixar resíduos.
-10. **Emissão do Relatório:** Exibe o resumo no terminal e salva o relatório completo em texto restrito (`chmod 600`).
+10. **Emissão do Relatório:** Exibe o resumo no terminal e salva o relatório completo em texto restrito (`chmod 600`), separando restauração original de recuperação assistida.
+
+---
+
+### Novidades e Ajustes de Segurança da Versão v1.2.0
+
+A versão **v1.2.0** dos scripts incorpora as recomendações da auditoria independente do commit `60c4941`:
+
+1. **Separação Rigorosa dos Schemas `public` e `auth`:**
+   - O inventário e o auditor separam a contagem de tabelas públicas da contagem de tabelas de autenticação (`auth.users`, etc.). `auth.users` não é contabilizada como tabela `public`.
+2. **Eliminação de Mascaramento de Falhas (`|| true` e Conversões para Zero):**
+   - Nenhuma falha de consulta do `jq` ou do `psql` é mascarada como "0 registros" ou resultado válido. Falhas de consulta SQL ou de leitura JSON são registradas explicitamente como divergências e impedem o veredito APROVADO integral.
+3. **Pós-Restauração de Extensões sem `DROP CASCADE` Destrutivo:**
+   - A correção de `pg_graphql` no laboratório utiliza `CREATE EXTENSION IF NOT EXISTS` e validação pontual de integridade, sem recorrer a `DROP EXTENSION ... CASCADE` automático, protegendo todas as tabelas e views dependentes.
+4. **Diferenciação Clara entre Restauração Original e Recuperação Assistida:**
+   - O relatório final discrimina o status da restauração original direta do dump e o status pós-recuperação assistida (caso ajustes de extensões do Supabase sejam aplicados).
+5. **Critério de Reconciliação Temporal para Backups Anteriores ao Inventário:**
+   - Quando o backup restaurado é anterior ao inventário da produção, o crescimento natural de registros (ex.: clientes e atendimentos cadastrados após a criação do arquivo de backup) é registrado como diferença temporal esperada em seção informativa do relatório, evitando falsas reprovações em backups íntegros.
+6. **Escopo Real dos Testes Técnicos (Critério e):**
+   - O critério (e) foi redefinido como **Compatibilidade e Operação Básica do CRM**, atestando que os 4 testes do banco (FKs órfãs, unicidade de `auth.users`, planos `EXPLAIN` e bloco transacional) passaram com sucesso no banco, esclarecendo que o funcionamento operacional completo da aplicação em produção envolve também o runtime ativo dos contêineres GoTrue, Kong e PostgREST.
+7. **Guarda Anti-VPS no Topo Absoluto:**
+   - A guarda anti-VPS do script 20 é executada imediatamente no início do script, antes de criar qualquer arquivo, pasta temporária ou redirecionamento de log em disco.
+8. **Privacidade e Permissões Restritas:**
+   - Aplicação de `umask 077` e permissões `600` para logs/relatórios e `700` para diretórios temporários, além de ofuscação de identificadores sensíveis (como CPFs/CNPJs e dados textuais) capturados em eventuais mensagens de erro de restore.
 
 ---
 
@@ -127,17 +150,17 @@ bash docs/vps/20-auditar-backup.sh --leve
 
 O relatório gerado avalia a restauração sob **5 critérios independentes e rigorosos**:
 
-| Critério                                  | Descrição                                                                                                                                                                                                                                       | O que significa se der FALHA                                                                                              |
-| :---------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------ |
-| **(a) Integridade do arquivo**            | Teste físico do compactador `gzip -t` e tamanho mínimo.                                                                                                                                                                                         | O arquivo de backup foi corrompido, interrompido durante a gravação ou truncado.                                          |
-| **(b) Restauração sem erros**             | Verificação se a carga inicial do `psql` ocorreu com zero erros SQL.                                                                                                                                                                            | O dump gerou mensagens de erro ao ser restaurado (ex.: comandos que dependiam de roles de cluster ausentes no dump).      |
-| **(c) Recuperação de estruturas e dados** | Confirmação de que as tabelas existem e os dados foram inseridos, conferindo com o inventário.                                                                                                                                                  | Faltam tabelas essenciais ou a contagem de registros divergiu da produção.                                                |
-| **(d) Dependências Supabase**             | Verificação das extensões e funções internas do ecossistema Supabase (como `graphql_public.graphql`).                                                                                                                                           | Extensão não foi inicializada corretamente pelo dump original (exige o procedimento pós-restauração).                     |
-| **(e) Recuperação operacional do CRM**    | Avaliação técnica ativa do banco via 4 testes não destrutivos representativos (integridade referencial de chaves estrangeiras, sanidade de `auth.users`, planos `EXPLAIN` de consultas centrais e simulação transacional `BEGIN ... ROLLBACK`). | Qualquer teste operacional falhou; o critério é classificado como NÃO COMPROVADO ou FALHA, impedindo o veredito APROVADO. |
+| Critério                                         | Descrição                                                                                                                                                                                                                                       | O que significa se der FALHA                                                                                              |
+| :----------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------ |
+| **(a) Integridade do arquivo**                   | Teste físico do compactador `gzip -t` e tamanho mínimo.                                                                                                                                                                                         | O arquivo de backup foi corrompido, interrompido durante a gravação ou truncado.                                          |
+| **(b) Restauração sem erros**                    | Verificação se a carga inicial do `psql` ocorreu com zero erros SQL.                                                                                                                                                                            | O dump gerou mensagens de erro ao ser restaurado (ex.: comandos que dependiam de roles de cluster ausentes no dump).      |
+| **(c) Recuperação de estruturas e dados**        | Confirmação de que as tabelas existem e os dados foram inseridos, conferindo com o inventário (schemas `public` e `auth` separados).                                                                                                            | Faltam tabelas essenciais ou a contagem de registros divergiu da produção.                                                |
+| **(d) Dependências Supabase**                    | Verificação das extensões e funções internas do ecossistema Supabase (como `graphql_public.graphql`), distinguindo restauração direta de recuperação assistida.                                                                                 | Extensão não foi inicializada corretamente pelo dump original e procedimento não destrutivo não pôde ativá-la.            |
+| **(e) Compatibilidade e operação básica do CRM** | Avaliação técnica ativa do banco via 4 testes não destrutivos representativos (integridade referencial de chaves estrangeiras, sanidade de `auth.users`, planos `EXPLAIN` de consultas centrais e simulação transacional `BEGIN ... ROLLBACK`). | Qualquer teste operacional falhou; o critério é classificado como NÃO COMPROVADO ou FALHA, impedindo o veredito APROVADO. |
 
 ### Veredito Final da Auditoria
 
-- **APROVADO (Restauração Integral):** Concedido **única e exclusivamente** se os 5 critérios forem atendidos com sucesso absoluto (todos `OK`), sem divergências pendentes e com inventário oficial validado via `jq` (diferenciando contagens exatas de estimativas estatísticas não vinculantes).
+- **APROVADO (Restauração Integral ou Recuperação Assistida Validada):** Concedido **única e exclusivamente** se os 5 critérios forem atendidos com sucesso (critérios A, B, C, D e E aprovados), sem divergências estruturais críticas pendentes, e com inventário oficial validado via `jq` (diferenciando contagens exatas, diferenças temporais esperadas e estimativas estatísticas não vinculantes). Se ajustes não destrutivos de extensões foram necessários no lab, o veredito registra `RECUPERAÇÃO ASSISTIDA VALIDADA`.
 - **RECUPERAÇÃO PARCIAL / REPROVADO:** Emitido se houver qualquer divergência estrutural, interrupção por erro SQL (`psql -X -v ON_ERROR_STOP=1`), falha de integridade referencial ou se a comparação com o inventário oficial estiver ausente ou corrompida.
 - **INCONCLUSIVO:** Emitido se o teste for interrompido antes do fim por falta de recursos (disco, memória).
 
@@ -161,7 +184,7 @@ O relatório gerado avalia a restauração sob **5 critérios independentes e ri
 ## 6. Resolução de Dúvidas Comuns
 
 **P: Por que o restore bruto pode acusar erro sobre `graphql_public.graphql`?**  
-R: O utilitário `pg_dump` com a flag `--clean --if-exists` tenta recriar extensões. Como a imagem Docker `supabase/postgres` já traz a extensão `pg_graphql` pré-instalada na inicialização do contêiner, o restore pula a criação e as funções da extensão podem não ser registradas no schema público. O script `20-auditar-backup.sh` detecta isso e aplica o procedimento corretivo documentado para validar se a dependência é plenamente recuperável.
+R: O utilitário `pg_dump` com a flag `--clean --if-exists` tenta recriar extensões. Como a imagem Docker `supabase/postgres` já traz a extensão `pg_graphql` pré-instalada na inicialização do contêiner, o restore pula a criação e as funções da extensão podem não ser registradas no schema público. O script `20-auditar-backup.sh` detecta isso e aplica um procedimento corretivo não destrutivo (sem `DROP CASCADE`) para validar se a dependência é plenamente recuperável, diferenciando no relatório final a restauração original da recuperação assistida.
 
 **P: Os dados de clientes e processos aparecem nos relatórios ou logs?**  
 R: **Não.** Todos os scripts foram programados sob rigorosa política de privacidade: são extraídos apenas nomes de tabelas, funções, erros técnicos do PostgreSQL e números de contagem. Nenhum conteúdo de linha, nome de cliente ou processo é gravado nos relatórios. Além disso, todos os arquivos são criados com permissão estrita `chmod 600` e máscara `umask 077`.

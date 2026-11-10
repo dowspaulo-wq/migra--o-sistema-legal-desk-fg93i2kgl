@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur / SBJur — Inventário Estrutural e de Contagens do Banco de Dados
 # Script: docs/vps/21-gerar-inventario.sh
-# Versão: v1.1.0
+# Versão: v1.2.0
 # Destino de execução: VPS Hostinger de Produção (SOMENTE LEITURA)
 #
 # OBJETIVO:
@@ -44,7 +44,7 @@
 set -u -o pipefail
 umask 077
 
-SCRIPT_VERSION="v1.1.0"
+SCRIPT_VERSION="v1.2.0"
 TS_STAMP="$(date +%Y%m%d-%H%M%S)"
 DEFAULT_OUTPUT_DIR="/root/sbjur-backups/inventarios"
 DEFAULT_OUTPUT_FILE="${DEFAULT_OUTPUT_DIR}/inventario-${TS_STAMP}.json"
@@ -471,13 +471,16 @@ else
     METODO_CONTAGEM="estimada_reltuples"
 fi
 
-# Contagens de sumário
-TOTAL_TABLES_COUNT="$(echo "${TABLES_JSON}" | grep -o '"tabela":' | wc -l | tr -d '[:space:]')"
-TOTAL_CONSTRAINTS_COUNT="$(echo "${CONSTRAINTS_JSON}" | grep -o '"nome":' | wc -l | tr -d '[:space:]')"
-TOTAL_FUNCTIONS_COUNT="$(echo "${FUNCTIONS_JSON}" | grep -o '"nome":' | wc -l | tr -d '[:space:]')"
-TOTAL_TRIGGERS_COUNT="$(echo "${TRIGGERS_JSON}" | grep -o '"nome":' | wc -l | tr -d '[:space:]')"
-TOTAL_EXTENSIONS_COUNT="$(echo "${EXTENSIONS_JSON}" | grep -o '"nome":' | wc -l | tr -d '[:space:]')"
-TOTAL_ROLES_COUNT="$(echo "${ROLES_JSON}" | grep -o '"nome":' | wc -l | tr -d '[:space:]')"
+# Contagens de sumário — separação estrita entre public e auth
+TOTAL_TABLES_PUBLIC_COUNT="$(printf '%s\n' "${TABLES_JSON}" | grep -o '"schema":"public"' | wc -l | tr -d '[:space:]')"
+TOTAL_TABLES_AUTH_COUNT="$(printf '%s\n' "${TABLES_JSON}" | grep -o '"schema":"auth"' | wc -l | tr -d '[:space:]')"
+TOTAL_TABLES_ALL_COUNT="$(printf '%s\n' "${TABLES_JSON}" | grep -o '"tabela":' | wc -l | tr -d '[:space:]')"
+
+TOTAL_CONSTRAINTS_COUNT="$(printf '%s\n' "${CONSTRAINTS_JSON}" | grep -o '"nome":' | wc -l | tr -d '[:space:]')"
+TOTAL_FUNCTIONS_COUNT="$(printf '%s\n' "${FUNCTIONS_JSON}" | grep -o '"nome":' | wc -l | tr -d '[:space:]')"
+TOTAL_TRIGGERS_COUNT="$(printf '%s\n' "${TRIGGERS_JSON}" | grep -o '"nome":' | wc -l | tr -d '[:space:]')"
+TOTAL_EXTENSIONS_COUNT="$(printf '%s\n' "${EXTENSIONS_JSON}" | grep -o '"nome":' | wc -l | tr -d '[:space:]')"
+TOTAL_ROLES_COUNT="$(printf '%s\n' "${ROLES_JSON}" | grep -o '"nome":' | wc -l | tr -d '[:space:]')"
 
 # Montagem do arquivo JSON estruturado final
 say "💾 Gravando arquivo JSON de inventário restrito..."
@@ -502,7 +505,10 @@ cat <<EOF > "${OUTPUT_FILE}"
     "permissao_arquivo": "0600"
   },
   "sumario": {
-    "total_tabelas": ${TOTAL_TABLES_COUNT},
+    "total_tabelas": ${TOTAL_TABLES_PUBLIC_COUNT},
+    "total_tabelas_public": ${TOTAL_TABLES_PUBLIC_COUNT},
+    "total_tabelas_auth": ${TOTAL_TABLES_AUTH_COUNT},
+    "total_tabelas_todas": ${TOTAL_TABLES_ALL_COUNT},
     "total_constraints": ${TOTAL_CONSTRAINTS_COUNT},
     "total_funcoes": ${TOTAL_FUNCTIONS_COUNT},
     "total_triggers": ${TOTAL_TRIGGERS_COUNT},
@@ -540,7 +546,8 @@ say " Arquivo JSON gerado ..: ${OUTPUT_FILE} (chmod 600)"
 say " Contêiner auditado ...: ${TARGET_CONTAINER}"
 say " PostgreSQL Major .....: ${PG_MAJOR}"
 say " Método de contagem ...: ${METODO_CONTAGEM}"
-say " Total de tabelas .....: ${TOTAL_TABLES_COUNT}"
+say " Total tabelas public .: ${TOTAL_TABLES_PUBLIC_COUNT}"
+say " Total tabelas auth ...: ${TOTAL_TABLES_AUTH_COUNT}"
 say " Total de constraints .: ${TOTAL_CONSTRAINTS_COUNT}"
 say " Total de funções .....: ${TOTAL_FUNCTIONS_COUNT}"
 say " Total de triggers ....: ${TOTAL_TRIGGERS_COUNT}"
