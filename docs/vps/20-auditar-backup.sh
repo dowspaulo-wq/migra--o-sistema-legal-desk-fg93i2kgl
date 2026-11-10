@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur / SBJur — Auditoria Independente de Integridade de Backup
 # Script: docs/vps/20-auditar-backup.sh
-# Versão: v1.5.0
+# Versão: v1.6.0
 # Destino de execução: MÁQUINA DE TESTE / WSL2 / DOCKER DESKTOP ISOLADO
 #
 # GUARDA DE SEGURANÇA MÁXIMA (ANTI-VPS) E CONTROLE ESTRITO DE SESSÃO DOCKER:
@@ -50,7 +50,7 @@
 set -u -o pipefail
 umask 077
 
-SCRIPT_VERSION="v1.5.0"
+SCRIPT_VERSION="v1.6.0"
 
 # ------------------------------------------------------------------------------
 # PONTO 9 E PONTO 10 DA AUDITORIA: GUARDA DE SEGURANÇA MÁXIMA (ANTI-VPS)
@@ -718,10 +718,15 @@ say "   Funções no public ..........: ${TOTAL_FUNCOES_LAB}"
 say "   Triggers no public .........: ${TOTAL_TRIGGERS_LAB}"
 say "   Extensões instaladas .......: ${TOTAL_EXTENSOES_LAB}"
 
-# Contagem de registros no laboratório
+# Contagem de registros no laboratório (schemas public e auth)
 LAB_PUBLIC_TABLES_LIST=""
 if ! LAB_PUBLIC_TABLES_LIST="$(exec_lab_sql "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name")"; then
     printf 'DIVERGÊNCIA: Falha de consulta SQL ao listar tabelas public\n' >> "${DIVERGENCES_FILE}"
+fi
+
+LAB_AUTH_TABLES_LIST=""
+if ! LAB_AUTH_TABLES_LIST="$(exec_lab_sql "SELECT table_name FROM information_schema.tables WHERE table_schema = 'auth' AND table_type = 'BASE TABLE' ORDER BY table_name")"; then
+    printf 'DIVERGÊNCIA: Falha de consulta SQL ao listar tabelas auth\n' >> "${DIVERGENCES_FILE}"
 fi
 
 TOTAL_REGISTROS_STATUS="OK"
@@ -744,6 +749,27 @@ if [ -n "${LAB_PUBLIC_TABLES_LIST}" ]; then
                 ;;
         esac
     done <<< "${LAB_PUBLIC_TABLES_LIST}"
+fi
+
+if [ -n "${LAB_AUTH_TABLES_LIST}" ]; then
+    while IFS= read -r t; do
+        [ -n "${t}" ] || continue
+        cnt_raw="$(exec_lab_sql "SELECT count(*) FROM auth.\"${t}\"")" || {
+            printf 'DIVERGÊNCIA: Falha de consulta SQL ao contar registros de auth."%s"\n' "${t}" >> "${DIVERGENCES_FILE}"
+            TOTAL_REGISTROS_STATUS="FALHA"
+            continue
+        }
+        cnt="$(printf '%s\n' "${cnt_raw}" | tr -d '[:space:]')"
+        case "${cnt}" in
+            ''|*[!0-9]*)
+                printf 'DIVERGÊNCIA: Retorno não numérico na contagem de auth."%s" (%s)\n' "${t}" "${cnt}" >> "${DIVERGENCES_FILE}"
+                TOTAL_REGISTROS_STATUS="FALHA"
+                ;;
+            *)
+                printf 'Tabela auth."%s": %s registros\n' "${t}" "${cnt}" >> "${CONFERIDOS_FILE}"
+                ;;
+        esac
+    done <<< "${LAB_AUTH_TABLES_LIST}"
 fi
 
 if [ "${TOTAL_TABELAS_LAB}" -gt 0 ] && [ "${TOTAL_REGISTROS_STATUS}" = "OK" ]; then
@@ -887,8 +913,8 @@ else
             done <<< "${INV_TABLES_RAW}"
         fi
 
-        # SENTIDO 2 (Ponto 7): Tabelas presentes no BACKUP RESTAURADO -> Verificar se constam no INVENTÁRIO
-        say "   Verificando sentido 2: Tabelas do backup restaurado -> presentes no inventário oficial..."
+        # SENTIDO 2 (Ponto 7): Tabelas presentes no BACKUP RESTAURADO -> Verificar se constam no INVENTÁRIO (public E auth)
+        say "   Verificando sentido 2: Tabelas do backup restaurado (public e auth) -> presentes no inventário oficial..."
         if [ -n "${LAB_PUBLIC_TABLES_LIST}" ]; then
             while IFS= read -r lab_t; do
                 [ -n "${lab_t}" ] || continue
@@ -900,6 +926,19 @@ else
                     printf 'CONFERIDO BIDIRECIONAL: Tabela public."%s" localizada em ambos os lados\n' "${lab_t}" >> "${CONFERIDOS_FILE}"
                 fi
             done <<< "${LAB_PUBLIC_TABLES_LIST}"
+        fi
+
+        if [ -n "${LAB_AUTH_TABLES_LIST}" ]; then
+            while IFS= read -r lab_auth_t; do
+                [ -n "${lab_auth_t}" ] || continue
+                # Validação via jq se lab_auth_t existe no array de tabelas do inventário com schema auth
+                t_in_inv_auth="$(jq -er --arg tab "${lab_auth_t}" 'any(.tabelas[]; .schema == "auth" and .tabela == $tab)' "${INVENTORY_FILE}" 2>/dev/null || echo "false")"
+                if [ "${t_in_inv_auth}" != "true" ]; then
+                    printf 'DIVERGÊNCIA BIDIRECIONAL: Tabela auth."%s" existe no backup restaurado mas NÃO CONSTA no inventário oficial\n' "${lab_auth_t}" >> "${DIVERGENCES_FILE}"
+                else
+                    printf 'CONFERIDO BIDIRECIONAL: Tabela auth."%s" localizada em ambos os lados\n' "${lab_auth_t}" >> "${CONFERIDOS_FILE}"
+                fi
+            done <<< "${LAB_AUTH_TABLES_LIST}"
         fi
 
         # Ponto 2 e Ponto 3 da Auditoria:
@@ -1116,14 +1155,200 @@ if [ "${INVENTORY_COMPARISON_VALID}" = "SIM" ] && [ "${INVENTORY_BIDIRECTIONAL_C
     CRIT_D_OK=1
 fi
 
-CRIT_E_OK=0
-if [ "${OP_CRITERION_STATUS}" = "CONFORME" ]; then
-    CRIT_E_OK=1
+cat <<EOF >> "${REPORT_FILE}"
+
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+=======
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
 fi
 
-VEREDITO="REPROVADO"
-MOTIVO_VEREDITO=""
+# Exibição no terminal
+=======
+   Total de divergências impeditivas: ${DIVERGENCES_COUNT}
+   Total de diferenças de contagem inconclusivas: ${TEMPORAL_DIFFS_COUNT}
+EOF
 
+if [ -s "${DIVERGENCES_FILE}" ]; then
+    printf '\n--- ITENS DE DIVERGÊNCIA REGISTRADOS ---\n' >> "${REPORT_FILE}"
+    sed 's/^/   [DIVERGÊNCIA] /' "${DIVERGENCES_FILE}" >> "${REPORT_FILE}"
+fi
+
+if [ -s "${TEMPORAL_DIFFS_FILE}" ]; then
+    printf '\n--- DIFERENÇAS DE CONTAGEM INCONCLUSIVAS (SEM PRESUNÇÃO DE CRESCIMENTO) ---\n' >> "${REPORT_FILE}"
+    sed 's/^/   [INCONCLUSIVO] /' "${TEMPORAL_DIFFS_FILE}" >> "${REPORT_FILE}"
+fi
+
+cat <<EOF >> "${REPORT_FILE}"
+
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+=======
+cat <<EOF > "${REPORT_FILE}"
+================================================================================
+ DPSjur / SBJur — RELATÓRIO DE AUDITORIA DE BACKUP (${SCRIPT_VERSION})
+ Data de emissão: $(date '+%F %T %Z')
+ Sessão de auditoria: ${SESSION_ID}
+================================================================================
+
+1. ARQUIVOS E AMBIENTE
+   Arquivo de backup: ${BACKUP_FILE}
+   Inventário oficial: ${INVENTORY_FILE:-Nenhum informado}
+   Contêiner de teste: ${LAB_NAME}
+   Label da sessão: ${SESSION_LABEL}
+   Volume isolado: ${LAB_VOLUME}
+   Imagem PostgreSQL: ${CHOSEN_IMAGE}
+
+2. SEÇÃO TÉCNICA SEPARADA: RESTAURAÇÃO ORIGINAL vs RECUPERAÇÃO ASSISTIDA
+   (a) Restauração Original (psql -X -v ON_ERROR_STOP=1): ${RESTORE_ORIGINAL_STATUS}
+       - Código gunzip .................: ${GZIP_EXIT} (exigido 0)
+       - Código psql ...................: ${PSQL_EXIT} (exigido 0)
+       - Erros SQL brutos ..............: ${RESTORE_RAW_ERRORS_COUNT} (exigido 0)
+       - Avaliação Restauração Original : ${CRIT_A}
+   (b) Recuperação Assistida (Post-Restore):
+       - Extensão pg_graphql ...........: ${GRAPHQL_FINAL_STATUS}
+       - Tentativa de recuperação ......: ${GRAPHQL_REC_STATUS}
+       - Observação de isolamento ......: A recuperação assistida NÃO mascara falha na restauração original.
+
+3. RESULTADOS DOS DEMAIS CRITÉRIOS TÉCNICOS
+   Critério 3 - Inventário estrutural do laboratório: ${CRIT_C}
+       - Tabelas public: ${TOTAL_TABELAS_LAB}
+       - Tabelas auth: ${TOTAL_TABELAS_AUTH_LAB}
+       - Constraints: ${TOTAL_CONSTRAINTS_LAB}
+       - Funções: ${TOTAL_FUNCOES_LAB}
+       - Triggers: ${TOTAL_TRIGGERS_LAB}
+       - Extensões: ${TOTAL_EXTENSOES_LAB}
+   Critério 4 - Comparação estrutural e bidirecional com inventário oficial (jq): $([ "${CRIT_D_OK}" -eq 1 ] && echo "CONFORME" || echo "NAO_CONFORME")
+       - Validação JSON semântica com jq: ${INVENTORY_COMPARISON_VALID}
+       - Bidirecionalidade avaliada: $([ "${INVENTORY_BIDIRECTIONAL_CHECK_PASSED}" -eq 1 ] && echo "SIM" || echo "NAO")
+       - Amostragem aplicada: NENHUMA (conferência integral de constraints e funções)
+   Critério 5 - Integridade parcial do PostgreSQL restaurado: ${OP_CRITERION_STATUS}
+       - Integridade referencial (FKs órfãs): ${FK_ORPHANS_CNT}
+       - Consistência auth.users: ${USERS_TOTAL} usuários, ${USERS_DUP_COUNT} duplicidades
+       - Planos de execução EXPLAIN: ${EXPLAIN_STATUS}
+       - Bloco transacional com ROLLBACK: ${TX_STATUS}
+       - Escopo delimitado: Prova unicamente a saúde do PostgreSQL restaurado;
+         não atesta recuperação funcional completa da aplicação CRM (Kong/GoTrue/PostgREST fora do escopo do teste).
+
+4. DIVERGÊNCIAS E DIFERENÇAS DE CONTAGEM INCONCLUSIVAS
+   Total de divergências impeditivas: ${DIVERGENCES_COUNT}
+   Total de diferenças de contagem inconclusivas: ${TEMPORAL_DIFFS_COUNT}
+EOF
+
+if [ -s "${DIVERGENCES_FILE}" ]; then
+    printf '\n--- ITENS DE DIVERGÊNCIA REGISTRADOS ---\n' >> "${REPORT_FILE}"
+    sed 's/^/   [DIVERGÊNCIA] /' "${DIVERGENCES_FILE}" >> "${REPORT_FILE}"
+fi
+
+if [ -s "${TEMPORAL_DIFFS_FILE}" ]; then
+    printf '\n--- DIFERENÇAS DE CONTAGEM INCONCLUSIVAS (SEM PRESUNÇÃO DE CRESCIMENTO) ---\n' >> "${REPORT_FILE}"
+    sed 's/^/   [INCONCLUSIVO] /' "${TEMPORAL_DIFFS_FILE}" >> "${REPORT_FILE}"
+fi
+
+cat <<EOF >> "${REPORT_FILE}"
+
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+
+# Exibição no terminal
+say ""
+say "================================================================================"
+say " VEREDITO FINAL DA AUDITORIA DE BACKUP: ${VEREDITO}"
+=======
 if [ "${CRIT_A}" = "OK" ] && [ "${CRIT_B}" = "OK" ] && [ "${CRIT_C}" = "OK" ] && [ "${CRIT_D_OK}" -eq 1 ] && [ "${CRIT_E_OK}" -eq 1 ] && [ "${DIVERGENCES_COUNT}" -eq 0 ] && [ "${INVENTORY_COMPARISON_VALID}" = "SIM" ]; then
     VEREDITO="APROVADO"
     MOTIVO_VEREDITO="Todos os critérios técnicos passaram sem exceção (restauração física original, pg_graphql, estrutural exaustivo, comparação bidirecional integral jq, integridade de catálogo/dados e zero divergências)."
@@ -1199,10 +1424,1033 @@ fi
 
 cat <<EOF >> "${REPORT_FILE}"
 
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
 EOF
 
 if ! chmod 600 "${REPORT_FILE}"; then
     die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+
+# Exibição no terminal
+say ""
+say "================================================================================"
+say " VEREDITO FINAL DA AUDITORIA DE BACKUP: ${VEREDITO}"
+=======
+cat <<EOF >> "${REPORT_FILE}"
+
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+=======
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+
+# Exibição no terminal
+=======
+   Total de divergências impeditivas: ${DIVERGENCES_COUNT}
+   Total de diferenças de contagem inconclusivas: ${TEMPORAL_DIFFS_COUNT}
+EOF
+
+if [ -s "${DIVERGENCES_FILE}" ]; then
+    printf '\n--- ITENS DE DIVERGÊNCIA REGISTRADOS ---\n' >> "${REPORT_FILE}"
+    sed 's/^/   [DIVERGÊNCIA] /' "${DIVERGENCES_FILE}" >> "${REPORT_FILE}"
+fi
+
+if [ -s "${TEMPORAL_DIFFS_FILE}" ]; then
+    printf '\n--- DIFERENÇAS DE CONTAGEM INCONCLUSIVAS (SEM PRESUNÇÃO DE CRESCIMENTO) ---\n' >> "${REPORT_FILE}"
+    sed 's/^/   [INCONCLUSIVO] /' "${TEMPORAL_DIFFS_FILE}" >> "${REPORT_FILE}"
+fi
+
+cat <<EOF >> "${REPORT_FILE}"
+
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+=======
+cat <<EOF >> "${REPORT_FILE}"
+
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+=======
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+
+# Exibição no terminal
+say ""
+say "================================================================================"
+say " VEREDITO FINAL DA AUDITORIA DE BACKUP: ${VEREDITO}"
+=======
+   Total de divergências impeditivas: ${DIVERGENCES_COUNT}
+   Total de diferenças de contagem inconclusivas: ${TEMPORAL_DIFFS_COUNT}
+EOF
+
+if [ -s "${DIVERGENCES_FILE}" ]; then
+    printf '\n--- ITENS DE DIVERGÊNCIA REGISTRADOS ---\n' >> "${REPORT_FILE}"
+    sed 's/^/   [DIVERGÊNCIA] /' "${DIVERGENCES_FILE}" >> "${REPORT_FILE}"
+fi
+
+if [ -s "${TEMPORAL_DIFFS_FILE}" ]; then
+    printf '\n--- DIFERENÇAS DE CONTAGEM INCONCLUSIVAS (SEM PRESUNÇÃO DE CRESCIMENTO) ---\n' >> "${REPORT_FILE}"
+    sed 's/^/   [INCONCLUSIVO] /' "${TEMPORAL_DIFFS_FILE}" >> "${REPORT_FILE}"
+fi
+
+cat <<EOF >> "${REPORT_FILE}"
+
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+
+# Exibição no terminal
+say ""
+say "================================================================================"
+say " VEREDITO FINAL DA AUDITORIA DE BACKUP: ${VEREDITO}"
+=======
+if [ "${CRIT_A}" = "OK" ] && [ "${CRIT_B}" = "OK" ] && [ "${CRIT_C}" = "OK" ] && [ "${CRIT_D_OK}" -eq 1 ] && [ "${CRIT_E_OK}" -eq 1 ] && [ "${DIVERGENCES_COUNT}" -eq 0 ] && [ "${INVENTORY_COMPARISON_VALID}" = "SIM" ]; then
+    VEREDITO="APROVADO"
+    MOTIVO_VEREDITO="Todos os critérios técnicos passaram sem exceção (restauração física original, pg_graphql, estrutural exaustivo, comparação bidirecional integral jq, integridade de catálogo/dados e zero divergências)."
+else
+    VEREDITO="REPROVADO"
+    MOTIVO_VEREDITO="O backup apresentou divergências ou falhas técnicas não resolvidas (CRIT_A_ORIGINAL: ${CRIT_A}, DIVERGÊNCIAS: ${DIVERGENCES_COUNT}, COMPARAÇÃO_VÁLIDA: ${INVENTORY_COMPARISON_VALID}, QUERIES_FALHAS: ${QUERY_FAILURES_COUNT})."
+fi
+
+# ------------------------------------------------------------------------------
+# GRAVAÇÃO DO RELATÓRIO TÉCNICO COM CHMOD 600
+# ------------------------------------------------------------------------------
+
+cat <<EOF > "${REPORT_FILE}"
+================================================================================
+ DPSjur / SBJur — RELATÓRIO DE AUDITORIA DE BACKUP (${SCRIPT_VERSION})
+ Data de emissão: $(date '+%F %T %Z')
+ Sessão de auditoria: ${SESSION_ID}
+================================================================================
+
+1. ARQUIVOS E AMBIENTE
+   Arquivo de backup: ${BACKUP_FILE}
+   Inventário oficial: ${INVENTORY_FILE:-Nenhum informado}
+   Contêiner de teste: ${LAB_NAME}
+   Label da sessão: ${SESSION_LABEL}
+   Volume isolado: ${LAB_VOLUME}
+   Imagem PostgreSQL: ${CHOSEN_IMAGE}
+
+2. SEÇÃO TÉCNICA SEPARADA: RESTAURAÇÃO ORIGINAL vs RECUPERAÇÃO ASSISTIDA
+   (a) Restauração Original (psql -X -v ON_ERROR_STOP=1): ${RESTORE_ORIGINAL_STATUS}
+       - Código gunzip .................: ${GZIP_EXIT} (exigido 0)
+       - Código psql ...................: ${PSQL_EXIT} (exigido 0)
+       - Erros SQL brutos ..............: ${RESTORE_RAW_ERRORS_COUNT} (exigido 0)
+       - Avaliação Restauração Original : ${CRIT_A}
+   (b) Recuperação Assistida (Post-Restore):
+       - Extensão pg_graphql ...........: ${GRAPHQL_FINAL_STATUS}
+       - Tentativa de recuperação ......: ${GRAPHQL_REC_STATUS}
+       - Observação de isolamento ......: A recuperação assistida NÃO mascara falha na restauração original.
+
+3. RESULTADOS DOS DEMAIS CRITÉRIOS TÉCNICOS
+   Critério 3 - Inventário estrutural do laboratório: ${CRIT_C}
+       - Tabelas public: ${TOTAL_TABELAS_LAB}
+       - Tabelas auth: ${TOTAL_TABELAS_AUTH_LAB}
+       - Constraints: ${TOTAL_CONSTRAINTS_LAB}
+       - Funções: ${TOTAL_FUNCOES_LAB}
+       - Triggers: ${TOTAL_TRIGGERS_LAB}
+       - Extensões: ${TOTAL_EXTENSOES_LAB}
+   Critério 4 - Comparação estrutural e bidirecional com inventário oficial (jq): $([ "${CRIT_D_OK}" -eq 1 ] && echo "CONFORME" || echo "NAO_CONFORME")
+       - Validação JSON semântica com jq: ${INVENTORY_COMPARISON_VALID}
+       - Bidirecionalidade avaliada: $([ "${INVENTORY_BIDIRECTIONAL_CHECK_PASSED}" -eq 1 ] && echo "SIM" || echo "NAO")
+       - Amostragem aplicada: NENHUMA (conferência integral de constraints e funções)
+   Critério 5 - Integridade parcial do PostgreSQL restaurado: ${OP_CRITERION_STATUS}
+       - Integridade referencial (FKs órfãs): ${FK_ORPHANS_CNT}
+       - Consistência auth.users: ${USERS_TOTAL} usuários, ${USERS_DUP_COUNT} duplicidades
+       - Planos de execução EXPLAIN: ${EXPLAIN_STATUS}
+       - Bloco transacional com ROLLBACK: ${TX_STATUS}
+       - Escopo delimitado: Prova unicamente a saúde do PostgreSQL restaurado;
+         não atesta recuperação funcional completa da aplicação CRM (Kong/GoTrue/PostgREST fora do escopo do teste).
+
+4. DIVERGÊNCIAS E DIFERENÇAS DE CONTAGEM INCONCLUSIVAS
+   Total de divergências impeditivas: ${DIVERGENCES_COUNT}
+   Total de diferenças de contagem inconclusivas: ${TEMPORAL_DIFFS_COUNT}
+EOF
+
+if [ -s "${DIVERGENCES_FILE}" ]; then
+    printf '\n--- ITENS DE DIVERGÊNCIA REGISTRADOS ---\n' >> "${REPORT_FILE}"
+    sed 's/^/   [DIVERGÊNCIA] /' "${DIVERGENCES_FILE}" >> "${REPORT_FILE}"
+fi
+
+if [ -s "${TEMPORAL_DIFFS_FILE}" ]; then
+    printf '\n--- DIFERENÇAS DE CONTAGEM INCONCLUSIVAS (SEM PRESUNÇÃO DE CRESCIMENTO) ---\n' >> "${REPORT_FILE}"
+    sed 's/^/   [INCONCLUSIVO] /' "${TEMPORAL_DIFFS_FILE}" >> "${REPORT_FILE}"
+fi
+
+cat <<EOF >> "${REPORT_FILE}"
+
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+=======
+cat <<EOF >> "${REPORT_FILE}"
+
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+=======
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+
+# Exibição no terminal
+=======
+   Total de divergências impeditivas: ${DIVERGENCES_COUNT}
+   Total de diferenças de contagem inconclusivas: ${TEMPORAL_DIFFS_COUNT}
+EOF
+
+if [ -s "${DIVERGENCES_FILE}" ]; then
+    printf '\n--- ITENS DE DIVERGÊNCIA REGISTRADOS ---\n' >> "${REPORT_FILE}"
+    sed 's/^/   [DIVERGÊNCIA] /' "${DIVERGENCES_FILE}" >> "${REPORT_FILE}"
+fi
+
+if [ -s "${TEMPORAL_DIFFS_FILE}" ]; then
+    printf '\n--- DIFERENÇAS DE CONTAGEM INCONCLUSIVAS (SEM PRESUNÇÃO DE CRESCIMENTO) ---\n' >> "${REPORT_FILE}"
+    sed 's/^/   [INCONCLUSIVO] /' "${TEMPORAL_DIFFS_FILE}" >> "${REPORT_FILE}"
+fi
+
+cat <<EOF >> "${REPORT_FILE}"
+
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+=======
+cat <<EOF >> "${REPORT_FILE}"
+
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+=======
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+
+# Exibição no terminal
+say ""
+say "================================================================================"
+say " VEREDITO FINAL DA AUDITORIA DE BACKUP: ${VEREDITO}"
+=======
+   Total de divergências impeditivas: ${DIVERGENCES_COUNT}
+   Total de diferenças de contagem inconclusivas: ${TEMPORAL_DIFFS_COUNT}
+EOF
+
+if [ -s "${DIVERGENCES_FILE}" ]; then
+    printf '\n--- ITENS DE DIVERGÊNCIA REGISTRADOS ---\n' >> "${REPORT_FILE}"
+    sed 's/^/   [DIVERGÊNCIA] /' "${DIVERGENCES_FILE}" >> "${REPORT_FILE}"
+fi
+
+if [ -s "${TEMPORAL_DIFFS_FILE}" ]; then
+    printf '\n--- DIFERENÇAS DE CONTAGEM INCONCLUSIVAS (SEM PRESUNÇÃO DE CRESCIMENTO) ---\n' >> "${REPORT_FILE}"
+    sed 's/^/   [INCONCLUSIVO] /' "${TEMPORAL_DIFFS_FILE}" >> "${REPORT_FILE}"
+fi
+
+cat <<EOF >> "${REPORT_FILE}"
+
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+
+# Exibição no terminal
+say ""
+say "================================================================================"
+say " VEREDITO FINAL DA AUDITORIA DE BACKUP: ${VEREDITO}"
+================================================================================
+
+1. ARQUIVOS E AMBIENTE
+   Arquivo de backup: ${BACKUP_FILE}
+   Inventário oficial: ${INVENTORY_FILE:-Nenhum informado}
+   Contêiner de teste: ${LAB_NAME}
+   Label da sessão: ${SESSION_LABEL}
+   Volume isolado: ${LAB_VOLUME}
+   Imagem PostgreSQL: ${CHOSEN_IMAGE}
+
+2. SEÇÃO TÉCNICA SEPARADA: RESTAURAÇÃO ORIGINAL vs RECUPERAÇÃO ASSISTIDA
+   (a) Restauração Original (psql -X -v ON_ERROR_STOP=1): ${RESTORE_ORIGINAL_STATUS}
+       - Código gunzip .................: ${GZIP_EXIT} (exigido 0)
+       - Código psql ...................: ${PSQL_EXIT} (exigido 0)
+       - Erros SQL brutos ..............: ${RESTORE_RAW_ERRORS_COUNT} (exigido 0)
+       - Avaliação Restauração Original : ${CRIT_A}
+   (b) Recuperação Assistida (Post-Restore):
+       - Extensão pg_graphql ...........: ${GRAPHQL_FINAL_STATUS}
+       - Tentativa de recuperação ......: ${GRAPHQL_REC_STATUS}
+       - Observação de isolamento ......: A recuperação assistida NÃO mascara falha na restauração original.
+
+3. RESULTADOS DOS DEMAIS CRITÉRIOS TÉCNICOS
+   Critério 3 - Inventário estrutural do laboratório: ${CRIT_C}
+       - Tabelas public: ${TOTAL_TABELAS_LAB}
+       - Tabelas auth: ${TOTAL_TABELAS_AUTH_LAB}
+       - Constraints: ${TOTAL_CONSTRAINTS_LAB}
+       - Funções: ${TOTAL_FUNCOES_LAB}
+       - Triggers: ${TOTAL_TRIGGERS_LAB}
+       - Extensões: ${TOTAL_EXTENSOES_LAB}
+   Critério 4 - Comparação estrutural e bidirecional com inventário oficial (jq): $([ "${CRIT_D_OK}" -eq 1 ] && echo "CONFORME" || echo "NAO_CONFORME")
+       - Validação JSON semântica com jq: ${INVENTORY_COMPARISON_VALID}
+       - Bidirecionalidade avaliada: $([ "${INVENTORY_BIDIRECTIONAL_CHECK_PASSED}" -eq 1 ] && echo "SIM" || echo "NAO")
+       - Amostragem aplicada: NENHUMA (conferência integral de constraints e funções)
+   Critério 5 - Integridade parcial do PostgreSQL restaurado: ${OP_CRITERION_STATUS}
+       - Integridade referencial (FKs órfãs): ${FK_ORPHANS_CNT}
+       - Consistência auth.users: ${USERS_TOTAL} usuários, ${USERS_DUP_COUNT} duplicidades
+       - Planos de execução EXPLAIN: ${EXPLAIN_STATUS}
+       - Bloco transacional com ROLLBACK: ${TX_STATUS}
+       - Escopo delimitado: Prova unicamente a saúde do PostgreSQL restaurado;
+         não atesta recuperação funcional completa da aplicação CRM (Kong/GoTrue/PostgREST fora do escopo do teste).
+
+4. DIVERGÊNCIAS E DIFERENÇAS DE CONTAGEM INCONCLUSIVAS
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+=======
+cat <<EOF >> "${REPORT_FILE}"
+
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+=======
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+
+# Exibição no terminal
+=======
+   Total de divergências impeditivas: ${DIVERGENCES_COUNT}
+   Total de diferenças de contagem inconclusivas: ${TEMPORAL_DIFFS_COUNT}
+EOF
+
+if [ -s "${DIVERGENCES_FILE}" ]; then
+    printf '\n--- ITENS DE DIVERGÊNCIA REGISTRADOS ---\n' >> "${REPORT_FILE}"
+    sed 's/^/   [DIVERGÊNCIA] /' "${DIVERGENCES_FILE}" >> "${REPORT_FILE}"
+fi
+
+if [ -s "${TEMPORAL_DIFFS_FILE}" ]; then
+    printf '\n--- DIFERENÇAS DE CONTAGEM INCONCLUSIVAS (SEM PRESUNÇÃO DE CRESCIMENTO) ---\n' >> "${REPORT_FILE}"
+    sed 's/^/   [INCONCLUSIVO] /' "${TEMPORAL_DIFFS_FILE}" >> "${REPORT_FILE}"
+fi
+
+cat <<EOF >> "${REPORT_FILE}"
+
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+=======
+cat <<EOF >> "${REPORT_FILE}"
+
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+=======
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+
+# Exibição no terminal
+say ""
+say "================================================================================"
+say " VEREDITO FINAL DA AUDITORIA DE BACKUP: ${VEREDITO}"
+=======
+cat <<EOF > "${REPORT_FILE}"
+================================================================================
+ DPSjur / SBJur — RELATÓRIO DE AUDITORIA DE BACKUP (${SCRIPT_VERSION})
+ Data de emissão: $(date '+%F %T %Z')
+ Sessão de auditoria: ${SESSION_ID}
+================================================================================
+
+1. ARQUIVOS E AMBIENTE
+   Arquivo de backup: ${BACKUP_FILE}
+   Inventário oficial: ${INVENTORY_FILE:-Nenhum informado}
+   Contêiner de teste: ${LAB_NAME}
+   Label da sessão: ${SESSION_LABEL}
+   Volume isolado: ${LAB_VOLUME}
+   Imagem PostgreSQL: ${CHOSEN_IMAGE}
+
+2. SEÇÃO TÉCNICA SEPARADA: RESTAURAÇÃO ORIGINAL vs RECUPERAÇÃO ASSISTIDA
+   (a) Restauração Original (psql -X -v ON_ERROR_STOP=1): ${RESTORE_ORIGINAL_STATUS}
+       - Código gunzip .................: ${GZIP_EXIT} (exigido 0)
+       - Código psql ...................: ${PSQL_EXIT} (exigido 0)
+       - Erros SQL brutos ..............: ${RESTORE_RAW_ERRORS_COUNT} (exigido 0)
+       - Avaliação Restauração Original : ${CRIT_A}
+   (b) Recuperação Assistida (Post-Restore):
+       - Extensão pg_graphql ...........: ${GRAPHQL_FINAL_STATUS}
+       - Tentativa de recuperação ......: ${GRAPHQL_REC_STATUS}
+       - Observação de isolamento ......: A recuperação assistida NÃO mascara falha na restauração original.
+
+3. RESULTADOS DOS DEMAIS CRITÉRIOS TÉCNICOS
+   Critério 3 - Inventário estrutural do laboratório: ${CRIT_C}
+       - Tabelas public: ${TOTAL_TABELAS_LAB}
+       - Tabelas auth: ${TOTAL_TABELAS_AUTH_LAB}
+       - Constraints: ${TOTAL_CONSTRAINTS_LAB}
+       - Funções: ${TOTAL_FUNCOES_LAB}
+       - Triggers: ${TOTAL_TRIGGERS_LAB}
+       - Extensões: ${TOTAL_EXTENSOES_LAB}
+   Critério 4 - Comparação estrutural e bidirecional com inventário oficial (jq): $([ "${CRIT_D_OK}" -eq 1 ] && echo "CONFORME" || echo "NAO_CONFORME")
+       - Validação JSON semântica com jq: ${INVENTORY_COMPARISON_VALID}
+       - Bidirecionalidade avaliada: $([ "${INVENTORY_BIDIRECTIONAL_CHECK_PASSED}" -eq 1 ] && echo "SIM" || echo "NAO")
+       - Amostragem aplicada: NENHUMA (conferência integral de constraints e funções)
+   Critério 5 - Integridade parcial do PostgreSQL restaurado: ${OP_CRITERION_STATUS}
+       - Integridade referencial (FKs órfãs): ${FK_ORPHANS_CNT}
+       - Consistência auth.users: ${USERS_TOTAL} usuários, ${USERS_DUP_COUNT} duplicidades
+       - Planos de execução EXPLAIN: ${EXPLAIN_STATUS}
+       - Bloco transacional com ROLLBACK: ${TX_STATUS}
+       - Escopo delimitado: Prova unicamente a saúde do PostgreSQL restaurado;
+         não atesta recuperação funcional completa da aplicação CRM (Kong/GoTrue/PostgREST fora do escopo do teste).
+
+4. DIVERGÊNCIAS E DIFERENÇAS DE CONTAGEM INCONCLUSIVAS
+   Total de divergências impeditivas: ${DIVERGENCES_COUNT}
+   Total de diferenças de contagem inconclusivas: ${TEMPORAL_DIFFS_COUNT}
+EOF
+
+if [ -s "${DIVERGENCES_FILE}" ]; then
+    printf '\n--- ITENS DE DIVERGÊNCIA REGISTRADOS ---\n' >> "${REPORT_FILE}"
+    sed 's/^/   [DIVERGÊNCIA] /' "${DIVERGENCES_FILE}" >> "${REPORT_FILE}"
+fi
+
+if [ -s "${TEMPORAL_DIFFS_FILE}" ]; then
+    printf '\n--- DIFERENÇAS DE CONTAGEM INCONCLUSIVAS (SEM PRESUNÇÃO DE CRESCIMENTO) ---\n' >> "${REPORT_FILE}"
+    sed 's/^/   [INCONCLUSIVO] /' "${TEMPORAL_DIFFS_FILE}" >> "${REPORT_FILE}"
+fi
+
+cat <<EOF >> "${REPORT_FILE}"
+
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+
+# Exibição no terminal
+say ""
+say "================================================================================"
+say " VEREDITO FINAL DA AUDITORIA DE BACKUP: ${VEREDITO}"
+================================================================================
+ DPSjur / SBJur — RELATÓRIO DE AUDITORIA DE BACKUP (${SCRIPT_VERSION})
+ Data de emissão: $(date '+%F %T %Z')
+ Sessão de auditoria: ${SESSION_ID}
+================================================================================
+
+1. ARQUIVOS E AMBIENTE
+   Arquivo de backup: ${BACKUP_FILE}
+   Inventário oficial: ${INVENTORY_FILE:-Nenhum informado}
+   Contêiner de teste: ${LAB_NAME}
+   Label da sessão: ${SESSION_LABEL}
+   Volume isolado: ${LAB_VOLUME}
+   Imagem PostgreSQL: ${CHOSEN_IMAGE}
+
+2. SEÇÃO TÉCNICA SEPARADA: RESTAURAÇÃO ORIGINAL vs RECUPERAÇÃO ASSISTIDA
+   (a) Restauração Original (psql -X -v ON_ERROR_STOP=1): ${RESTORE_ORIGINAL_STATUS}
+       - Código gunzip .................: ${GZIP_EXIT} (exigido 0)
+       - Código psql ...................: ${PSQL_EXIT} (exigido 0)
+       - Erros SQL brutos ..............: ${RESTORE_RAW_ERRORS_COUNT} (exigido 0)
+       - Avaliação Restauração Original : ${CRIT_A}
+   (b) Recuperação Assistida (Post-Restore):
+       - Extensão pg_graphql ...........: ${GRAPHQL_FINAL_STATUS}
+       - Tentativa de recuperação ......: ${GRAPHQL_REC_STATUS}
+       - Observação de isolamento ......: A recuperação assistida NÃO mascara falha na restauração original.
+
+3. RESULTADOS DOS DEMAIS CRITÉRIOS TÉCNICOS
+   Critério 3 - Inventário estrutural do laboratório: ${CRIT_C}
+       - Tabelas public: ${TOTAL_TABELAS_LAB}
+       - Tabelas auth: ${TOTAL_TABELAS_AUTH_LAB}
+       - Constraints: ${TOTAL_CONSTRAINTS_LAB}
+       - Funções: ${TOTAL_FUNCOES_LAB}
+       - Triggers: ${TOTAL_TRIGGERS_LAB}
+       - Extensões: ${TOTAL_EXTENSOES_LAB}
+   Critério 4 - Comparação estrutural e bidirecional com inventário oficial (jq): $([ "${CRIT_D_OK}" -eq 1 ] && echo "CONFORME" || echo "NAO_CONFORME")
+       - Validação JSON semântica com jq: ${INVENTORY_COMPARISON_VALID}
+       - Bidirecionalidade avaliada: $([ "${INVENTORY_BIDIRECTIONAL_CHECK_PASSED}" -eq 1 ] && echo "SIM" || echo "NAO")
+       - Amostragem aplicada: NENHUMA (conferência integral de constraints e funções)
+   Critério 5 - Integridade parcial do PostgreSQL restaurado: ${OP_CRITERION_STATUS}
+       - Integridade referencial (FKs órfãs): ${FK_ORPHANS_CNT}
+       - Consistência auth.users: ${USERS_TOTAL} usuários, ${USERS_DUP_COUNT} duplicidades
+       - Planos de execução EXPLAIN: ${EXPLAIN_STATUS}
+       - Bloco transacional com ROLLBACK: ${TX_STATUS}
+       - Escopo delimitado: Prova unicamente a saúde do PostgreSQL restaurado;
+         não atesta recuperação funcional completa da aplicação CRM (Kong/GoTrue/PostgREST fora do escopo do teste).
+
+4. DIVERGÊNCIAS E DIFERENÇAS DE CONTAGEM INCONCLUSIVAS
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+=======
+cat <<EOF >> "${REPORT_FILE}"
+
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+=======
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+
+# Exibição no terminal
+=======
+   Total de divergências impeditivas: ${DIVERGENCES_COUNT}
+   Total de diferenças de contagem inconclusivas: ${TEMPORAL_DIFFS_COUNT}
+EOF
+
+if [ -s "${DIVERGENCES_FILE}" ]; then
+    printf '\n--- ITENS DE DIVERGÊNCIA REGISTRADOS ---\n' >> "${REPORT_FILE}"
+    sed 's/^/   [DIVERGÊNCIA] /' "${DIVERGENCES_FILE}" >> "${REPORT_FILE}"
+fi
+
+if [ -s "${TEMPORAL_DIFFS_FILE}" ]; then
+    printf '\n--- DIFERENÇAS DE CONTAGEM INCONCLUSIVAS (SEM PRESUNÇÃO DE CRESCIMENTO) ---\n' >> "${REPORT_FILE}"
+    sed 's/^/   [INCONCLUSIVO] /' "${TEMPORAL_DIFFS_FILE}" >> "${REPORT_FILE}"
+fi
+
+cat <<EOF >> "${REPORT_FILE}"
+
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+
+# Exibição no terminal
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
+fi
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+=======
+cat <<EOF >> "${REPORT_FILE}"
+
+5. VEREDITO FINAL DA AUDITORIA
+   Veredito: ${VEREDITO}
+   Motivo: ${MOTIVO_VEREDITO}
+
+6. RASTREABILIDADE E SEGURANÇA
+   Rede do contêiner de laboratório: --network none (isolamento de rede estrito)
+   Arquivo do relatório: ${REPORT_FILE} (chmod 600)
+   Log técnico restrito: ${LOG_FILE} (chmod 600)
+   Log de erros do restore: ${RESTORE_ERRORS_FILE} (chmod 600)
+   Recursos rastreados da sessão: ${TRACKED_RESOURCES_FILE} (chmod 600)
+================================================================================
+EOF
+
+if ! chmod 600 "${REPORT_FILE}"; then
+    die "Falha ao definir permissões no arquivo de relatório." "${EXIT_FS_FAIL}"
+fi
+REPORT_PERM="$(stat -c '%a' "${REPORT_FILE}" 2>/dev/null || stat -f '%Lp' "${REPORT_FILE}" 2>/dev/null || echo "")"
+if [ -z "${REPORT_PERM}" ] || [ "${REPORT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de relatório inválida (${REPORT_PERM})." "${EXIT_FS_FAIL}"
 fi
 =======
 5. VEREDITO FINAL DA AUDITORIA
