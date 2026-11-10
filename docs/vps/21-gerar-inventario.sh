@@ -2,13 +2,14 @@
 # ==============================================================================
 # DPSjur / SBJur — Inventário Estrutural e de Contagens do Banco de Dados
 # Script: docs/vps/21-gerar-inventario.sh
-# Versão: v1.3.0
+# Versão: v1.4.0
 # Destino de execução: VPS Hostinger de Produção (SOMENTE LEITURA)
 #
 # OBJETIVO:
 #   Extrair inventário estrutural e métricas de contagem do PostgreSQL de produção
 #   em formato JSON com umask 077 + chmod 600, sem nunca extrair dados de linhas
-#   (nenhum registro ou dado de cliente; apenas metadados e contagens numéricas).
+#   (nenhum registro ou dado de cliente; apenas metadados, definições DDL e
+#   contagens numéricas).
 #   O JSON resultante serve como base de comparação para a auditoria de restauração
 #   em laboratório independente (executada por 20-auditar-backup.sh).
 #
@@ -27,8 +28,21 @@
 #        automática e aborta com exit 15, recomendando a execução fora do expediente.
 #      - Para forçar em horário comercial, exige OBRIGATORIAMENTE a flag
 #        adicional --forcar-horario-expediente.
-#   4. ARQUIVOS RESTRITOS: umask 077 aplicado antes da criação de arquivos,
-#      chmod 600 no JSON e no log, chmod 700 no diretório de saída.
+#      - RESSALVA TEMPORAL: O inventário registra expressamente que as contagens
+#        são coletadas no instante da execução deste script, que difere do instante
+#        em que o dump de backup foi gravado.
+#   4. ARQUIVOS RESTRITOS E PERMISSÕES EFETIVAS:
+#      - umask 077 estrito antes de qualquer criação de arquivo ou diretório.
+#      - NUNCA aplica chmod indiscriminadamente a diretórios preexistentes; cria
+#        subdiretório privado se necessário e valida permissões efetivas (600/700).
+#      - Nenhuma falha de chmod, touch, mkdir ou consulta SQL é ignorada.
+#   5. SERIALIZAÇÃO JSON SEGURA:
+#      - Montagem via jq -n com passagem estrita de argumentos (--arg/--argjson),
+#        sem interpolação manual de strings.
+#   6. INVENTÁRIO ESTRUTURAL AMPLIADO:
+#      - Inclui definições DDL seguras de constraints (pg_get_constraintdef) e
+#        assinaturas completas de funções (pg_get_functiondef / pg_get_function_identity_arguments),
+#        permitindo comparação por identidade e definição SEM coletar registros de clientes.
 #
 # PARÂMETROS / FLAGS:
 #   --saida <caminho.json>          Caminho do arquivo JSON de destino (padrão:
@@ -44,7 +58,7 @@
 set -u -o pipefail
 umask 077
 
-SCRIPT_VERSION="v1.3.0"
+SCRIPT_VERSION="v1.4.0"
 TS_STAMP="$(date +%Y%m%d-%H%M%S)"
 DEFAULT_OUTPUT_DIR="/root/sbjur-backups/inventarios"
 DEFAULT_OUTPUT_FILE="${DEFAULT_OUTPUT_DIR}/inventario-${TS_STAMP}.json"
@@ -62,6 +76,8 @@ EXIT_DOCKER_UNAVAILABLE=11
 EXIT_CONTAINER_NOT_FOUND=12
 EXIT_DISALLOWED_TIME=15
 EXIT_QUERY_FAILED=20
+EXIT_FS_FAILED=25
+EXIT_JSON_FAILED=30
 
 # Helpers de log e console
 LOG_FILE=""
@@ -96,7 +112,7 @@ Uso: bash $0 [OPÇÕES]
 
 Opções:
   --saida <caminho>               Caminho do arquivo JSON de destino.
-  --contagem-exata                Executa SELECT count(*) exato em cada tabela do schema public.
+  --contagem-exata                Executa SELECT count(*) exato em cada tabela do schema public e auth.users.
                                   (Por padrão, utiliza pg_class.reltuples para zero impacto)
   --forcar-horario-expediente     Permite --contagem-exata mesmo durante o expediente comercial (08:00 - 18:00 BSB).
   --container <nome>              Nome do contêiner Docker do PostgreSQL.
@@ -113,6 +129,12 @@ Exemplos:
   bash $0 --contagem-exata --forcar-horario-expediente --saida /tmp/inventario.json
 EOF
 }
+
+# Verificação prévia da ferramenta jq (essencial para montagem e contagens seguras)
+if ! command -v jq >/dev/null 2>&1; then
+    say_err "A ferramenta 'jq' é obrigatória para a geração segura e validação rigorosa do inventário."
+    exit "${EXIT_JSON_FAILED}"
+fi
 
 # Processamento de argumentos
 while [ $# -gt 0 ]; do
@@ -149,13 +171,42 @@ if [ -z "${OUTPUT_FILE}" ]; then
     OUTPUT_FILE="${DEFAULT_OUTPUT_FILE}"
 fi
 
+# Ponto 2 e Ponto 3 da Auditoria:
+# NUNCA aplicar chmod indiscriminadamente a diretórios preexistentes do sistema.
+# Se o diretório foi criado por este script, aplica chmod 700 e valida.
+# Se já existia, NÃO altera permissões do diretório pai.
+# Garante que NENHUMA falha de mkdir, touch ou chmod passe despercebida (sem || true).
 OUTPUT_DIR="$(dirname "${OUTPUT_FILE}")"
-mkdir -p "${OUTPUT_DIR}" 2>/dev/null || true
-chmod 700 "${OUTPUT_DIR}" 2>/dev/null || true
+OUTPUT_DIR_WAS_CREATED=0
+
+if [ ! -d "${OUTPUT_DIR}" ]; then
+    if ! mkdir -p "${OUTPUT_DIR}"; then
+        die "Falha ao criar diretório de saída: ${OUTPUT_DIR}" "${EXIT_FS_FAILED}"
+    fi
+    OUTPUT_DIR_WAS_CREATED=1
+    if ! chmod 700 "${OUTPUT_DIR}"; then
+        die "Falha ao ajustar permissões (chmod 700) do diretório criado: ${OUTPUT_DIR}" "${EXIT_FS_FAILED}"
+    fi
+fi
+
+# Validar permissão de escrita no diretório de saída
+if [ ! -w "${OUTPUT_DIR}" ]; then
+    die "Diretório de saída sem permissão de escrita: ${OUTPUT_DIR}" "${EXIT_FS_FAILED}"
+fi
 
 LOG_FILE="${OUTPUT_DIR}/inventario-${TS_STAMP}-$$.log"
-touch "${LOG_FILE}" 2>/dev/null || die "Não foi possível criar o arquivo de log: ${LOG_FILE}" "${EXIT_QUERY_FAILED}"
-chmod 600 "${LOG_FILE}" 2>/dev/null || true
+if ! touch "${LOG_FILE}"; then
+    die "Não foi possível criar o arquivo de log: ${LOG_FILE}" "${EXIT_FS_FAILED}"
+fi
+if ! chmod 600 "${LOG_FILE}"; then
+    die "Não foi possível definir permissão chmod 600 no arquivo de log: ${LOG_FILE}" "${EXIT_FS_FAILED}"
+fi
+
+# Validação das permissões efetivas do log (Ponto 2: verificar permissões efetivas)
+LOG_PERM="$(stat -c '%a' "${LOG_FILE}" 2>/dev/null || stat -f '%Lp' "${LOG_FILE}" 2>/dev/null || echo "")"
+if [ -n "${LOG_PERM}" ] && [ "${LOG_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo de log (${LOG_PERM}) não confere com 600." "${EXIT_FS_FAILED}"
+fi
 
 log "Iniciando geração de inventário (${SCRIPT_VERSION}) - PID $$"
 log "Destino do JSON: ${OUTPUT_FILE}"
@@ -163,10 +214,9 @@ log "Modo de contagem: $([ ${EXACT_COUNT} -eq 1 ] && echo 'EXATA (SELECT count(*
 
 # Verificação de segurança de horário de expediente para contagem exata
 if [ "${EXACT_COUNT}" -eq 1 ]; then
-    # Checar horário de Brasília (UTC-3)
     BSB_HOUR="$(TZ="America/Sao_Paulo" date +%H)"
     BSB_DAY="$(TZ="America/Sao_Paulo" date +%u)" # 1=segunda ... 7=domingo
-    say "⚠️  ALERTA: A contagem exata (--contagem-exata) executa SELECT count(*) em todas as tabelas públicas."
+    say "⚠️  ALERTA: A contagem exata (--contagem-exata) executa SELECT count(*) em todas as tabelas públicas e em auth.users."
     say "   Isto consome I/O e CPU do banco de produção."
 
     # Expediente comercial: segunda a sexta (1 a 5), das 08:00 às 17:59 (hora 08 a 17)
@@ -243,7 +293,7 @@ find_prod_container
 say "🔍 Contêiner identificado para inventário: ${TARGET_CONTAINER}"
 log "Contêiner alvo: ${TARGET_CONTAINER}"
 
-# Execução segura de consulta SQL só-leitura
+# Ponto 3 da Auditoria: Não ignorar falhas de consultas SQL
 exec_psql_json() {
     local query="$1"
     local out rc
@@ -278,7 +328,7 @@ exec_psql_raw() {
     printf '%s\n' "${out}"
 }
 
-say "📋 Coletando metadados de catálogo (esquemas, tabelas, constraints, funções, triggers, extensões, roles)..."
+say "📋 Coletando metadados de catálogo (esquemas, tabelas, constraints com DDL, funções com assinaturas/corpos, triggers, extensões, roles)..."
 
 # 1. Metadados do servidor
 if ! PG_VERSION="$(exec_psql_raw "SELECT version()")"; then
@@ -308,6 +358,9 @@ WHERE nspname NOT LIKE 'pg\_%' AND nspname <> 'information_schema';
 ")" || [ -z "${SCHEMAS_JSON}" ]; then
     die "Falha ao consultar esquemas do banco no contêiner." "${EXIT_QUERY_FAILED}"
 fi
+if ! printf '%s' "${SCHEMAS_JSON}" | jq empty >/dev/null 2>&1; then
+    die "Retorno JSON de esquemas corrompido ou inválido." "${EXIT_QUERY_FAILED}"
+fi
 
 # 3. Extensões instaladas
 if ! EXTENSIONS_JSON="$(exec_psql_json "
@@ -320,6 +373,9 @@ FROM pg_extension e
 JOIN pg_namespace n ON n.oid = e.extnamespace;
 ")" || [ -z "${EXTENSIONS_JSON}" ]; then
     die "Falha ao consultar extensões do banco no contêiner." "${EXIT_QUERY_FAILED}"
+fi
+if ! printf '%s' "${EXTENSIONS_JSON}" | jq empty >/dev/null 2>&1; then
+    die "Retorno JSON de extensões corrompido ou inválido." "${EXIT_QUERY_FAILED}"
 fi
 
 # 4. Roles visíveis (apenas nomes e privilégios de atributos de catálogo, sem senhas/hashes)
@@ -338,34 +394,52 @@ WHERE rolname NOT LIKE 'pg\_%';
 ")" || [ -z "${ROLES_JSON}" ]; then
     die "Falha ao consultar roles no contêiner." "${EXIT_QUERY_FAILED}"
 fi
-
-# 5. Constraints / Foreign Keys
-if ! CONSTRAINTS_JSON="$(exec_psql_json "
-SELECT COALESCE(json_agg(json_build_object(
-    'schema', constraint_schema,
-    'tabela', table_name,
-    'nome', constraint_name,
-    'tipo', constraint_type
-) ORDER BY constraint_schema, table_name, constraint_name), '[]'::json)
-FROM information_schema.table_constraints
-WHERE constraint_schema NOT LIKE 'pg\_%' AND constraint_schema <> 'information_schema';
-")" || [ -z "${CONSTRAINTS_JSON}" ]; then
-    die "Falha ao consultar constraints no contêiner." "${EXIT_QUERY_FAILED}"
+if ! printf '%s' "${ROLES_JSON}" | jq empty >/dev/null 2>&1; then
+    die "Retorno JSON de roles corrompido ou inválido." "${EXIT_QUERY_FAILED}"
 fi
 
-# 6. Funções (apenas catálogo: schema, nome, linguagem)
+# Ponto 6 da Auditoria:
+# Ampliar o inventário estrutural para permitir comparação por identidade e definição:
+# 5. Constraints ampliadas com pg_get_constraintdef(c.oid), SEM registros de clientes
+if ! CONSTRAINTS_JSON="$(exec_psql_json "
+SELECT COALESCE(json_agg(json_build_object(
+    'schema', n.nspname,
+    'tabela', r.relname,
+    'nome', c.conname,
+    'tipo', c.contype,
+    'definicao', pg_get_constraintdef(c.oid, true)
+) ORDER BY n.nspname, r.relname, c.conname), '[]'::json)
+FROM pg_constraint c
+JOIN pg_namespace n ON n.oid = c.connamespace
+JOIN pg_class r ON r.oid = c.conrelid
+WHERE n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema';
+")" || [ -z "${CONSTRAINTS_JSON}" ]; then
+    die "Falha ao consultar constraints ampliadas com definição no contêiner." "${EXIT_QUERY_FAILED}"
+fi
+if ! printf '%s' "${CONSTRAINTS_JSON}" | jq empty >/dev/null 2>&1; then
+    die "Retorno JSON de constraints corrompido ou inválido." "${EXIT_QUERY_FAILED}"
+fi
+
+# Ponto 6 da Auditoria:
+# 6. Funções ampliadas com pg_get_function_identity_arguments e pg_get_functiondef, SEM dados de clientes
 if ! FUNCTIONS_JSON="$(exec_psql_json "
 SELECT COALESCE(json_agg(json_build_object(
     'schema', n.nspname,
     'nome', p.proname,
-    'linguagem', l.lanname
-) ORDER BY n.nspname, p.proname), '[]'::json)
+    'identidade', pg_get_function_identity_arguments(p.oid),
+    'tipo_retorno', pg_get_function_result(p.oid),
+    'linguagem', l.lanname,
+    'definicao', pg_get_functiondef(p.oid)
+) ORDER BY n.nspname, p.proname, pg_get_function_identity_arguments(p.oid)), '[]'::json)
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 JOIN pg_language l ON l.oid = p.prolang
 WHERE n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema';
 ")" || [ -z "${FUNCTIONS_JSON}" ]; then
-    die "Falha ao consultar funções no contêiner." "${EXIT_QUERY_FAILED}"
+    die "Falha ao consultar funções ampliadas com identidade e definição no contêiner." "${EXIT_QUERY_FAILED}"
+fi
+if ! printf '%s' "${FUNCTIONS_JSON}" | jq empty >/dev/null 2>&1; then
+    die "Retorno JSON de funções corrompido ou inválido." "${EXIT_QUERY_FAILED}"
 fi
 
 # 7. Triggers
@@ -382,22 +456,25 @@ WHERE trigger_schema NOT LIKE 'pg\_%' AND trigger_schema <> 'information_schema'
 ")" || [ -z "${TRIGGERS_JSON}" ]; then
     die "Falha ao consultar triggers no contêiner." "${EXIT_QUERY_FAILED}"
 fi
+if ! printf '%s' "${TRIGGERS_JSON}" | jq empty >/dev/null 2>&1; then
+    die "Retorno JSON de triggers corrompido ou inválido." "${EXIT_QUERY_FAILED}"
+fi
 
 # 8. Tabelas e Contagens
-TABLES_JSON=""
+TABLES_JSON="[]"
+METODO_CONTAGEM=""
+
 if [ "${EXACT_COUNT}" -eq 1 ]; then
     say "🔢 Calculando contagens exatas por tabela via SELECT count(*)..."
-    # Obter lista de tabelas públicas
     if ! TAB_LIST="$(exec_psql_raw "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename")"; then
         die "Falha ao listar tabelas do schema public para contagem exata." "${EXIT_QUERY_FAILED}"
     fi
-    TAB_ENTRIES=""
-    TOTAL_RECORDS=0
-    TOTAL_TABLES=0
+
+    # Usar jq para montar array seguro de tabelas sem concatenação manual de strings (Ponto 4)
+    CURRENT_TABLES_ARRAY="[]"
 
     while IFS= read -r t; do
         [ -n "${t}" ] || continue
-        TOTAL_TABLES=$((TOTAL_TABLES + 1))
         cnt_raw="$(exec_psql_raw "SELECT count(*) FROM public.\"${t}\"")" || die "Falha ao executar SELECT count(*) na tabela public.\"${t}\"." "${EXIT_QUERY_FAILED}"
         cnt="$(printf '%s\n' "${cnt_raw}" | tr -d '[:space:]')"
         case "${cnt}" in
@@ -405,14 +482,10 @@ if [ "${EXACT_COUNT}" -eq 1 ]; then
                 die "Resultado inválido de contagem na tabela public.\"${t}\": '${cnt}'." "${EXIT_QUERY_FAILED}"
                 ;;
         esac
-        TOTAL_RECORDS=$((TOTAL_RECORDS + cnt))
-        
-        entry="$(printf '{"schema":"public","tabela":"%s","contagem":%s,"tipo_contagem":"exata"}' "${t}" "${cnt}")"
-        if [ -z "${TAB_ENTRIES}" ]; then
-            TAB_ENTRIES="${entry}"
-        else
-            TAB_ENTRIES="${TAB_ENTRIES},${entry}"
-        fi
+
+        # Adição segura via jq com validação de tipo numérico (Ponto 4)
+        CURRENT_TABLES_ARRAY="$(printf '%s' "${CURRENT_TABLES_ARRAY}" | jq -e --arg schema "public" --arg tabela "${t}" --argjson contagem "${cnt}" --arg tipo "exata" \
+            '. + [{"schema": $schema, "tabela": $tabela, "contagem": $contagem, "tipo_contagem": $tipo}]')" || die "Falha ao serializar entrada da tabela public.${t} com jq." "${EXIT_JSON_FAILED}"
     done <<< "${TAB_LIST}"
 
     # auth.users como referência padrão do ecossistema Supabase
@@ -423,14 +496,10 @@ if [ "${EXACT_COUNT}" -eq 1 ]; then
             die "Resultado inválido de contagem em auth.users: '${auth_cnt}'." "${EXIT_QUERY_FAILED}"
             ;;
     esac
-    entry_auth="$(printf '{"schema":"auth","tabela":"users","contagem":%s,"tipo_contagem":"exata"}' "${auth_cnt}")"
-    if [ -n "${TAB_ENTRIES}" ]; then
-        TAB_ENTRIES="${TAB_ENTRIES},${entry_auth}"
-    else
-        TAB_ENTRIES="${entry_auth}"
-    fi
 
-    TABLES_JSON="[${TAB_ENTRIES}]"
+    TABLES_JSON="$(printf '%s' "${CURRENT_TABLES_ARRAY}" | jq -e --arg schema "auth" --arg tabela "users" --argjson contagem "${auth_cnt}" --arg tipo "exata" \
+        '. + [{"schema": $schema, "tabela": $tabela, "contagem": $contagem, "tipo_contagem": $tipo}]')" || die "Falha ao serializar auth.users no array de tabelas com jq." "${EXIT_JSON_FAILED}"
+
     METODO_CONTAGEM="exata"
 else
     say "⚡ Obtendo contagens estimadas leves via pg_class.reltuples..."
@@ -449,7 +518,7 @@ else
         die "Falha ao consultar contagens estimadas de tabelas públicas via reltuples." "${EXIT_QUERY_FAILED}"
     fi
 
-    # Adicionar estimativa de auth.users
+    # Adicionar estimativa de auth.users com serialização segura via jq (Ponto 4)
     if ! auth_est="$(exec_psql_json "
     SELECT COALESCE(json_build_object(
         'schema', 'auth',
@@ -465,78 +534,129 @@ else
     fi
 
     if [ -n "${auth_est}" ] && [ "${auth_est}" != "{}" ]; then
-        # Combinar com o array
-        TABLES_JSON="$(echo "${TABLES_JSON}" | sed -E "s/\]$/ , ${auth_est} \]/")"
+        TABLES_JSON="$(jq -e -n --argjson tabs "${TABLES_JSON}" --argjson au "${auth_est}" '$tabs + [$au]')" || die "Falha ao concatenar auth.users estimado com jq." "${EXIT_JSON_FAILED}"
     fi
     METODO_CONTAGEM="estimada_reltuples"
 fi
 
-# Contagens de sumário — separação estrita entre public e auth
-TOTAL_TABLES_PUBLIC_COUNT="$(printf '%s\n' "${TABLES_JSON}" | grep -o '"schema":"public"' | wc -l | tr -d '[:space:]')"
-TOTAL_TABLES_AUTH_COUNT="$(printf '%s\n' "${TABLES_JSON}" | grep -o '"schema":"auth"' | wc -l | tr -d '[:space:]')"
-TOTAL_TABLES_ALL_COUNT="$(printf '%s\n' "${TABLES_JSON}" | grep -o '"tabela":' | wc -l | tr -d '[:space:]')"
+# Ponto 1 da Auditoria:
+# Substituir todos os contadores JSON baseados em grep por consultas jq com validação rigorosa
+# de tipos, arrays e campos obrigatórios. Não permitir sucesso com totais inconsistentes.
+TOTAL_TABLES_PUBLIC_COUNT="$(printf '%s' "${TABLES_JSON}" | jq -e 'map(select(type == "object" and .schema == "public" and (.tabela | type == "string") and (.contagem | type == "number") and (.tipo_contagem | type == "string"))) | length')" || die "Validação jq falhou ao contar total_tabelas_public." "${EXIT_JSON_FAILED}"
 
-TOTAL_CONSTRAINTS_COUNT="$(printf '%s\n' "${CONSTRAINTS_JSON}" | grep -o '"nome":' | wc -l | tr -d '[:space:]')"
-TOTAL_FUNCTIONS_COUNT="$(printf '%s\n' "${FUNCTIONS_JSON}" | grep -o '"nome":' | wc -l | tr -d '[:space:]')"
-TOTAL_TRIGGERS_COUNT="$(printf '%s\n' "${TRIGGERS_JSON}" | grep -o '"nome":' | wc -l | tr -d '[:space:]')"
-TOTAL_EXTENSIONS_COUNT="$(printf '%s\n' "${EXTENSIONS_JSON}" | grep -o '"nome":' | wc -l | tr -d '[:space:]')"
-TOTAL_ROLES_COUNT="$(printf '%s\n' "${ROLES_JSON}" | grep -o '"nome":' | wc -l | tr -d '[:space:]')"
+TOTAL_TABLES_AUTH_COUNT="$(printf '%s' "${TABLES_JSON}" | jq -e 'map(select(type == "object" and .schema == "auth" and (.tabela | type == "string") and (.contagem | type == "number") and (.tipo_contagem | type == "string"))) | length')" || die "Validação jq falhou ao contar total_tabelas_auth." "${EXIT_JSON_FAILED}"
 
-# Montagem do arquivo JSON estruturado final
-say "💾 Gravando arquivo JSON de inventário restrito..."
+TOTAL_TABLES_ALL_COUNT="$(printf '%s' "${TABLES_JSON}" | jq -e 'if type == "array" then length else error("tabelas não é array") end')" || die "Validação jq falhou ao contar total_tabelas_todas." "${EXIT_JSON_FAILED}"
 
-cat <<EOF > "${OUTPUT_FILE}"
-{
-  "versao_gerador": "${SCRIPT_VERSION}",
-  "timestamp_geracao": "${TS_STAMP}",
-  "data_geracao_iso": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
-  "ambiente_origem": {
-    "tipo": "vps_producao",
-    "container": "${TARGET_CONTAINER}",
-    "database": "${DB_NAME}",
-    "postgres_major": "${PG_MAJOR}",
-    "postgres_versao_completa": "${PG_VERSION}"
-  },
-  "politica_seguranca": {
-    "dados_de_clientes_incluidos": false,
-    "tipo_conteudo": "metadados_e_contagens_apenas",
-    "metodo_contagem": "${METODO_CONTAGEM}",
-    "umask": "077",
-    "permissao_arquivo": "0600"
-  },
-  "sumario": {
-    "total_tabelas": ${TOTAL_TABLES_PUBLIC_COUNT},
-    "total_tabelas_public": ${TOTAL_TABLES_PUBLIC_COUNT},
-    "total_tabelas_auth": ${TOTAL_TABLES_AUTH_COUNT},
-    "total_tabelas_todas": ${TOTAL_TABLES_ALL_COUNT},
-    "total_constraints": ${TOTAL_CONSTRAINTS_COUNT},
-    "total_funcoes": ${TOTAL_FUNCTIONS_COUNT},
-    "total_triggers": ${TOTAL_TRIGGERS_COUNT},
-    "total_extensoes": ${TOTAL_EXTENSIONS_COUNT},
-    "total_roles": ${TOTAL_ROLES_COUNT}
-  },
-  "esquemas": ${SCHEMAS_JSON},
-  "extensoes": ${EXTENSIONS_JSON},
-  "roles": ${ROLES_JSON},
-  "constraints": ${CONSTRAINTS_JSON},
-  "funcoes": ${FUNCTIONS_JSON},
-  "triggers": ${TRIGGERS_JSON},
-  "tabelas": ${TABLES_JSON}
-}
-EOF
-
-chmod 600 "${OUTPUT_FILE}" 2>/dev/null || true
-
-# Validação do JSON gerado
-if command -v jq >/dev/null 2>&1; then
-    if ! jq empty "${OUTPUT_FILE}" >/dev/null 2>&1; then
-        say_err "ERRO CRÍTICO: Validação sintática do JSON com 'jq' falhou. Arquivo inválido: ${OUTPUT_FILE}."
-        log "ERRO: Sintaxe JSON inválida detectada por jq."
-        die "Arquivo JSON de inventário gerado com erro sintático." "${EXIT_QUERY_FAILED}"
-    else
-        log "JSON validado com sucesso via jq."
-    fi
+# Validação de consistência do total de tabelas
+EXPECTED_SUM=$((TOTAL_TABLES_PUBLIC_COUNT + TOTAL_TABLES_AUTH_COUNT))
+if [ "${TOTAL_TABLES_ALL_COUNT}" -ne "${EXPECTED_SUM}" ]; then
+    die "Inconsistência de totais de tabelas: todas (${TOTAL_TABLES_ALL_COUNT}) != public (${TOTAL_TABLES_PUBLIC_COUNT}) + auth (${TOTAL_TABLES_AUTH_COUNT})." "${EXIT_JSON_FAILED}"
 fi
+
+TOTAL_CONSTRAINTS_COUNT="$(printf '%s' "${CONSTRAINTS_JSON}" | jq -e 'if type == "array" then map(select(type == "object" and (.nome | type == "string") and (.definicao | type == "string"))) | length else error("constraints não é array") end')" || die "Validação jq falhou ao contar constraints com definição." "${EXIT_JSON_FAILED}"
+
+TOTAL_FUNCTIONS_COUNT="$(printf '%s' "${FUNCTIONS_JSON}" | jq -e 'if type == "array" then map(select(type == "object" and (.nome | type == "string") and (.identidade | type == "string") and (.definicao | type == "string"))) | length else error("funcoes não é array") end')" || die "Validação jq falhou ao contar funções com identidade e definição." "${EXIT_JSON_FAILED}"
+
+TOTAL_TRIGGERS_COUNT="$(printf '%s' "${TRIGGERS_JSON}" | jq -e 'if type == "array" then map(select(type == "object" and (.nome | type == "string"))) | length else error("triggers não é array") end')" || die "Validação jq falhou ao contar triggers." "${EXIT_JSON_FAILED}"
+
+TOTAL_EXTENSIONS_COUNT="$(printf '%s' "${EXTENSIONS_JSON}" | jq -e 'if type == "array" then map(select(type == "object" and (.nome | type == "string"))) | length else error("extensoes não é array") end')" || die "Validação jq falhou ao contar extensões." "${EXIT_JSON_FAILED}"
+
+TOTAL_ROLES_COUNT="$(printf '%s' "${ROLES_JSON}" | jq -e 'if type == "array" then map(select(type == "object" and (.nome | type == "string"))) | length else error("roles não é array") end')" || die "Validação jq falhou ao contar roles." "${EXIT_JSON_FAILED}"
+
+# Ponto 4 da Auditoria:
+# Montagem do arquivo JSON com serialização segura via jq -n com argumentos (--arg/--argjson),
+# NUNCA interpolação manual de valores em heredoc.
+say "💾 Gravando arquivo JSON de inventário restrito com serialização segura (jq -n)..."
+
+if ! jq -n \
+    --arg versao_gerador "${SCRIPT_VERSION}" \
+    --arg timestamp_geracao "${TS_STAMP}" \
+    --arg data_geracao_iso "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+    --arg container "${TARGET_CONTAINER}" \
+    --arg database "${DB_NAME}" \
+    --arg pg_major "${PG_MAJOR}" \
+    --arg pg_version "${PG_VERSION}" \
+    --arg metodo_contagem "${METODO_CONTAGEM}" \
+    --argjson total_tabelas "${TOTAL_TABLES_PUBLIC_COUNT}" \
+    --argjson total_tabelas_public "${TOTAL_TABLES_PUBLIC_COUNT}" \
+    --argjson total_tabelas_auth "${TOTAL_TABLES_AUTH_COUNT}" \
+    --argjson total_tabelas_todas "${TOTAL_TABLES_ALL_COUNT}" \
+    --argjson total_constraints "${TOTAL_CONSTRAINTS_COUNT}" \
+    --argjson total_funcoes "${TOTAL_FUNCTIONS_COUNT}" \
+    --argjson total_triggers "${TOTAL_TRIGGERS_COUNT}" \
+    --argjson total_extensoes "${TOTAL_EXTENSIONS_COUNT}" \
+    --argjson total_roles "${TOTAL_ROLES_COUNT}" \
+    --argjson esquemas "${SCHEMAS_JSON}" \
+    --argjson extensoes "${EXTENSIONS_JSON}" \
+    --argjson roles "${ROLES_JSON}" \
+    --argjson constraints "${CONSTRAINTS_JSON}" \
+    --argjson funcoes "${FUNCTIONS_JSON}" \
+    --argjson triggers "${TRIGGERS_JSON}" \
+    --argjson tabelas "${TABLES_JSON}" \
+    '{
+      "versao_gerador": $versao_gerador,
+      "timestamp_geracao": $timestamp_geracao,
+      "data_geracao_iso": $data_geracao_iso,
+      "ambiente_origem": {
+        "tipo": "vps_producao",
+        "container": $container,
+        "database": $database,
+        "postgres_major": $pg_major,
+        "postgres_versao_completa": $pg_version
+      },
+      "politica_seguranca": {
+        "dados_de_clientes_incluidos": false,
+        "tipo_conteudo": "metadados_e_contagens_apenas",
+        "metodo_contagem": $metodo_contagem,
+        "umask": "077",
+        "permissao_arquivo": "0600"
+      },
+      "ressalva_temporal": {
+        "instante_coleta": "tempo_de_execucao_do_inventario",
+        "diferenca_instantes_declarada": true,
+        "aviso": "As contagens exatas refletem o estado do banco no instante de geracao deste inventario, que difere do instante em que qualquer arquivo de dump de backup foi gravado. Divergencias de contagem com backups anteriores ou posteriores devem ser analisadas de forma conclusiva com evidencias, sem presuncoes automaticas de crescimento."
+      },
+      "sumario": {
+        "total_tabelas": $total_tabelas,
+        "total_tabelas_public": $total_tabelas_public,
+        "total_tabelas_auth": $total_tabelas_auth,
+        "total_tabelas_todas": $total_tabelas_todas,
+        "total_constraints": $total_constraints,
+        "total_funcoes": $total_funcoes,
+        "total_triggers": $total_triggers,
+        "total_extensoes": $total_extensoes,
+        "total_roles": $total_roles
+      },
+      "esquemas": $esquemas,
+      "extensoes": $extensoes,
+      "roles": $roles,
+      "constraints": $constraints,
+      "funcoes": $funcoes,
+      "triggers": $triggers,
+      "tabelas": $tabelas
+    }' > "${OUTPUT_FILE}"; then
+    die "Falha na montagem segura do JSON com jq." "${EXIT_JSON_FAILED}"
+fi
+
+# Ajustar e validar permissão do arquivo gerado (Ponto 2 e Ponto 3)
+if ! chmod 600 "${OUTPUT_FILE}"; then
+    die "Falha ao aplicar chmod 600 no arquivo gerado: ${OUTPUT_FILE}" "${EXIT_FS_FAILED}"
+fi
+
+OUT_PERM="$(stat -c '%a' "${OUTPUT_FILE}" 2>/dev/null || stat -f '%Lp' "${OUTPUT_FILE}" 2>/dev/null || echo "")"
+if [ -n "${OUT_PERM}" ] && [ "${OUT_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo JSON (${OUT_PERM}) não confere com 600." "${EXIT_FS_FAILED}"
+fi
+
+# Validação sintática e semântica rigorosa com jq
+if ! jq empty "${OUTPUT_FILE}" >/dev/null 2>&1; then
+    say_err "ERRO CRÍTICO: Validação sintática do JSON com 'jq' falhou. Arquivo inválido: ${OUTPUT_FILE}."
+    log "ERRO: Sintaxe JSON inválida detectada por jq."
+    die "Arquivo JSON de inventário gerado com erro sintático." "${EXIT_JSON_FAILED}"
+fi
+
+log "JSON validado com sucesso e consistência estrita via jq."
 
 say ""
 say "================================================================================"
@@ -548,11 +668,12 @@ say " PostgreSQL Major .....: ${PG_MAJOR}"
 say " Método de contagem ...: ${METODO_CONTAGEM}"
 say " Total tabelas public .: ${TOTAL_TABLES_PUBLIC_COUNT}"
 say " Total tabelas auth ...: ${TOTAL_TABLES_AUTH_COUNT}"
-say " Total de constraints .: ${TOTAL_CONSTRAINTS_COUNT}"
-say " Total de funções .....: ${TOTAL_FUNCTIONS_COUNT}"
+say " Total de constraints .: ${TOTAL_CONSTRAINTS_COUNT} (com definições DDL)"
+say " Total de funções .....: ${TOTAL_FUNCTIONS_COUNT} (com identidades e definições)"
 say " Total de triggers ....: ${TOTAL_TRIGGERS_COUNT}"
 say " Total de extensões ...: ${TOTAL_EXTENSIONS_COUNT}"
 say " Total de roles .......: ${TOTAL_ROLES_COUNT}"
+say " Ressalva temporal ....: Declarada expressamente no cabeçalho do JSON"
 say " Log de execução ......: ${LOG_FILE} (chmod 600)"
 say "================================================================================"
 say " Para auditar no laboratório isolado, copie este JSON para a máquina de teste"

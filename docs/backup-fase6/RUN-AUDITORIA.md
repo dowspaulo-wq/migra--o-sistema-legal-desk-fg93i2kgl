@@ -1,190 +1,113 @@
-# Manual Operacional de Auditoria de Backups — SBJur / DPSjur
+# Manual de Execução: Auditoria Independente de Backup (v1.4.0)
 
-Este documento descreve o procedimento operacional padrão para verificação de integridade e auditoria de restauração dos backups do banco de dados PostgreSQL do CRM **SBJur / DPSjur**.
-
-O objetivo deste procedimento é assegurar, com rigor técnico e comprovação prática periódica, que os backups gerados na VPS Hostinger são física e logicamente recuperáveis em caso de desastre.
-
----
-
-## ⚠️ AVISO DE SEGURANÇA E O QUE NÃO É AUTORIZADO
-
-Por diretriz expressa de segurança do escritório:
-
-1. **NÃO É AUTORIZADO EXECUTAR RESTAURAÇÃO OU TESTE DE LABORATÓRIO NA VPS DE PRODUÇÃO:**
-   - O teste de restauração (`--laboratorio`) cria contêineres e consome CPU, memória e I/O que podem sobrecarregar ou derrubar o sistema em uso pelos advogados.
-   - O script `docs/vps/20-auditar-backup.sh` possui uma **guarda de segurança automática** que detecta o ambiente da VPS e **recusa-se terminantemente a rodar** em modo laboratório se suspeitar que está em produção.
-2. **NÃO É AUTORIZADO ALTERAR A ROTINA DE BACKUP ATUAL:**
-   - A rotina de backup em execução (`docs/backup-fase6/01-instalar-backup.sh` e cron da VPS) está funcionando e não deve ser modificada sem validação prévia.
-3. **NÃO É AUTORIZADO EXCLUIR BACKUPS OU CONTÊINERES SEM POLÍTICA APROVADA:**
-   - Backups históricos no VPS ou na nuvem não devem ser excluídos manualmente.
-   - O laboratório limpa apenas os contêineres e volumes temporários gerados em sua própria sessão de teste.
+> **Status da Solução**: **NÃO PRONTA PARA USO OPERACIONAL IMEDIATO** — aguarda nova auditoria e aprovação independente (4ª rodada de correções técnicas aplicada, v1.4.0).  
+> **Objetivo**: Testar restauração de backup com validação semântica estrita, integridade referencial do CRM, proteção contra execução indevida em produção (Guarda Anti-VPS estrita no topo absoluto), bloqueio de endpoints Docker remotos, serialização segura JSON via `jq`, inventário estrutural ampliado (DDL de constraints e identidades de funções) e classificação estrita de diferenças de contagem como **INCONCLUSIVAS** (sem presunção de crescimento natural).
 
 ---
 
-## 1. Visão Geral dos Dois Modos do Script `20-auditar-backup.sh`
+## 1. Visão Geral dos Scripts
 
-O script `20-auditar-backup.sh` opera em dois modos distintos:
-
-| Modo                                   | Onde pode rodar                                                      | O que faz                                                                                                                                                                              | Risco para o CRM                                   |
-| :------------------------------------- | :------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------- |
-| **Modo Leve (`--leve`)**               | **Na VPS de Produção** ou em qualquer máquina                        | Verifica se o arquivo existe, testa a integridade com `gzip -t`, calcula SHA-256 e tamanho. **Não usa Docker.**                                                                        | **Zero** (apenas leitura rápida do arquivo).       |
-| **Modo Laboratório (`--laboratorio`)** | **Exclusivamente FORA da VPS** (WSL2, Docker Desktop ou Linux local) | Cria um contêiner temporário isolado sem rede (`--network none`), restaura o banco de dados em um banco limpo e vazio, valida tabelas, funções, contagens e gera o relatório completo. | **Zero na VPS** (roda em máquina externa isolada). |
+| Script                            | Versão     | Local de Execução                            | Propósito                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| :-------------------------------- | :--------- | :------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/vps/21-gerar-inventario.sh` | **v1.4.0** | **VPS Hostinger de Produção**                | Extrai metadados estruturais DDL e contagens de catálogo em formato JSON sob `umask 077 + chmod 600`, sem nunca extrair dados de clientes. Por padrão faz contagem leve (`reltuples`); a contagem exata (`SELECT count(*)`) exige `--contagem-exata` e é bloqueada no horário de expediente (08h–18h BSB) a menos que se passe `--forcar-horario-expediente`. Serialização estrita via `jq -n --arg/--argjson`.                                             |
+| `docs/vps/20-auditar-backup.sh`   | **v1.4.0** | **Máquina de Teste / WSL2 / Docker Desktop** | Restaura o dump `.sql.gz` em contêiner descartável isolado, verifica `pg_graphql` (sem `DROP EXTENSION CASCADE`), valida schemas `public` e `auth`, realiza comparação bidirecional estrita com o inventário JSON via `jq`, avalia integridade operacional do CRM (4 testes técnicos) e emite veredito fundamentado. Bloqueia endpoints remotos de Docker (`DOCKER_HOST`), protege permissões e remove apenas recursos rastreados e rotulados com a sessão. |
 
 ---
 
-## 2. Pré-requisitos da Máquina de Laboratório (Fora da VPS)
+## 2. As 10 Correções Técnicas Aplicadas na Versão v1.4.0
 
-Para executar a auditoria completa em modo laboratório, você precisará de uma máquina independente (computador local com Linux, ou Windows com WSL2 e Docker Desktop):
+Em cumprimento à 4ª rodada de auditoria independente, foram incorporadas as seguintes melhorias:
 
-- **Docker:** Docker instalado e funcionando (`docker ps` deve rodar sem erro).
-- **Memória RAM:** No mínimo 4 GB disponíveis no host de teste.
-- **Espaço em Disco:** No mínimo 5 GB livres para acomodar o contêiner e a expansão dos dados descomprimidos.
-- **Imagem Docker:** Ter acesso à imagem do PostgreSQL compatível com o Supabase:
-  ```bash
-  docker pull supabase/postgres:15.8.1.085
-  ```
-- **Utilitários comuns:** `bash`, `gzip`, `sha256sum` (ou `shasum`), e opcionalmente `jq` para conferência avançada de JSON.
-
----
-
-## 3. Passo a Passo Operacional
-
-### Etapa 1: Gerar o Inventário Estrutural na VPS (Somente Leitura)
-
-O inventário serve como a "fotografia" oficial do banco em produção, contendo a lista de tabelas, funções e número de registros para conferência após a restauração.
-
-1. Acesse a VPS via SSH:
-   ```bash
-   ssh root@srv1737667.hstgr.cloud
-   ```
-2. Execute o gerador de inventário (modo padrão leve, instantâneo e seguro):
-   ```bash
-   bash docs/vps/21-gerar-inventario.sh
-   ```
-   _Nota sobre horários:_ O modo padrão utiliza estimativas do catálogo PostgreSQL (`pg_class.reltuples`), com custo zero para o sistema. Caso deseje contagens exatas (`SELECT count(*)`), execute fora do horário comercial (após as 18:00 ou fins de semana):
-   ```bash
-   bash docs/vps/21-gerar-inventario.sh --contagem-exata
-   ```
-3. O script informará onde o arquivo JSON restrito foi gerado, por exemplo:
-   `/root/sbjur-backups/inventarios/inventario-20261111-120000.json`.
+1. **Substituição de contadores baseados em grep por jq**: Todos os contadores estruturais no inventário e no auditor foram substituídos por consultas `jq` estritas (`type == "object"`, arrays, strings e números validados). Totais inconsistentes (`total_todas != public + auth`) abortam a execução com erro.
+2. **Criação de diretórios privados e verificação de permissões efetivas**: Nenhum `chmod` indiscriminado é aplicado a diretórios preexistentes do sistema. Subdiretórios privados da sessão são criados com `chmod 700`, e cada arquivo gerado (`.json`, `.log`, `.txt`) tem sua permissão efetiva inspecionada via `stat` (`0600`).
+3. **Nenhuma falha silenciosa ignorada**: Removidos supressores de erro (`|| true`) em comandos de sistema de arquivos (`mkdir`, `touch`, `chmod`), validações JSON (`jq`) e consultas SQL (`psql -X -v ON_ERROR_STOP=1`).
+4. **Montagem do JSON com serialização segura**: O arquivo de inventário é construído através de `jq -n` com passagem tipada de parâmetros (`--arg` para strings seguras, `--argjson` para números e estruturas validadas), eliminando interpolações manuais de strings.
+5. **Identificação expressa de instantes temporais distintos**: O cabeçalho do inventário registra explicitamente a seção `"ressalva_temporal"`, documentando que as métricas foram obtidas no instante da execução do script, o qual diverge do instante em que qualquer dump de backup foi gravado.
+6. **Inventário estrutural ampliado sem dados de clientes**: Extração de definições completas de constraints (`pg_get_constraintdef`) e de identidades/definições de funções (`pg_get_function_identity_arguments`, `pg_get_functiondef`), permitindo conferência estrutural aprofundada sem extrair nenhuma linha de dados de clientes.
+7. **Validação bidirecional de tabelas e critérios prévios**: O auditor confere a correspondência das tabelas nos dois sentidos (inventário $\rightarrow$ backup restaurado e backup restaurado $\rightarrow$ inventário oficial), validando schemas, nomes e métodos de contagem. O sinalizador `INVENTORY_COMPARISON_VALID="SIM"` só é atribuído após o término satisfatório de todas as checagens.
+8. **Diferenças de contagem classificadas como INCONCLUSIVAS**: Eliminada a presunção automática de "crescimento natural da produção". Qualquer divergência de contagem é registrada como `INCONCLUSIVA`, impedindo aprovação inadvertida sem investigação factual.
+9. **Rastreamento estrito de recursos Docker e limpeza pós-guarda**: Nenhuma limpeza Docker ocorre antes da guarda anti-VPS. O contêiner e o volume isolados recebem labels específicos da sessão (`sbjur.audit.session=<timestamp-pid>`), são registrados em `session-tracked-resources.txt` e somente esses recursos validados podem ser destruídos ao final.
+10. **Bloqueio de contextos e endpoints Docker remotos**: O auditor inspeciona `$DOCKER_HOST` e o contexto ativo do Docker daemon, abortando imediatamente se detectar endpoints remotos (`tcp://`, `ssh://`, `http://`, etc.), garantindo que o teste ocorra apenas em socket local seguro.
 
 ---
 
-### Etapa 2: Copiar o Backup e o Inventário para a Máquina de Teste
+## 3. Roteiro de Execução
 
-Na sua máquina local ou WSL2 (fora da VPS), faça o download seguro dos arquivos:
+### Passo 1: Geração do Inventário na VPS de Produção (Hostinger)
+
+Acesse a VPS via SSH e execute o script 21 em modo somente leitura:
 
 ```bash
-# Crie uma pasta de trabalho local
-mkdir -p ~/auditoria-sbjur && cd ~/auditoria-sbjur
+# Modo 1: Recomendado / Leve (zero impacto, estimativas pg_class.reltuples)
+bash docs/vps/21-gerar-inventario.sh
 
-# Baixe o backup mais recente gerado na VPS (exemplo com scp)
-scp root@srv1737667.hstgr.cloud:/root/sbjur-backups/diario/sbjur_backup_2026-11-10_030001.sql.gz ./backup-teste.sql.gz
+# Modo 2: Contagem exata fora do horário comercial (SELECT count(*))
+bash docs/vps/21-gerar-inventario.sh --contagem-exata
 
-# Baixe o inventário gerado na Etapa 1
-scp root@srv1737667.hstgr.cloud:/root/sbjur-backups/inventarios/inventario-*.json ./inventario-prod.json
+# Modo 3: Contagem exata forçada durante o expediente (08h-18h BSB)
+bash docs/vps/21-gerar-inventario.sh --contagem-exata --forcar-horario-expediente --saida /root/sbjur-backups/inventarios/inventario-manual.json
 ```
 
----
+O arquivo gerado (`inventario-AAAAMMDD-HHMMSS.json`) tem permissões `0600` e não contém dados confidenciais de clientes.
 
-### Etapa 3: Executar a Auditoria Completa no Laboratório
+### Passo 2: Cópia do Backup e do Inventário para a Máquina de Teste
 
-Na sua máquina de teste (fora da VPS), execute o script de auditoria apontando para os arquivos baixados:
+Copie o dump do backup e o arquivo JSON para seu ambiente local isolado (WSL2 / Linux / Docker Desktop):
+
+```bash
+scp root@2.25.181.69:/root/sbjur-backups/backups/backup-2026-11-10_03-00.sql.gz /tmp/
+scp root@2.25.181.69:/root/sbjur-backups/inventarios/inventario-20261110-180000.json /tmp/
+```
+
+### Passo 3: Execução da Auditoria Independente de Restauração
+
+Na máquina de teste (nunca na VPS de produção):
 
 ```bash
 bash docs/vps/20-auditar-backup.sh \
-  --arquivo ./backup-teste.sql.gz \
-  --inventario ./inventario-prod.json
+    --arquivo /tmp/backup-2026-11-10_03-00.sql.gz \
+    --inventario /tmp/inventario-20261110-180000.json
 ```
 
-O que o script fará automaticamente:
-
-1. **Guarda Anti-VPS Estrita:** Testa se por engano o script está sendo rodado na VPS de produção. Qualquer falha em consultar o hostname ou inspecionar contêineres Docker bloqueia preventivamente a execução antes de criar qualquer recurso.
-2. **Checagem de Integridade Física:** Executa `gzip -t` e calcula o hash SHA-256 do arquivo.
-3. **Checagem de Recursos:** Confere se a máquina tem memória (≥ 4 GB) e disco suficientes.
-4. **Criação do Laboratório Isolado:** Sobe um contêiner temporário com `--network none` (sem qualquer acesso à internet ou rede local).
-5. **Restauração com `psql -X -v ON_ERROR_STOP=1`:** Carrega o dump PostgreSQL interrompendo e registrando claramente qualquer erro SQL em arquivo restrito (`chmod 600`), com sanitização de dados sensíveis para privacidade.
-6. **Pós-Restauração Controlada (Supabase):** Verifica dependências do Supabase (como `graphql_public.graphql` da extensão `pg_graphql`) e recria no laboratório se necessário, diferenciando erros reais de lacunas do dump.
-7. **Validação Estrutural e Comparação de Inventário:** Valida tabelas `public` e `auth.users`. Compara contagens exatas com rigor numérico e contagens estimadas sem exigir igualdade numérica estrita. Exige `jq` e inventário válido para certificar a aprovação integral.
-8. **Testes Operacionais Não Destrutivos do CRM:** Executa 4 baterias técnicas ativas (FKs órfãs, sanidade de usuários, planos de execução `EXPLAIN` e simulação transacional `BEGIN ... ROLLBACK`).
-9. **Limpeza Segura (Cleanup):** Remove os contêineres e volumes efêmeros que ele mesmo criou, sem deixar resíduos.
-10. **Emissão do Relatório:** Exibe o resumo no terminal e salva o relatório completo em texto restrito (`chmod 600`), separando restauração original de recuperação assistida.
-
----
-
-### Novidades e Ajustes de Segurança da Versão v1.3.0
-
-A versão **v1.3.0** dos scripts consolida as correções técnicas e os requisitos de auditoria independente:
-
-1. **Separação Rigorosa dos Schemas `public` e `auth`:**
-   - O inventário (`21-gerar-inventario.sh`) e o auditor (`20-auditar-backup.sh`) geram e comparam `total_tabelas_public` e `total_tabelas_auth` como campos distintos. A tabela `auth.users` NUNCA é contada como tabela pública.
-2. **Leitura de JSON via `jq -er` Estrito (Sem Máscaras):**
-   - Todas as extrações utilizam `jq -er` estrito. Foram eliminados fallbacks e `|| true` que pudessem mascarar leituras falhas de tabelas ou sumário. Inventário incompleto ou consulta com erro gera status `ERRO` e impede veredito APROVADO.
-3. **Detecção e Falhas Explícitas no Auditor:**
-   - Todas as consultas `psql` checam código de retorno. Falhas incrementam o contador global `QUERY_FAILURES_COUNT` e registram divergência explícita no relatório; nenhuma falha é convertida em contagem zero. O estado global declara formalmente `RESTORE_ORIGINAL_STATUS`, `QUERY_FAILURES_COUNT` e `TEMPORAL_DIFFS_FILE`, garantindo compatibilidade com `set -u`.
-4. **Pós-Restauração de Extensões sem `DROP CASCADE`:**
-   - Foi completamente removido qualquer `DROP EXTENSION ... CASCADE`. A recuperação assistida utiliza recriação idempotente e controlada (`CREATE EXTENSION IF NOT EXISTS pg_graphql WITH SCHEMA graphql`), com código de saída verificado. O relatório separa nitidamente `(a) Restauração Original` de `(b) Recuperação Assistida`.
-5. **Critério (e) com Veredito Honesto:**
-   - O critério (e) atesta **Compatibilidade e Operação Básica do CRM** no escopo do banco de dados restaurado no laboratório, deixando explícito que a operação completa da aplicação em produção envolve também serviços de runtime (GoTrue, Kong, PostgREST).
-6. **Reconciliação de Diferenças Temporais:**
-   - Contagens exatas menores no backup em relação ao inventário da produção (gerado posteriormente) são registradas em seção informativa dedicada (`TEMPORAL_DIFFS_FILE`), tolerando o crescimento natural dos dados sem reprovação por falsa divergência.
-7. **Guarda Anti-VPS no Topo Absoluto:**
-   - Em `20-auditar-backup.sh`, a verificação de hostname e contêineres Docker roda IMEDIATAMENTE após o parsing de argumentos, antes de qualquer comando `mkdir`, `touch`, escrita em disco ou redirecionamento para log. Qualquer falha em consultar hostname ou Docker aborta preventivamente com `exit 11`.
-8. **Permissões Rígidas e Privacidade Reforçada:**
-   - Máscara `umask 077` ativa antes de qualquer criação de arquivos, arquivos em `chmod 600` e diretórios em `chmod 700`. Ofuscação de mensagens de erro estendida a literais entre aspas, CPFs (11 dígitos) e CNPJs (14 dígitos).
-
----
-
-### Teste Rápido na VPS: Modo Leve (Opcional)
-
-Se você quiser apenas checar rapidamente se os arquivos de backup na VPS estão íntegros e não corrompidos, sem restaurar nada:
+Caso queira manter o contêiner de teste após a execução para inspeção interativa:
 
 ```bash
-# Na VPS de produção:
-bash docs/vps/20-auditar-backup.sh --leve
+bash docs/vps/20-auditar-backup.sh \
+    --arquivo /tmp/backup-2026-11-10_03-00.sql.gz \
+    --inventario /tmp/inventario-20261110-180000.json \
+    --manter-lab
 ```
 
 ---
 
-## 4. Como Interpretar o Relatório e os 5 Critérios
+## 4. Códigos de Saída dos Scripts
 
-O relatório gerado avalia a restauração sob **5 critérios independentes e rigorosos**:
+### `21-gerar-inventario.sh`
 
-| Critério                                         | Descrição                                                                                                                                                                                                                                       | O que significa se der FALHA                                                                                              |
-| :----------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------ |
-| **(a) Integridade do arquivo**                   | Teste físico do compactador `gzip -t` e tamanho mínimo.                                                                                                                                                                                         | O arquivo de backup foi corrompido, interrompido durante a gravação ou truncado.                                          |
-| **(b) Restauração sem erros**                    | Verificação se a carga inicial do `psql` ocorreu com zero erros SQL.                                                                                                                                                                            | O dump gerou mensagens de erro ao ser restaurado (ex.: comandos que dependiam de roles de cluster ausentes no dump).      |
-| **(c) Recuperação de estruturas e dados**        | Confirmação de que as tabelas existem e os dados foram inseridos, conferindo com o inventário (schemas `public` e `auth` separados).                                                                                                            | Faltam tabelas essenciais ou a contagem de registros divergiu da produção.                                                |
-| **(d) Dependências Supabase**                    | Verificação das extensões e funções internas do ecossistema Supabase (como `graphql_public.graphql`), distinguindo restauração direta de recuperação assistida.                                                                                 | Extensão não foi inicializada corretamente pelo dump original e procedimento não destrutivo não pôde ativá-la.            |
-| **(e) Compatibilidade e operação básica do CRM** | Avaliação técnica ativa do banco via 4 testes não destrutivos representativos (integridade referencial de chaves estrangeiras, sanidade de `auth.users`, planos `EXPLAIN` de consultas centrais e simulação transacional `BEGIN ... ROLLBACK`). | Qualquer teste operacional falhou; o critério é classificado como NÃO COMPROVADO ou FALHA, impedindo o veredito APROVADO. |
+- `0`: Sucesso total (JSON gerado e validado).
+- `10`: Erro de sintaxe de parâmetros (`--help`).
+- `11`: Docker indisponível.
+- `12`: Contêiner de produção não encontrado.
+- `15`: Bloqueio de horário comercial (tentativa de `--contagem-exata` entre 08h e 18h BSB sem `--forcar-horario-expediente`).
+- `20`: Falha em consulta SQL de catálogo.
+- `25`: Falha em permissão ou sistema de arquivos (`mkdir`, `touch`, `chmod`).
+- `30`: Falha na serialização ou validação do JSON (`jq`).
 
-### Veredito Final da Auditoria
+### `20-auditar-backup.sh`
 
-- **APROVADO (Restauração Integral ou Recuperação Assistida Validada):** Concedido **única e exclusivamente** se os 5 critérios forem atendidos com sucesso (critérios A, B, C, D e E aprovados), sem divergências estruturais críticas pendentes, e com inventário oficial validado via `jq` (diferenciando contagens exatas, diferenças temporais esperadas e estimativas estatísticas não vinculantes). Se ajustes não destrutivos de extensões foram necessários no lab, o veredito registra `RECUPERAÇÃO ASSISTIDA VALIDADA`.
-- **RECUPERAÇÃO PARCIAL / REPROVADO:** Emitido se houver qualquer divergência estrutural, interrupção por erro SQL (`psql -X -v ON_ERROR_STOP=1`), falha de integridade referencial ou se a comparação com o inventário oficial estiver ausente ou corrompida.
-- **INCONCLUSIVO:** Emitido se o teste for interrompido antes do fim por falta de recursos (disco, memória).
-
----
-
-## 5. Proposta de Política de Retenção de Relatórios
-
-> **Atenção:** Esta é uma proposta de governança recomendada para o escritório e **NÃO é aplicada de forma destrutiva ou automática** por nenhum script.
-
-1. **Periodicidade Recomendada de Auditoria:**
-   - Auditoria completa em laboratório: **1 vez por mês** (preferencialmente na primeira semana do mês).
-   - Auditoria em modo leve na VPS: **semanal** ou após grandes manutenções.
-2. **Retenção dos Relatórios de Auditoria:**
-   - Manter os relatórios de texto gerados (`relatorio-auditoria-*.txt`) arquivados por **12 meses**.
-   - Os arquivos de relatório não contêm dados de clientes nem senhas (apenas métricas e contagens numéricas), podendo ser guardados na pasta de documentação de TI do escritório.
-3. **Retenção dos Backups:**
-   - Mantida integralmente a política já aprovada por Douglas: backups diários (rotatividade local), semanais (30 dias) e mensais (1 ano), com sincronização externa.
+- `0`: Auditoria APROVADA (todos os critérios técnicos passaram sem divergências).
+- `10`: Erro de sintaxe de parâmetros (`--help`).
+- `11`: Abortado pela Guarda Anti-VPS ou bloqueio de DOCKER_HOST remoto.
+- `12`: Dependência ausente (`docker`, `gunzip`, `psql`, `jq`).
+- `20`: Falha de restauração física do dump.
+- `21`: Falha de recuperação de `pg_graphql`.
+- `22`: Divergência estrutural ou auditoria REPROVADA.
+- `23`: Falha na leitura ou validação semântica do inventário.
+- `24`: Falha nas verificações de recuperação operacional do CRM.
+- `25`: Falha de sistema de arquivos ou permissões.
 
 ---
 
-## 6. Resolução de Dúvidas Comuns
+## 5. Próximos Passos Obrigatórios
 
-**P: Por que o restore bruto pode acusar erro sobre `graphql_public.graphql`?**  
-R: O utilitário `pg_dump` com a flag `--clean --if-exists` tenta recriar extensões. Como a imagem Docker `supabase/postgres` já traz a extensão `pg_graphql` pré-instalada na inicialização do contêiner, o restore pula a criação e as funções da extensão podem não ser registradas no schema público. O script `20-auditar-backup.sh` detecta isso e aplica um procedimento corretivo não destrutivo (sem `DROP CASCADE`) para validar se a dependência é plenamente recuperável, diferenciando no relatório final a restauração original da recuperação assistida.
-
-**P: Os dados de clientes e processos aparecem nos relatórios ou logs?**  
-R: **Não.** Todos os scripts foram programados sob rigorosa política de privacidade: são extraídos apenas nomes de tabelas, funções, erros técnicos do PostgreSQL e números de contagem. Nenhum conteúdo de linha, nome de cliente ou processo é gravado nos relatórios. Além disso, todos os arquivos são criados com permissão estrita `chmod 600` e máscara `umask 077`.
+- **Aprovação Independente**: Os arquivos e scripts permanecem em status de revisão técnica, aguardando validação do auditor independente antes de qualquer uso operacional em produção.
