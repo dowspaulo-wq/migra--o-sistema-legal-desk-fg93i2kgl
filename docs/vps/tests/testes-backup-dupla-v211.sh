@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# DPSjur / SBJur — Testes com MOCKS para os scripts de backup dupla (v2.1.1)
+# DPSjur / SBJur — Testes com MOCKS para os scripts de backup dupla (v2.1.2)
 # ==============================================================================
 # Cobre os cenários obrigatórios da auditoria do commit 1f36a02:
 #   T1. contêiner do serviço dpsjur_dpsjur-db identificado por ID é ACEITO por
@@ -23,7 +23,22 @@
 #   bash docs/vps/tests/testes-backup-dupla-v211.sh
 # Exit 0 = todos os testes passaram; exit 1 = alguma divergência (listada).
 #
-# STATUS: NÃO EXECUTADO nesta rodada (plataforma de desenvolvimento SEM Bash).
+# v2.1.2 — correção da auditoria do harness:
+#   A. MOCK_CASE EXPORTADA: o mock de docker é um SCRIPT FILHO (executável no
+#      PATH) e só enxerga variáveis exportadas. Sem `export MOCK_CASE`, todo
+#      cenário caía no default "ok" e os testes T2/T3/T4a/T4b não exercitavam
+#      o comportamento pretendido. A exportação passa a valer também dentro de
+#      subshells $() e pipelines (contexto onde atribuição simples não propaga
+#      para subprocessos). MOCK_DUMP_FAIL já era exportada — mantido.
+#   B. T7: o assert antigo (`expect_exit 0 ... true`) testava o comando `true`,
+#      não a função — passava sem testar nada. Substituído por captura real do
+#      código de bk_finalize_session (chamada em subshell; a função não faz
+#      exit, apenas registra no log — o veredito passou a ser provado também
+#      pelo código retornado, sem flexibilizar nenhum assert).
+#
+# STATUS: NÃO EXECUTADO nesta rodada (plataforma de desenvolvimento SEM Bash):
+#   bash -n NÃO VALIDADO, ShellCheck NÃO VALIDADO, execução do harness NÃO
+#   VALIDADO. Validar no WSL2 de Douglas antes de qualquer uso.
 # ==============================================================================
 
 set -u
@@ -42,17 +57,22 @@ export LOG_FILE="${WORK}/harness.log"
 : > "${LOG_FILE}"
 export BK_PGPASS_IN_CONTAINER="/tmp/.pgpass-mock-sessao-apenas-teste"
 export BK_TMP_FILE=""
+# Cenário do mock de docker — EXPORTADA: o mock roda como subprocesso e só vê
+# o ambiente exportado (v2.1.2, correção A). Renomeado de MOCK_CASE para
+# BK_MOCK_CASE para eliminar a colisão com qualquer uso futuro do nome dentro
+# dos scripts testados.
+export BK_MOCK_CASE="ok"
 # shellcheck source=../lib/backup-lib.sh
 source "${LIB}"
 
 # ------------------------------------------------------------------------------
-# Mock de docker (comportamento por MOCK_CASE / MOCK_DUMP_FAIL)
+# Mock de docker (comportamento por BK_MOCK_CASE / MOCK_DUMP_FAIL)
 # ------------------------------------------------------------------------------
 MOCK_BIN="${WORK}/bin"
 mkdir -p "${MOCK_BIN}"
 cat > "${MOCK_BIN}/docker" <<'EOF_MOCK'
 #!/usr/bin/env bash
-case "${MOCK_CASE:-ok}" in
+case "${BK_MOCK_CASE:-ok}" in
     daemon-morto) exit 1 ;;
 esac
 
@@ -61,7 +81,7 @@ if [ "${1:-}" = "info" ]; then
 fi
 
 if [ "${1:-}" = "service" ] && [ "${2:-}" = "ls" ]; then
-    case "${MOCK_CASE:-ok}" in
+    case "${BK_MOCK_CASE:-ok}" in
         servico-ausente) exit 1 ;;
         *) printf '%s\n' "dpsjur_dpsjur-db" ;;
     esac
@@ -69,7 +89,7 @@ if [ "${1:-}" = "service" ] && [ "${2:-}" = "ls" ]; then
 fi
 
 if [ "${1:-}" = "service" ] && [ "${2:-}" = "ps" ]; then
-    case "${MOCK_CASE:-ok}" in
+    case "${BK_MOCK_CASE:-ok}" in
         sem-tarefa) : ;;
         *) printf '%s\n' "dpsjur_dpsjur-db.1.abcdef1234567890" ;;
     esac
@@ -78,12 +98,12 @@ fi
 
 if [ "${1:-}" = "ps" ]; then
     if printf '%s\n' "$@" | grep -q -- '--filter'; then
-        case "${MOCK_CASE:-ok}" in
+        case "${BK_MOCK_CASE:-ok}" in
             ok|dump-fail|publish-fail) printf '%s\n' "abcdef1234567890" ;;
         esac
         exit 0
     fi
-    case "${MOCK_CASE:-ok}" in
+    case "${BK_MOCK_CASE:-ok}" in
         ok|dump-fail|publish-fail)
             printf '%s\t%s\n' "abcdef1234567890" "dpsjur_dpsjur-db.1.abcdef1234567890" ;;
         incorreto)
@@ -183,15 +203,15 @@ EXPECTED_SERVICE="dpsjur_dpsjur-db"
 # T1+T4 — bk_resolve_swarm_container (FALHA 1, lado da resolução)
 # ==============================================================================
 printf '\n== T4a: serviço Swarm ausente é rejeitado ==\n'
-MOCK_CASE="servico-ausente"
+export BK_MOCK_CASE="servico-ausente"
 expect_exit 13 "serviço inexistente rejeitado" bk_resolve_swarm_container "${EXPECTED_SERVICE}"
 
 printf '\n== T4b: nenhuma tarefa Running é rejeitada ==\n'
-MOCK_CASE="sem-tarefa"
+export BK_MOCK_CASE="sem-tarefa"
 expect_exit 13 "nenhuma tarefa Running rejeitada" bk_resolve_swarm_container "${EXPECTED_SERVICE}"
 
 printf '\n== T1a: resolução retorna EXATAMENTE o ID do contêiner ==\n'
-MOCK_CASE="ok"
+export BK_MOCK_CASE="ok"
 resolved="$(bk_resolve_swarm_container "${EXPECTED_SERVICE}" 2>/dev/null)"
 rc=$?
 if [ "${rc}" -eq 0 ] && [ "${resolved}" = "${CONTAINER_ID}" ]; then
@@ -204,17 +224,17 @@ fi
 # T1–T3 — bk_verify_container (FALHA 1, lado da verificação)
 # ==============================================================================
 printf '\n== T1b: contêiner identificado por ID é ACEITO (18/Doug/dpsjur) ==\n'
-MOCK_CASE="ok"
+export BK_MOCK_CASE="ok"
 expect_exit 0 "ID do serviço Swarm aceito por bk_verify_container" \
     bk_verify_container "${CONTAINER_ID}" "18" "dpsjur" "Doug" "5432" ""
 
 printf '\n== T2: contêiner INCORRETO é rejeitado ==\n'
-MOCK_CASE="incorreto"
+export BK_MOCK_CASE="incorreto"
 expect_exit 13 "contêiner incorreto rejeitado" \
     bk_verify_container "${CONTAINER_ID}" "18" "dpsjur" "Doug" "5432" ""
 
 printf '\n== T3: contêiner AMBÍGUO (mesmo ID, dois nomes) é rejeitado ==\n'
-MOCK_CASE="ambiguo"
+export BK_MOCK_CASE="ambiguo"
 expect_exit 13 "contêiner ambíguo rejeitado" \
     bk_verify_container "${CONTAINER_ID}" "18" "dpsjur" "Doug" "5432" ""
 
@@ -222,9 +242,8 @@ expect_exit 13 "contêiner ambíguo rejeitado" \
 # T5 — pg_dump falhando → FALHA com código próprio
 # ==============================================================================
 printf '\n== T5: pg_dump falhando → veredito FALHA (exit 20) ==\n'
-MOCK_CASE="dump-fail"
-MOCK_DUMP_FAIL="1"
-export MOCK_DUMP_FAIL
+export BK_MOCK_CASE="dump-fail"
+export MOCK_DUMP_FAIL="1"
 BK_DUMP_CMD=(docker exec "${CONTAINER_ID}" env PGPASSFILE="${BK_PGPASS_IN_CONTAINER}" \
     pg_dump -p "5432" -U "Doug" -d "dpsjur")
 expect_exit "${BK_EXIT_DUMP_FAIL}" "bk_run_dump_pipeline retorna ${BK_EXIT_DUMP_FAIL} em falha de pg_dump" \
@@ -234,8 +253,8 @@ expect_exit "${BK_EXIT_DUMP_FAIL}" "bk_run_dump_pipeline retorna ${BK_EXIT_DUMP_
 # T6 — publicação falhando (destino existente) → FALHA, nada sobrescrito
 # ==============================================================================
 printf '\n== T6: publicação com destino existente → FALHA (exit 25) ==\n'
-MOCK_CASE="publish-fail"
-MOCK_DUMP_FAIL="0"
+export BK_MOCK_CASE="publish-fail"
+export MOCK_DUMP_FAIL="0"
 mkdir -p "${WORK}/publish"
 : > "${WORK}/publish/destino-existente.sql.gz"
 : > "${WORK}/publish/tmp-simulado.sql.gz"
@@ -252,19 +271,39 @@ fi
 # ==============================================================================
 printf '\n== T7: código 0 + limpeza ok → VEREDITO: SUCESSO ==\n'
 : > "${LOG_FILE}"
-bk_finalize_session 0 0 "Teste T7"
-expect_exit 0 "bk_finalize_session(0,0) exit 0" true
+# v2.1.2 (correção B): antes era `expect_exit 0 ... true`, que testava o
+# comando `true` e não a função — passava sem testar nada. bk_finalize_session
+# RETORNA 0 (não faz exit), então o código de retorno real é capturado aqui.
+got=0
+( bk_finalize_session 0 0 "Teste T7" ) || got=$?
+if [ "${got}" -eq 0 ]; then
+    ok "bk_finalize_session(0,0) retorna 0 (código real da função)"
+else
+    fail "bk_finalize_session(0,0) — esperado retorno 0, obtido ${got}"
+fi
 log_contains "veredito SUCESSO registrado" "VEREDITO: SUCESSO"
 
 printf '\n== T8: código 20 + limpeza ok → FALHA com código original PRESERVADO ==\n'
 : > "${LOG_FILE}"
-bk_finalize_session 20 0 "Teste T8"
+got=0
+( bk_finalize_session 20 0 "Teste T8" ) || got=$?
+if [ "${got}" -eq 0 ]; then
+    ok "bk_finalize_session(20,0) retorna 0 (falha registrada, exit decidido pelo chamador)"
+else
+    fail "bk_finalize_session(20,0) — esperado retorno 0, obtido ${got}"
+fi
 log_contains "veredito FALHA registrado" "VEREDITO: FALHA"
 log_contains "código original 20 preservado no veredito" "exit original 20 PRESERVADO"
 
 printf '\n== T9: código 0 + limpeza FALHA → FALHA DE LIMPEZA (não SUCESSO) ==\n'
 : > "${LOG_FILE}"
-bk_finalize_session 0 1 "Teste T9"
+got=0
+( bk_finalize_session 0 1 "Teste T9" ) || got=$?
+if [ "${got}" -eq 0 ]; then
+    ok "bk_finalize_session(0,1) retorna 0 (veredito FALHA DE LIMPEZA no log, exit decidido pelo chamador)"
+else
+    fail "bk_finalize_session(0,1) — esperado retorno 0, obtido ${got}"
+fi
 if grep -q "VEREDITO: SUCESSO" "${LOG_FILE}"; then
     fail "T9 — SUCESSO registrado mesmo com limpeza falha"
 else
