@@ -3,7 +3,7 @@
 # DPSjur / SBJur — BACKUP DO BANCO B (PostgreSQL 18, serviço Docker Swarm
 # "dpsjur_dpsjur-db", usuário "Doug", banco "dpsjur").
 # Script: docs/vps/23-backup-banco-b-dpsjur.sh
-# Versão: v2.0.0
+# Versão: v2.1.0
 #
 # REGRA ABSOLUTA: este script é EXCLUSIVO do Banco B. O Banco A (PostgreSQL 15,
 # sbsjur) tem script próprio (22-...) e rotina antiga /root/sbjur-backups/backup.sh
@@ -18,6 +18,16 @@
 #   - pg_dump roda com PGPASSFILE instalado DENTRO do contêiner (docker exec não
 #     herda PGPASSFILE do host); sem senha em argumento, log ou arquivo versionado.
 #   - Captura de erro SEM inversão; dump em temporário + PUBLICAÇÃO ATÔMICA.
+#
+# Mudanças v2.0.0 → v2.1.0 (auditoria f17a6b4):
+#   - bk_resolve_swarm_container retorna SOMENTE o ID no stdout (logs/stderr) e
+#     cruza `docker service ps` × `docker ps` por ID (nome de tarefa tem sufixo
+#     <servico>.<slot>.<id>), com prova final docker ps --filter id=.
+#   - .pgpass interno com CAMINHO EXCLUSIVO por execução (BK_PGPASS_IN_CONTAINER,
+#     definido por bk_stage_pgpass_into_container); prefixo contém apenas a base.
+#   - pg_dump SEM a opção -X (obsoleta e exige nome de opção como argumento —
+#     ver comentário do comando e correção K do backup-lib.sh).
+#   - Publicação com mv -n e prova posterior; chmod 600 do publicado é fatal.
 # ==============================================================================
 
 set -o errexit
@@ -64,7 +74,9 @@ Opções:
 MODE="diario"
 APPLY_RETENTION=0
 HOST_PGPASS="${HOME}/.pgpass-bk-banco-b"
-CONTAINER_PGPASS="/tmp/.pgpass-bk-banco-b"
+# PREFIXO do caminho interno do .pgpass (bk_stage_pgpass_into_container acrescenta
+# sufixo exclusivo da sessão e define BK_PGPASS_IN_CONTAINER com o caminho real).
+CONTAINER_PGPASS_PREFIX="/tmp/.pgpass-bk-banco-b"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -91,16 +103,17 @@ LOG_FILE="${BASE_LOG_DIR}/banco-b-${MODE}-${RUN_STAMP}.log"
 chmod 600 "${LOG_FILE}"
 
 cleanup() {
-    # ${CONTAINER:-}: pode não estar definido se a falha ocorreu antes da
-    # resolução do contêiner (bk_remove_pgpass ignora contêiner vazio).
-    bk_remove_pgpass "${CONTAINER:-}" "${CONTAINER_PGPASS}" || true
+    # ${CONTAINER:-} e ${BK_PGPASS_IN_CONTAINER:-}: podem não estar definidos se
+    # a falha ocorreu antes da resolução/staging (bk_remove_pgpass ignora os
+    # dois vazios e recusa caminho que não seja o registrado nesta sessão).
+    bk_remove_pgpass "${CONTAINER:-}" "${BK_PGPASS_IN_CONTAINER:-}" || true
     bk_tmp_cleanup || true
     bk_release_lock || true
     bk_finalize_session "Banco B"
     printf '%s FIM DA SESSÃO Banco B (exit %s)\n' "$(date '+%F %T')" "$1" >> "${LOG_FILE}" 2>/dev/null || true
 }
 trap 'cleanup $?' EXIT
-trap 'bk_tmp_cleanup; bk_remove_pgpass "${CONTAINER:-}" "${CONTAINER_PGPASS}" || true; exit 130' INT TERM HUP
+trap 'bk_tmp_cleanup; bk_remove_pgpass "${CONTAINER:-}" "${BK_PGPASS_IN_CONTAINER:-}" || true; exit 130' INT TERM HUP
 
 # ------------------------------------------------------------------------------
 # 1) Dependências + lock (arquivo de lock PRÓPRIO do Banco B)
@@ -122,7 +135,7 @@ if ! CONTAINER="$(bk_resolve_swarm_container "${SWARM_SERVICE}")"; then
 fi
 readonly CONTAINER
 
-if ! bk_stage_pgpass_into_container "${CONTAINER}" "${HOST_PGPASS}" "${CONTAINER_PGPASS}" "${PG_USER}"; then
+if ! bk_stage_pgpass_into_container "${CONTAINER}" "${HOST_PGPASS}" "${CONTAINER_PGPASS_PREFIX}" "${PG_USER}"; then
     bk_die "Staging do .pgpass no contêiner NÃO confirmado — abortando." "${BK_EXIT_GUARD}"
 fi
 
@@ -133,11 +146,15 @@ fi
 bk_verify_container "${CONTAINER}" "${PG_MAJOR}" "${PG_DB}" "${PG_USER}" "${PG_PORT}" "${PG_BIN_PREFIX}"
 
 # ------------------------------------------------------------------------------
-# 4) Comando pg_dump (DENTRO do contêiner, PGPASSFILE interno, sem senha em
-#    argumento; conexão explícita)
+# 4) Comando pg_dump (DENTRO do contêiner, PGPASSFILE interno exclusivo desta
+#    sessão — sem senha em argumento; conexão explícita).
+#    SEM -X: o -X do pg_dump é mecanismo obsoleto que EXIGE um NOME de opção
+#    como argumento ("on/off"); um "-X -p" solto consumiria o -p e abortaria
+#    com "invalid -X option". A forma conservadora suportada por PG15 e PG18 é
+#    NÃO usar -X (comportamento padrão já seguro — ver correção K do lib).
 # ------------------------------------------------------------------------------
-BK_DUMP_CMD=(docker exec "${CONTAINER}" env PGPASSFILE="${CONTAINER_PGPASS}" \
-    ${PG_BIN_PREFIX}pg_dump -X -p "${PG_PORT}" -U "${PG_USER}" -d "${PG_DB}")
+BK_DUMP_CMD=(docker exec "${CONTAINER}" env PGPASSFILE="${BK_PGPASS_IN_CONTAINER}" \
+    ${PG_BIN_PREFIX}pg_dump -p "${PG_PORT}" -U "${PG_USER}" -d "${PG_DB}")
 
 # ------------------------------------------------------------------------------
 # 5) Destino final por modo
