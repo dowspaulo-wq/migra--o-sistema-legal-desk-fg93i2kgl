@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur / SBJur — Auditoria Independente de Integridade de Backup
 # Script: docs/vps/20-auditar-backup.sh
-# Versão: v1.8.0
+# Versão: v1.9.0
 # Destino de execução: MÁQUINA DE TESTE / WSL2 / DOCKER DESKTOP ISOLADO
 #
 # GUARDA DE SEGURANÇA MÁXIMA (ANTI-VPS) E CONTROLE ESTRITO DE SESSÃO DOCKER:
@@ -41,6 +41,23 @@
 #      com regex estrita ^[a-zA-Z_][a-zA-Z0-9_]*$ antes de qualquer interpolação
 #      SQL; inválidos geram DIVERGÊNCIA e recusa da interpolação.
 #
+# CORREÇÕES v1.9.0 (auditoria externa independente — 5 pontos, correção cirúrgica):
+#   1. Guarda Docker: falha ou host vazio de `docker context inspect` NÃO é mais
+#      presumido como socket local padrão — endpoint não comprovado aborta (exit 11).
+#   2. Funções PostgreSQL comparadas por schema + nome + identidade de argumentos
+#      (pg_get_function_identity_arguments) + tipo de retorno; sobrecargas comparadas
+#      individualmente (sem concatenação) e pg_get_functiondef pelo OID exato da
+#      sobrecarga casada (nunca homônima).
+#   3. Extrações jq com exit code efetivamente verificado (sem `|| echo ""` mascarando
+#      falha); extração incompleta/inválida/ambígua impede INVENTORY_COMPARISON_VALID=SIM;
+#      arrays vazios legítimos (exit 1 de -e) continuam aceitos.
+#   4. Normalização de definições (constraints e funções) NÃO destrutiva e IDÊNTICA
+#      dos dois lados: quebras viram espaço, espaços colapsados — nunca remoção pura.
+#   5. pg_graphql instalado por recuperação assistida NÃO satisfaz o critério B
+#      (CRIT_B=FALHA): veredito NUNCA é APROVADO quando houve intervenção
+#      pós-restauração; evidências da restauração original e da recuperação assistida
+#      permanecem separadas na seção 2 do relatório.
+#
 # POLÍTICA DE AUDITORIA E VEREDITO (v1.5.0):
 #   - O veredito APROVADO é emitido UNICAMENTE se TODOS os critérios técnicos
 #     passarem sem exceção:
@@ -71,7 +88,7 @@
 set -u -o pipefail
 umask 077
 
-SCRIPT_VERSION="v1.8.0"
+SCRIPT_VERSION="v1.9.0"
 
 # ------------------------------------------------------------------------------
 # PONTO 9 E PONTO 10 DA AUDITORIA: GUARDA DE SEGURANÇA MÁXIMA (ANTI-VPS)
@@ -115,16 +132,20 @@ if command -v docker >/dev/null 2>&1; then
             exit 11
         fi
 
-        DOCKER_CONTEXT_HOST="$(docker context inspect "${DOCKER_CURRENT_CONTEXT}" --format '{{.Endpoints.docker.Host}}' 2>/dev/null || echo "")"
-        if [ -z "${DOCKER_CONTEXT_HOST}" ]; then
-            # Sem endpoint declarado no contexto e sem DOCKER_HOST: a CLI cai no
-            # socket local padrão. Aceitável apenas nesse cenário específico.
-            DOCKER_EFFECTIVE_ENDPOINT="unix:///var/run/docker.sock"
-            DOCKER_ENDPOINT_ORIGIN="socket local padrão (contexto ${DOCKER_CURRENT_CONTEXT} sem endpoint declarado)"
-        else
-            DOCKER_EFFECTIVE_ENDPOINT="${DOCKER_CONTEXT_HOST}"
-            DOCKER_ENDPOINT_ORIGIN="contexto ${DOCKER_CURRENT_CONTEXT}"
+        # Correção 1 (v1.9.0): inspecionar o CONTEXTO ATIVO como a CLI do Docker
+        # o resolve (docker context show), SEM presumir socket local padrão:
+        # falha ou host vazio de docker context inspect = endpoint não comprovado
+        # = bloqueio preventivo (exit 11). Endpoint unix:// só é aceito quando o
+        # contexto ativo o declara expressamente (e o socket existe, validado abaixo).
+        DOCKER_CONTEXT_HOST_RC=0
+        DOCKER_CONTEXT_HOST="$(docker context inspect "${DOCKER_CURRENT_CONTEXT}" --format '{{.Endpoints.docker.Host}}' 2>/dev/null)" || DOCKER_CONTEXT_HOST_RC=$?
+        if [ "${DOCKER_CONTEXT_HOST_RC}" -ne 0 ] || [ -z "${DOCKER_CONTEXT_HOST}" ]; then
+            printf '❌ ERRO CRÍTICO DE SEGURANÇA: Endpoint Docker efetivo NÃO COMPROVADO (falha ou host vazio do docker context inspect para o contexto %s; exit %s).\n' "${DOCKER_CURRENT_CONTEXT}" "${DOCKER_CONTEXT_HOST_RC}" >&2
+            printf '   A natureza local do endpoint não pôde ser provada — bloqueio preventivo (exit 11).\n' >&2
+            exit 11
         fi
+        DOCKER_EFFECTIVE_ENDPOINT="${DOCKER_CONTEXT_HOST}"
+        DOCKER_ENDPOINT_ORIGIN="contexto ${DOCKER_CURRENT_CONTEXT}"
     fi
 
     case "${DOCKER_EFFECTIVE_ENDPOINT}" in
@@ -715,6 +736,10 @@ say "   Status da Restauração Original: ${RESTORE_ORIGINAL_STATUS} (gunzip: ${
 say "🔬 Verificando extensão pg_graphql (catálogo pg_extension/pg_available_extensions)..."
 GRAPHQL_REC_STATUS="NAO_NECESSARIO"
 GRAPHQL_FINAL_STATUS="FALHA"
+# Correção 5 (v1.9.0): evidência separada da dependência pós-restauração.
+# Recuperação assistida posterior NUNCA é tratada como prova de que a
+# restauração original restituiu integralmente a extensão pg_graphql.
+GRAPHQL_DEP_NOTE="não requerida"
 
 # Ponto 6 da correção v1.8.0: verificação INEQUÍVOCA da extensão — consulta
 # pg_extension (instalada, com extversion) e pg_available_extensions (disponível).
@@ -756,9 +781,15 @@ case "${GRAPHQL_EXT_INFO}" in
 
             if [ "${CREATE_EXT_RC}" -eq 0 ] && [ "${GRAPHQL_REVALID_OK}" -eq 1 ]; then
                 GRAPHQL_REC_STATUS="RECUPERADO_COM_SUCESSO"
+                # Correção 5 (v1.9.0): estado "OK_RECUPERADO" PRESERVADO como evidência
+                # separada (seção 2 do relatório mostra a recuperação assistida).
                 GRAPHQL_FINAL_STATUS="OK_RECUPERADO"
-                say "✅ Extensão pg_graphql recuperada com sucesso via CREATE EXTENSION aditivo."
-                printf 'Aviso Operacional: Extensão pg_graphql necessitou de CREATE EXTENSION aditivo pós-restauração.\n' >> "${CONFERIDOS_FILE}"
+                # Correção 5 (v1.9.0): dependência pós-restauração registrada e
+                # IMPEDITIVA ao veredito APROVADO (recuperação NÃO é prova de
+                # restauração original integral).
+                GRAPHQL_DEP_NOTE="SIM: pg_graphql instalado por recuperação assistida (intervenção pós-restauração); auditoria NÃO emite APROVADO nesta condição"
+                say "⚠️  Extensão pg_graphql só ficou operacional por recuperação assistida (intervenção PÓS-restauração); veredito NÃO será APROVADO por esta condição."
+                printf 'Aviso Operacional: Extensão pg_graphql necessitou de CREATE EXTENSION aditivo pós-restauração (DEPENDÊNCIA PÓS-RESTAURAÇÃO).\n' >> "${CONFERIDOS_FILE}"
             else
                 GRAPHQL_REC_STATUS="FALHA_NA_RECUPERACAO"
                 GRAPHQL_FINAL_STATUS="FALHA"
@@ -940,7 +971,17 @@ else
 
         # Ponto 1 da correção v1.8.0: totais devem existir E ser inteiros não
         # negativos (rejeita ausente, nulo, texto ou negativo).
-        INV_TOTAL_PUBLIC="$(jq -er '.sumario.total_tabelas_public // empty' "${INVENTORY_FILE}" 2>/dev/null || echo "")"
+        # Correção 3 (v1.9.0): exit code do jq verificado de fato — sem "|| echo"
+        # mascarando falha. Saída legítima do filtro pode ser vazia (null); a
+        # distinção é feita pelo exit code (0 = filtro executado, >=2 = erro jq).
+        INV_TOTAL_PUBLIC=""
+        INV_TOTAL_PUBLIC_RC=0
+        INV_TOTAL_PUBLIC="$(jq -er '.sumario.total_tabelas_public // empty' "${INVENTORY_FILE}" 2>/dev/null)" || INV_TOTAL_PUBLIC_RC=$?
+        if [ "${INV_TOTAL_PUBLIC_RC}" -ge 2 ]; then
+            printf 'DIVERGÊNCIA: Falha de jq ao extrair total_tabelas_public do inventário (exit %s)\n' "${INV_TOTAL_PUBLIC_RC}" >> "${DIVERGENCES_FILE}"
+            INVENTORY_EXTRACTION_INCOMPLETE=1
+            INV_SCHEMA_VALID=0
+        fi
         case "${INV_TOTAL_PUBLIC}" in
             ''|*[!0-9]*)
                 printf 'DIVERGÊNCIA: Campo total_tabelas_public ausente, nulo ou não inteiro no inventário (valor: "%s")\n' "${INV_TOTAL_PUBLIC}" >> "${DIVERGENCES_FILE}"
@@ -949,7 +990,14 @@ else
                 ;;
         esac
 
-        INV_TOTAL_AUTH="$(jq -er '.sumario.total_tabelas_auth // empty' "${INVENTORY_FILE}" 2>/dev/null || echo "")"
+        INV_TOTAL_AUTH=""
+        INV_TOTAL_AUTH_RC=0
+        INV_TOTAL_AUTH="$(jq -er '.sumario.total_tabelas_auth // empty' "${INVENTORY_FILE}" 2>/dev/null)" || INV_TOTAL_AUTH_RC=$?
+        if [ "${INV_TOTAL_AUTH_RC}" -ge 2 ]; then
+            printf 'DIVERGÊNCIA: Falha de jq ao extrair total_tabelas_auth do inventário (exit %s)\n' "${INV_TOTAL_AUTH_RC}" >> "${DIVERGENCES_FILE}"
+            INVENTORY_EXTRACTION_INCOMPLETE=1
+            INV_SCHEMA_VALID=0
+        fi
         case "${INV_TOTAL_AUTH}" in
             ''|*[!0-9]*)
                 printf 'DIVERGÊNCIA: Campo total_tabelas_auth ausente, nulo ou não inteiro no inventário (valor: "%s")\n' "${INV_TOTAL_AUTH}" >> "${DIVERGENCES_FILE}"
@@ -958,7 +1006,19 @@ else
                 ;;
         esac
 
-        INV_METODO_CONTAGEM="$(jq -er '.politica_seguranca.metodo_contagem // empty' "${INVENTORY_FILE}" 2>/dev/null || echo "desconhecido")"
+        # Correção 3 (v1.9.0): exit code do jq verificado de fato — sem "|| echo"
+        # mascarando falha. "desconhecido" é o fallback APENAS quando o campo
+        # não existe no JSON (exit 1 de -e); erro real de jq (>=2) é divergência.
+        INV_METODO_CONTAGEM=""
+        INV_METODO_CONTAGEM_RC=0
+        INV_METODO_CONTAGEM_TMP="$(jq -er '.politica_seguranca.metodo_contagem // empty' "${INVENTORY_FILE}" 2>/dev/null)" || INV_METODO_CONTAGEM_RC=$?
+        if [ "${INV_METODO_CONTAGEM_RC}" -ge 2 ]; then
+            printf 'DIVERGÊNCIA: Falha de jq ao extrair politica_seguranca.metodo_contagem do inventário (exit %s)\n' "${INV_METODO_CONTAGEM_RC}" >> "${DIVERGENCES_FILE}"
+            INVENTORY_EXTRACTION_INCOMPLETE=1
+        elif [ -n "${INV_METODO_CONTAGEM_TMP}" ]; then
+            INV_METODO_CONTAGEM="${INV_METODO_CONTAGEM_TMP}"
+        fi
+        unset INV_METODO_CONTAGEM_TMP
 
         # Comparação do total de tabelas públicas
         if [ -n "${INV_TOTAL_PUBLIC}" ]; then
@@ -979,11 +1039,34 @@ else
         fi
 
         # Extração de tabelas do inventário via jq estrito
-        INV_TABLES_RAW="$(jq -er '.tabelas[] | "\(.schema // "public")|\(.tabela)|\(.contagem)|\(.tipo_contagem // "desconhecido")"' "${INVENTORY_FILE}" 2>/dev/null || echo "")"
-        INV_TABLES_LEN="$(jq -e '.tabelas | length' "${INVENTORY_FILE}" 2>/dev/null || echo 0)"
+        # Correção 3 (v1.9.0): exit codes do jq verificados de fato — sem "|| echo"
+        # mascarando falha. Exit 1 legítimo de -e (array vazio / falsidade) NÃO é
+        # falha; erro real de jq (>=2) bloqueia INVENTORY_COMPARISON_VALID=SIM.
+        INV_TABLES_RAW=""
+        INV_TABLES_LEN=0
+        INV_TABLES_RAW_RC=0
+        INV_TABLES_LEN_RC=0
+        INV_TABLES_RAW="$(jq -er '.tabelas[] | "\(.schema // "public")|\(.tabela)|\(.contagem)|\(.tipo_contagem // "desconhecido")"' "${INVENTORY_FILE}" 2>/dev/null)" || INV_TABLES_RAW_RC=$?
+        INV_TABLES_LEN="$(jq -e '.tabelas | length' "${INVENTORY_FILE}" 2>/dev/null)" || INV_TABLES_LEN_RC=$?
+        case "${INV_TABLES_LEN}" in
+            ''|*[!0-9]*)
+                # length produzido com erro jq: tratar como 0 e como extração incompleta
+                if [ "${INV_TABLES_LEN_RC}" -ge 2 ]; then
+                    printf 'DIVERGÊNCIA: Falha de jq ao contar tabelas do inventário (exit %s)\n' "${INV_TABLES_LEN_RC}" >> "${DIVERGENCES_FILE}"
+                    INVENTORY_EXTRACTION_INCOMPLETE=1
+                fi
+                INV_TABLES_LEN=0
+                ;;
+        esac
         # Ponto 5: extração jq falha com inventário não vazio = verificação incompleta
         if [ -z "${INV_TABLES_RAW}" ] && [ "${INV_TABLES_LEN}" -gt 0 ]; then
             printf 'DIVERGÊNCIA: Falha na extração da lista de tabelas do inventário com jq -er (%s tabelas declaradas, 0 extraídas)\n' "${INV_TABLES_LEN}" >> "${DIVERGENCES_FILE}"
+            INVENTORY_EXTRACTION_INCOMPLETE=1
+        fi
+        # Correção 3 (v1.9.0): erro real de jq na extração das linhas de tabelas
+        # é registrado mesmo quando o array declarado também está vazio.
+        if [ "${INV_TABLES_RAW_RC}" -ge 2 ]; then
+            printf 'DIVERGÊNCIA: Falha de jq ao extrair linhas de tabelas do inventário (exit %s)\n' "${INV_TABLES_RAW_RC}" >> "${DIVERGENCES_FILE}"
             INVENTORY_EXTRACTION_INCOMPLETE=1
         fi
 
@@ -1070,7 +1153,14 @@ else
                 # Validação via jq se lab_t existe no array de tabelas do inventário com schema public
                 # jq SEM -e: "false" é saída legítima (tabela não catalogada) e não
                 # deve ser interpretada como falha de jq (exit 1).
-                t_in_inv="$(jq --arg tab "${lab_t}" 'any(.tabelas[]; .schema == "public" and .tabela == $tab)' "${INVENTORY_FILE}" 2>/dev/null || echo "false")"
+                # Correção 3 (v1.9.0): código de saída verificado — erro real de jq
+                # (>=2) é divergência registrada e impede INVENTORY_COMPARISON_VALID=SIM.
+                T_IN_INV_RC=0
+                t_in_inv="$(jq --arg tab "${lab_t}" 'any(.tabelas[]; .schema == "public" and .tabela == $tab)' "${INVENTORY_FILE}" 2>/dev/null)" || T_IN_INV_RC=$?
+                if [ "${T_IN_INV_RC}" -ge 2 ]; then
+                    printf 'DIVERGÊNCIA: Falha de jq ao verificar tabela public."%s" no inventário (exit %s)\n' "${lab_t}" "${T_IN_INV_RC}" >> "${DIVERGENCES_FILE}"
+                    INVENTORY_EXTRACTION_INCOMPLETE=1
+                fi
                 if [ "${t_in_inv}" != "true" ]; then
                     printf 'DIVERGÊNCIA BIDIRECIONAL: Tabela public."%s" existe no backup restaurado mas NÃO CONSTA no inventário oficial\n' "${lab_t}" >> "${DIVERGENCES_FILE}"
                 else
@@ -1083,7 +1173,14 @@ else
             while IFS= read -r lab_auth_t; do
                 [ -n "${lab_auth_t}" ] || continue
                 # Validação via jq se lab_auth_t existe no array de tabelas do inventário com schema auth
-                t_in_inv_auth="$(jq --arg tab "${lab_auth_t}" 'any(.tabelas[]; .schema == "auth" and .tabela == $tab)' "${INVENTORY_FILE}" 2>/dev/null || echo "false")"
+                # Correção 3 (v1.9.0): código de saída verificado — erro real de jq
+                # (>=2) é divergência registrada e impede INVENTORY_COMPARISON_VALID=SIM.
+                T_IN_INV_AUTH_RC=0
+                t_in_inv_auth="$(jq --arg tab "${lab_auth_t}" 'any(.tabelas[]; .schema == "auth" and .tabela == $tab)' "${INVENTORY_FILE}" 2>/dev/null)" || T_IN_INV_AUTH_RC=$?
+                if [ "${T_IN_INV_AUTH_RC}" -ge 2 ]; then
+                    printf 'DIVERGÊNCIA: Falha de jq ao verificar tabela auth."%s" no inventário (exit %s)\n' "${lab_auth_t}" "${T_IN_INV_AUTH_RC}" >> "${DIVERGENCES_FILE}"
+                    INVENTORY_EXTRACTION_INCOMPLETE=1
+                fi
                 if [ "${t_in_inv_auth}" != "true" ]; then
                     printf 'DIVERGÊNCIA BIDIRECIONAL: Tabela auth."%s" existe no backup restaurado mas NÃO CONSTA no inventário oficial\n' "${lab_auth_t}" >> "${DIVERGENCES_FILE}"
                 else
@@ -1127,12 +1224,31 @@ else
                 ;;
         esac
         # Ponto 4: corpos só são comparáveis se o inventário não os tiver ofuscado
-        INV_OFUSCACAO_APLICADA="$(jq -er '.politica_sigilo.ofuscacao_segredos_aplicada // false' "${INVENTORY_FILE}" 2>/dev/null || echo "false")"
+        # Correção 3 (v1.9.0): código de saída verificado — erro real de jq (>=2)
+        # NÃO é tratado como "não ofuscado"; é divergência registrada (falha
+        # conservadora: corpos deixam de ser comparados e o SIM é bloqueado).
+        INV_OFUSCACAO_APLICADA_RC=0
+        INV_OFUSCACAO_APLICADA="$(jq -er '.politica_sigilo.ofuscacao_segredos_aplicada // false' "${INVENTORY_FILE}" 2>/dev/null)" || INV_OFUSCACAO_APLICADA_RC=$?
+        if [ "${INV_OFUSCACAO_APLICADA_RC}" -ge 2 ]; then
+            printf 'DIVERGÊNCIA: Falha de jq ao ler politica_sigilo.ofuscacao_segredos_aplicada (exit %s)\n' "${INV_OFUSCACAO_APLICADA_RC}" >> "${DIVERGENCES_FILE}"
+            INVENTORY_EXTRACTION_INCOMPLETE=1
+            INV_OFUSCACAO_APLICADA="true"
+        fi
 
         CONSTRAINTS_DIFF_FOUND=0
         CONSTRAINTS_EXTRACTED=0
+        # Correção 3 (v1.9.0): extração jq das constraints com código de saída
+        # verificado (sem process substitution às cegas); separador \u001F
+        # (a definição DDL pode conter '|'); exit 1 de -e é array vazio legítimo.
+        INV_CONSTRAINTS_RAW_RC=0
+        INV_CONSTRAINTS_RAW=""
+        INV_CONSTRAINTS_RAW="$(jq -er '.constraints[] | [ (.schema|tostring), (.tabela|tostring), (.nome|tostring), (.definicao|tostring) ] | join("\u001F")' "${INVENTORY_FILE}" 2>>"${LOG_FILE}")" || INV_CONSTRAINTS_RAW_RC=$?
+        if [ "${INV_CONSTRAINTS_RAW_RC}" -ge 2 ]; then
+            printf 'DIVERGÊNCIA: Falha de jq ao extrair constraints do inventário (exit %s)\n' "${INV_CONSTRAINTS_RAW_RC}" >> "${DIVERGENCES_FILE}"
+            INVENTORY_EXTRACTION_INCOMPLETE=1
+        fi
         if [ "${INV_CONSTRAINTS_COUNT}" -gt 0 ]; then
-            while IFS='|' read -r c_schema c_tab c_name c_def; do
+            while IFS=$'\u001F' read -r c_schema c_tab c_name c_def; do
                 [ -n "${c_name}" ] || continue
                 CONSTRAINTS_EXTRACTED=$((CONSTRAINTS_EXTRACTED + 1))
 
@@ -1142,23 +1258,24 @@ else
                     CONSTRAINTS_DIFF_FOUND=$((CONSTRAINTS_DIFF_FOUND + 1))
                     continue
                 fi
-                lab_c_def_raw="$(exec_lab_sql "SELECT pg_get_constraintdef(c.oid, true) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace JOIN pg_class r ON r.oid = c.conrelid WHERE n.nspname = '${c_schema}' AND r.relname = '${c_tab}' AND c.conname = '${c_name}'")" || echo ""
-                lab_c_def="$(printf '%s\n' "${lab_c_def_raw}" | tr -d '\r\n')"
+                lab_c_def_raw="$(exec_lab_sql "SELECT pg_get_constraintdef(c.oid, true) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace JOIN pg_class r ON r.oid = c.conrelid WHERE n.nspname = '${c_schema}' AND r.relname = '${c_tab}' AND c.conname = '${c_name}'")" || lab_c_def_raw=""
+                # Correção 4 (v1.9.0): normalização NÃO destrutiva (quebras viram
+                # espaço; nunca remoção pura que colaria palavras).
+                lab_c_def="$(printf '%s\n' "${lab_c_def_raw}" | tr -d '\r' | tr '\n' ' ' | sed -e 's/[[:space:]]\+/ /g' -e 's/^[[:space:]]*//;s/[[:space:]]*$//')"
                 if [ -z "${lab_c_def}" ]; then
                     printf 'DIVERGÊNCIA ESTRUTURAL (constraint ausente): %s."%s" constraint "%s" ausente no banco restaurado\n' "${c_schema}" "${c_tab}" "${c_name}" >> "${DIVERGENCES_FILE}"
                     CONSTRAINTS_DIFF_FOUND=$((CONSTRAINTS_DIFF_FOUND + 1))
                 else
-                    # Comparação semântica da definição DDL normalizada
-                    norm_inv_def="$(printf '%s\n' "${c_def}" | tr -d '\r\n' | sed -e 's/[[:space:]]\+/ /g' -e 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-                    norm_lab_def="$(printf '%s\n' "${lab_c_def}" | sed -e 's/[[:space:]]\+/ /g' -e 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+                    # Comparação semântica da definição DDL normalizada (idêntica dos dois lados)
+                    norm_inv_def="$(printf '%s\n' "${c_def}" | tr -d '\r' | tr '\n' ' ' | sed -e 's/[[:space:]]\+/ /g' -e 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+                    norm_lab_def="$(printf '%s\n' "${lab_c_def}" | tr -d '\r' | tr '\n' ' ' | sed -e 's/[[:space:]]\+/ /g' -e 's/^[[:space:]]*//;s/[[:space:]]*$//')"
                     if [ "${norm_inv_def}" != "${norm_lab_def}" ]; then
                         printf 'DIVERGÊNCIA ESTRUTURAL (definicao constraint): %s."%s" constraint "%s" difere (Inv: "%s" != Lab: "%s")\n' "${c_schema}" "${c_tab}" "${c_name}" "${norm_inv_def}" "${norm_lab_def}" >> "${DIVERGENCES_FILE}"
                         CONSTRAINTS_DIFF_FOUND=$((CONSTRAINTS_DIFF_FOUND + 1))
                     fi
                 fi
-            done < <(jq -er '.constraints[] | "\(.schema)|\(.tabela)|\(.nome)|\(.definicao)"' "${INVENTORY_FILE}" 2>/dev/null)
-            # Ponto 5: extração jq incompleta impede SIM
-            if [ "${CONSTRAINTS_EXTRACTED}" -ne "${INV_CONSTRAINTS_COUNT}" ]; then
+            done <<< "${INV_CONSTRAINTS_RAW}"
+            if [ "${CONSTRAINTS_EXTRACTED}" -ne "${INV_CONSTRAINTS_COUNT}" ] || [ "${INV_CONSTRAINTS_RAW_RC}" -ge 2 ]; then
                 printf 'DIVERGÊNCIA: Extração jq das constraints incompleta (%s de %s extraídas)\n' "${CONSTRAINTS_EXTRACTED}" "${INV_CONSTRAINTS_COUNT}" >> "${DIVERGENCES_FILE}"
                 INVENTORY_EXTRACTION_INCOMPLETE=1
             fi
@@ -1170,10 +1287,27 @@ else
         # Ponto 4 da correção v1.8.0: comparação de funções por identidade completa
         # E, quando o inventário traz a definição efetiva (inclui_corpo=true),
         # também pelo corpo via pg_get_functiondef (normalizado como as constraints).
+        # Correção 2 (v1.9.0): funções são localizadas por schema + nome + identidade
+        # de argumentos (pg_get_function_identity_arguments) E tipo de retorno
+        # (pg_get_function_result) — sobrecargas homônimas são comparadas
+        # INDIVIDUALMENTE (uma linha por sobrecarga, sem concatenação), e a
+        # pg_get_functiondef recupera a função EXATA (sem capturar homônima).
+        # Correção 3 (v1.9.0): a extração jq das funções NÃO roda às cegas em
+        # process substitution: exit code verificado; erro real de jq (>=2) impede
+        # INVENTORY_COMPARISON_VALID=SIM; exit 1 de -e é legítimo (array vazio).
         FUNCTIONS_DIFF_FOUND=0
         FUNCTIONS_EXTRACTED=0
+        INV_FUNCTIONS_RAW_RC=0
+        INV_FUNCTIONS_RAW=""
+        # Correção 3 (v1.9.0): separador \u001F (a definição SQL pode conter '|');
+        # uma SOBRECARGA POR LINHA (sem concatenação); exit code verificado.
+        INV_FUNCTIONS_RAW="$(jq -er '.funcoes[] | [ (.schema|tostring), (.nome|tostring), (.identidade|tostring), (.tipo_retorno|tostring), ((.inclui_corpo // false)|tostring), ((.definicao // "") | gsub("[\\x01\\x1f\\r\\n]"; " ")) ] | join("\u001F")' "${INVENTORY_FILE}" 2>>"${LOG_FILE}")" || INV_FUNCTIONS_RAW_RC=$?
+        if [ "${INV_FUNCTIONS_RAW_RC}" -ge 2 ]; then
+            printf 'DIVERGÊNCIA: Falha de jq ao extrair funções do inventário (exit %s)\n' "${INV_FUNCTIONS_RAW_RC}" >> "${DIVERGENCES_FILE}"
+            INVENTORY_EXTRACTION_INCOMPLETE=1
+        fi
         if [ "${INV_FUNCTIONS_COUNT}" -gt 0 ]; then
-            while IFS='|' read -r f_schema f_name f_ident f_ret f_corpo f_definicao; do
+            while IFS=$'\u001F' read -r f_schema f_name f_ident f_ret f_corpo f_definicao; do
                 [ -n "${f_name}" ] || continue
                 FUNCTIONS_EXTRACTED=$((FUNCTIONS_EXTRACTED + 1))
 
@@ -1184,17 +1318,69 @@ else
                     continue
                 fi
 
-                lab_f_raw="$(exec_lab_sql "SELECT pg_get_function_identity_arguments(p.oid) || '->' || pg_get_function_result(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = '${f_schema}' AND p.proname = '${f_name}'")" || echo ""
-                lab_f="$(printf '%s\n' "${lab_f_raw}" | tr -d '\r\n')"
-                if [ -z "${lab_f}" ]; then
+                # Correção 2 (v1.9.0): identidade de argumentos do inventário é texto
+                # livre — escapada com dollar-quoting gerado pelo bash, sem apóstrofos
+                # no SQL; sem concatenação de sobrecargas: UMA linha por sobrecarga
+                # homônima, cada uma casada isoladamente contra a identidade esperada.
+                FUNCOES_IDENT_QUERY_TMP="${DIAG_DIR}/ident-funcoes-${TS_STAMP}-$$.txt"
+                FUNCOES_IDENT_TAG="dq${RANDOM}${RANDOM}"
+                cat > "${FUNCOES_IDENT_QUERY_TMP}" <<SQL
+SELECT pg_get_function_identity_arguments(p.oid) || '|RET:' || pg_get_function_result(p.oid) || '|OID:' || p.oid::text
+FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = '${f_schema}' AND p.proname = '${f_name}'
+  AND pg_get_function_identity_arguments(p.oid) = \$${FUNCOES_IDENT_TAG}\$${f_ident}\$${FUNCOES_IDENT_TAG}\$;
+SQL
+                if ! chmod 600 "${FUNCOES_IDENT_QUERY_TMP}" 2>/dev/null; then
+                    printf 'DIVERGÊNCIA: Falha ao restringir permissões do arquivo de consulta de identidade de funções\n' >> "${DIVERGENCES_FILE}"
+                    FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
+                    rm -f "${FUNCOES_IDENT_QUERY_TMP}" 2>/dev/null || true
+                    continue
+                fi
+                FUNCOES_IDENT_ENCONTRADAS=0
+                FUNCOES_IDENT_CASADA=0
+                FUNCOES_IDENT_CASADA_RET=""
+                FUNCOES_IDENT_MATCHING_OID=""
+                # Correção 3 (v1.9.0): UMA execução, exit code explícito (sem
+                # mascarar falha com "|| var=''"); -i obrigatório para psql -f -
+                FUNCOES_IDENT_RC=0
+                if command -v timeout >/dev/null 2>&1; then
+                    FUNCOES_IDENT_OUT="$(timeout 60 docker exec -i "${LAB_NAME}" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -t -A -f - < "${FUNCOES_IDENT_QUERY_TMP}" 2>>"${LOG_FILE}")" || FUNCOES_IDENT_RC=$?
+                else
+                    FUNCOES_IDENT_OUT="$(docker exec -i "${LAB_NAME}" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -t -A -f - < "${FUNCOES_IDENT_QUERY_TMP}" 2>>"${LOG_FILE}")" || FUNCOES_IDENT_RC=$?
+                fi
+                rm -f "${FUNCOES_IDENT_QUERY_TMP}" 2>/dev/null || true
+                if [ "${FUNCOES_IDENT_RC}" -ne 0 ]; then
+                    printf 'DIVERGÊNCIA: Falha de consulta SQL ao recuperar identidades de %s."%s" (exit %s)\n' "${f_schema}" "${f_name}" "${FUNCOES_IDENT_RC}" >> "${DIVERGENCES_FILE}"
+                    FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
+                    continue
+                fi
+                while IFS= read -r lab_ident_line; do
+                    [ -n "${lab_ident_line}" ] || continue
+                    FUNCOES_IDENT_ENCONTRADAS=$((FUNCOES_IDENT_ENCONTRADAS + 1))
+                    case "${lab_ident_line}" in
+                        "${f_ident}|RET:"*"|OID:"[0-9]*)
+                            FUNCOES_IDENT_CASADA=1
+                            FUNCOES_IDENT_CASADA_RET="$(printf '%s' "${lab_ident_line}" | sed -n 's/^.*|RET:\(.*\)|OID:[0-9][0-9]*$/\1/p')"
+                            FUNCOES_IDENT_MATCHING_OID="$(printf '%s' "${lab_ident_line}" | sed -n 's/.*|OID:\([0-9][0-9]*\)$/\1/p')"
+                            break
+                            ;;
+                    esac
+                done <<< "${FUNCOES_IDENT_OUT}"
+
+                if [ "${FUNCOES_IDENT_ENCONTRADAS}" -eq 0 ]; then
                     printf 'DIVERGÊNCIA ESTRUTURAL (funcao ausente): %s."%s" ausente no banco restaurado\n' "${f_schema}" "${f_name}" >> "${DIVERGENCES_FILE}"
                     FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
                     continue
                 fi
-
-                expected_sig="${f_ident}->${f_ret}"
-                if [ "${lab_f}" != "${expected_sig}" ]; then
-                    printf 'DIVERGÊNCIA ESTRUTURAL (assinatura funcao): %s."%s" difere (Inv: "%s" != Lab: "%s")\n' "${f_schema}" "${f_name}" "${expected_sig}" "${lab_f}" >> "${DIVERGENCES_FILE}"
+                if [ "${FUNCOES_IDENT_CASADA}" -ne 1 ]; then
+                    printf 'DIVERGÊNCIA ESTRUTURAL (sobrecarga funcao): %s."%s" — nenhuma sobrecarga com a identidade esperada (Inv: "%s"; encontradas: %s)\n' "${f_schema}" "${f_name}" "${f_ident}" "${FUNCOES_IDENT_ENCONTRADAS}" >> "${DIVERGENCES_FILE}"
+                    FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
+                    continue
+                fi
+                # Correção 2 (v1.9.0): tipo de retorno verificado APENAS na sobrecarga
+                # que casou com a identidade de argumentos esperada.
+                if [ "${FUNCOES_IDENT_CASADA_RET}" != "${f_ret}" ]; then
+                    printf 'DIVERGÊNCIA ESTRUTURAL (assinatura funcao): %s."%s" difere (Inv: "%s->%s" != Lab: "%s->%s")\n' "${f_schema}" "${f_name}" "${f_ident}" "${f_ret}" "${f_ident}" "${FUNCOES_IDENT_CASADA_RET}" >> "${DIVERGENCES_FILE}"
                     FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
                     continue
                 fi
@@ -1207,20 +1393,62 @@ else
                         FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
                     elif [ "${INV_OFUSCACAO_APLICADA}" = "true" ]; then
                         printf 'NÃO VALIDADO (corpo funcao): %s."%s" corpo não comparável — inventário declara ofuscacao_segredos_aplicada=true (definição redigida, não é a definição efetiva)\n' "${f_schema}" "${f_name}" >> "${CONFERIDOS_FILE}"
+                    elif [ -z "${FUNCOES_IDENT_MATCHING_OID}" ]; then
+                        # Correção 2 (v1.9.0): sem OID não há prova de função exata;
+                        # recusar a comparação (falha conservadora, nunca falso OK).
+                        printf 'DIVERGÊNCIA: Impossível determinar OID da sobrecarga exata de %s."%s" — comparação de corpo NÃO VALIDADA (falha conservadora)\n' "${f_schema}" "${f_name}" >> "${DIVERGENCES_FILE}"
+                        FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
                     else
-                        lab_fdef_raw="$(exec_lab_sql "SELECT pg_get_functiondef(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = '${f_schema}' AND p.proname = '${f_name}'")" || echo ""
-                        lab_fdef="$(printf '%s\n' "${lab_fdef_raw}" | tr -d '\r\n' | sed -e 's/[[:space:]]\+/ /g' -e 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-                        norm_inv_fdef="$(printf '%s\n' "${f_definicao}" | tr -d '\r\n' | sed -e 's/[[:space:]]\+/ /g' -e 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-                        if [ -z "${lab_fdef}" ]; then
+                        # Correção 2 (v1.9.0): pg_get_functiondef pelo OID EXATO da
+                        # sobrecarga que casou com schema+nome+identidade — nunca
+                        # recupera homônima.
+                        FUNCOES_FDEF_QUERY_TMP="${DIAG_DIR}/fdef-funcao-${TS_STAMP}-$$.sql"
+                        cat > "${FUNCOES_FDEF_QUERY_TMP}" <<SQL
+SELECT pg_get_functiondef(${FUNCOES_IDENT_MATCHING_OID});
+SQL
+                        if ! chmod 600 "${FUNCOES_FDEF_QUERY_TMP}" 2>/dev/null; then
+                            printf 'DIVERGÊNCIA: Falha ao restringir permissões do arquivo de consulta pg_get_functiondef\n' >> "${DIVERGENCES_FILE}"
+                            FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
+                            rm -f "${FUNCOES_FDEF_QUERY_TMP}" 2>/dev/null || true
+                            continue
+                        fi
+                        # Correção 3 (v1.9.0): UMA execução, exit code explícito
+                        FUNCOES_FDEF_RC=0
+                        if command -v timeout >/dev/null 2>&1; then
+                            lab_fdef_raw="$(timeout 60 docker exec -i "${LAB_NAME}" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -t -A -f - < "${FUNCOES_FDEF_QUERY_TMP}" 2>>"${LOG_FILE}")" || FUNCOES_FDEF_RC=$?
+                        else
+                            lab_fdef_raw="$(docker exec -i "${LAB_NAME}" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -t -A -f - < "${FUNCOES_FDEF_QUERY_TMP}" 2>>"${LOG_FILE}")" || FUNCOES_FDEF_RC=$?
+                        fi
+                        rm -f "${FUNCOES_FDEF_QUERY_TMP}" 2>/dev/null || true
+                        if [ "${FUNCOES_FDEF_RC}" -ne 0 ] || [ -z "${lab_fdef_raw}" ]; then
                             printf 'DIVERGÊNCIA ESTRUTURAL (corpo funcao): %s."%s" sem definição recuperável via pg_get_functiondef no laboratório\n' "${f_schema}" "${f_name}" >> "${DIVERGENCES_FILE}"
                             FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
-                        elif [ "${norm_inv_fdef}" != "${lab_fdef}" ]; then
-                            printf 'DIVERGÊNCIA ESTRUTURAL (corpo funcao): %s."%s" corpo difere (Inv: "%s" != Lab: "%s")\n' "${f_schema}" "${f_name}" "${norm_inv_fdef}" "${lab_fdef}" >> "${DIVERGENCES_FILE}"
-                            FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
+                        else
+                            # Correção 4 (v1.9.0): MESMA normalização NÃO destrutiva dos
+                            # dois lados (inventário e laboratório): "\r" removido,
+                            # "\n" viram um espaço, espaços/tabs colapsados em um
+                            # espaço, trim; NUNCA remoção pura de quebras (que
+                            # colaria palavras).
+                            norm_lab_fdef="$(printf '%s' "${lab_fdef_raw}" | tr -d '\r' | tr '\n' ' ' | sed -e 's/[[:space:]]\+/ /g' -e 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+                            norm_inv_fdef="$(printf '%s' "${f_definicao}" | tr -d '\r' | tr '\n' ' ' | sed -e 's/[[:space:]]\+/ /g' -e 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+                            if [ -z "${norm_lab_fdef}" ]; then
+                                printf 'DIVERGÊNCIA ESTRUTURAL (corpo funcao): %s."%s" sem definição recuperável via pg_get_functiondef no laboratório\n' "${f_schema}" "${f_name}" >> "${DIVERGENCES_FILE}"
+                                FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
+                            elif [ "${norm_inv_fdef}" != "${norm_lab_fdef}" ]; then
+                                printf 'DIVERGÊNCIA ESTRUTURAL (corpo funcao): %s."%s" corpo difere (Inv: "%s" != Lab: "%s")\n' "${f_schema}" "${f_name}" "${norm_inv_fdef}" "${norm_lab_fdef}" >> "${DIVERGENCES_FILE}"
+                                FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
+                            fi
                         fi
                     fi
                 fi
-            done < <(jq -er '.funcoes[] | [ (.schema|tostring), (.nome|tostring), (.identidade|tostring), (.tipo_retorno|tostring), ((.inclui_corpo // false)|tostring), ((.definicao // "") | gsub("\\s+"; " ")) ] | join("|")' "${INVENTORY_FILE}" 2>/dev/null)
+            done <<FUNCOES_INPUT
+$(printf '%s\n' "${INV_FUNCTIONS_RAW}")
+FUNCOES_INPUT
+            # Correção 3 (v1.9.0): erro real de jq (>=2) na extração das funções
+            # impede INVENTORY_COMPARISON_VALID=SIM; exit 1 de -e é legítimo.
+            if [ "${INV_FUNCTIONS_RAW_RC}" -ge 2 ]; then
+                INVENTORY_EXTRACTION_INCOMPLETE=1
+            fi
             # Ponto 5: extração jq incompleta impede SIM
             if [ "${FUNCTIONS_EXTRACTED}" -ne "${INV_FUNCTIONS_COUNT}" ]; then
                 printf 'DIVERGÊNCIA: Extração jq das funções incompleta (%s de %s extraídas)\n' "${FUNCTIONS_EXTRACTED}" "${INV_FUNCTIONS_COUNT}" >> "${DIVERGENCES_FILE}"
@@ -1393,9 +1621,12 @@ if [ "${RESTORE_ORIGINAL_STATUS}" = "OK" ] && [ "${GZIP_EXIT}" -eq 0 ] && [ "${P
     CRIT_A="OK"
 fi
 
-CRIT_B="FALHA"
-if [ "${GRAPHQL_FINAL_STATUS}" = "OK" ] || [ "${GRAPHQL_FINAL_STATUS}" = "OK_RECUPERADO" ]; then
+# Correção 5 (v1.9.0): recuperação assistida NÃO satisfaz o critério B.
+# Somente extensão presente NA restauração original (estado "OK") aprova.
+if [ "${GRAPHQL_FINAL_STATUS}" = "OK" ]; then
     CRIT_B="OK"
+else
+    CRIT_B="FALHA"
 fi
 
 CRIT_C="FALHA"
@@ -1427,7 +1658,7 @@ if [ "${CRIT_A}" = "OK" ] && [ "${CRIT_B}" = "OK" ] && [ "${CRIT_C}" = "OK" ] \
     MOTIVO_VEREDITO="Todos os critérios técnicos passaram sem exceção (restauração física original, pg_graphql, estrutural exaustivo, comparação bidirecional integral jq, integridade parcial do PostgreSQL e zero divergências/falhas de consulta)."
 else
     VEREDITO="REPROVADO"
-    MOTIVO_VEREDITO="O backup apresentou divergências ou falhas técnicas não resolvidas (CRIT_A_ORIGINAL: ${CRIT_A}, CRIT_D_OK: ${CRIT_D_OK}, DIVERGÊNCIAS: ${DIVERGENCES_COUNT}, INCONCLUSIVAS: ${TEMPORAL_DIFFS_COUNT}, QUERIES_FALHAS: ${QUERY_FAILURES_COUNT}, COMPARAÇÃO_VÁLIDA: ${INVENTORY_COMPARISON_VALID})."
+    MOTIVO_VEREDITO="O backup apresentou divergências ou falhas técnicas não resolvidas (CRIT_A_ORIGINAL: ${CRIT_A}, CRIT_B: ${CRIT_B}, GRAPQHL_FINAL: ${GRAPHQL_FINAL_STATUS}, RECUPERACAO: ${GRAPHQL_REC_STATUS}, DEPENDENCIA_POS_RESTORE: ${GRAPHQL_DEP_NOTE}, CRIT_D_OK: ${CRIT_D_OK}, DIVERGÊNCIAS: ${DIVERGENCES_COUNT}, INCONCLUSIVAS: ${TEMPORAL_DIFFS_COUNT}, QUERIES_FALHAS: ${QUERY_FAILURES_COUNT}, COMPARAÇÃO_VÁLIDA: ${INVENTORY_COMPARISON_VALID})."
 fi
 
 # ------------------------------------------------------------------------------
@@ -1458,7 +1689,10 @@ cat <<EOF > "${REPORT_FILE}"
    (b) Recuperação Assistida (Post-Restore):
        - Extensão pg_graphql ...........: ${GRAPHQL_FINAL_STATUS}
        - Tentativa de recuperação ......: ${GRAPHQL_REC_STATUS}
-       - Observação de isolamento ......: A recuperação assistida NÃO mascara falha na restauração original.
+       - Dependência pós-restauração ...: ${GRAPHQL_DEP_NOTE}
+       - Observação de isolamento ......: A recuperação assistida NÃO mascara falha na restauração original
+           (Correção 5 v1.9.0: recuperação assistida NUNCA satisfaz o Critério B;
+           veredito APROVADO exige extensão presente na RESTAURAÇÃO ORIGINAL).
 
 3. RESULTADOS DOS DEMAIS CRITÉRIOS TÉCNICOS
    Critério 3 - Inventário estrutural do laboratório: ${CRIT_C}
