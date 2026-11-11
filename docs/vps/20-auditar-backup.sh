@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur / SBJur — Auditoria Independente de Integridade de Backup
 # Script: docs/vps/20-auditar-backup.sh
-# Versão: v2.0.0
+# Versão: v2.1.0
 # Destino de execução: MÁQUINA DE TESTE / WSL2 / DOCKER DESKTOP ISOLADO
 #
 # GUARDA DE SEGURANÇA MÁXIMA (ANTI-VPS) E CONTROLE ESTRITO DE SESSÃO DOCKER:
@@ -17,6 +17,9 @@
 #   docker context inspect — E DECIDE PELO ENDPOINT (NUNCA PELO NOME DO CONTEXTO),
 #   EXIGINDO SOCKET UNIX EXISTENTE E ABORTANDO DIANTE DE tcp://, ssh://, http(s)://
 #   OU npipe://. O CONTÊINER DE LABORATÓRIO UTILIZA OBRIGATORIAMENTE --network none.
+#   v2.1.0: O ENDPOINT COMPROVADO PELA GUARDA É FIXADO (export DOCKER_HOST +
+#   unset DOCKER_CONTEXT) PARA TODAS AS INVOCAÇÕES DOCKER SUBSEQUENTES DO SCRIPT,
+#   eliminando a re-resolução implícita do endpoint a cada chamada (janela TOCTOU).
 #   APENAS RECURSOS DOCKER COMPROVADAMENTE CRIADOS PELA SESSÃO ATUAL
 #   (IDENTIFICADOS POR LABEL ESPECÍFICO E REGISTRADOS EM ARQUIVO DE SESSÃO) PODEM
 #   SER REMOVIDOS NO TRAP/CLEANUP.
@@ -89,6 +92,32 @@
 #      permissão efetiva (stat) são verificados (idem nos arquivos de consulta
 #      de identidade e pg_get_functiondef).
 #
+# CORREÇÕES v2.1.0 (auditoria externa independente — 3 pontos, correção cirúrgica):
+#   1. Guarda Docker: o endpoint comprovado pela guarda é FIXADO para TODAS as
+#      invocações docker subsequentes (export DOCKER_HOST com o unix:// validado
+#      e unset DOCKER_CONTEXT, imediatamente após a guarda), eliminando a janela
+#      TOCTOU da re-resolução implícita entre a guarda e as operações. Precedência
+#      confirmada na documentação oficial da CLI (DOCKER_HOST sobrepõe o contexto
+#      ativo; com DOCKER_HOST definido e nenhum contexto expressamente selecionado,
+#      o currentContext de ~/.docker/config.json não é consultado). Bloqueio
+#      preventivo com exit 11 preservado; nada é presumido.
+#   2. Conferência bidirecional (sentido 2: banco restaurado -> inventário) usa os
+#      MESMOS catálogos, schemas, filtros e critérios de identidade do gerador
+#      21-gerar-inventario.sh: constraints via pg_constraint/pg_class/pg_namespace
+#      (comparadas por schema, tabela, nome e contype) e funções via pg_proc/
+#      pg_namespace, ambos com n.nspname NOT LIKE 'pg\_%' AND n.nspname <>
+#      'information_schema' (TODOS os schemas de usuário). Objeto extra em
+#      qualquer schema abrangido pelo inventário gera DIVERGÊNCIA BIDIRECIONAL;
+#      sem listas de exceções automáticas; falha de comparação impossível impede
+#      INVENTORY_COMPARISON_VALID=SIM.
+#   3. Os quatro eval de decodificação JSON (@sh + eval) foram eliminados: helper
+#      único jq_field_decode decodifica cada campo via jq @base64 + base64 -d,
+#      SEM interpretação de comandos pelo shell, com o código de saída de AMBAS
+#      as etapas (jq E base64) verificado; qualquer falha de decodificação ou
+#      dado não representável produz DIVERGÊNCIA impeditiva (nunca silêncio ou
+#      valor vazio). Disponibilidade de base64 verificada na inicialização;
+#      ausência é falha de ambiente impeditiva.
+#
 # POLÍTICA DE AUDITORIA E VEREDITO (v1.5.0):
 #   - O veredito APROVADO é emitido UNICAMENTE se TODOS os critérios técnicos
 #     passarem sem exceção:
@@ -119,7 +148,7 @@
 set -u -o pipefail
 umask 077
 
-SCRIPT_VERSION="v2.0.0"
+SCRIPT_VERSION="v2.1.0"
 
 # ------------------------------------------------------------------------------
 # PONTO 9 E PONTO 10 DA AUDITORIA: GUARDA DE SEGURANÇA MÁXIMA (ANTI-VPS)
@@ -210,6 +239,24 @@ if command -v docker >/dev/null 2>&1; then
             exit 11
             ;;
     esac
+fi
+
+# CORREÇÃO 1 (v2.1.0): FIXAÇÃO DO ENDPOINT COMPROVADO PELA GUARDA.
+# Sem isto, cada chamada `docker ...` posterior do script re-resolveria o
+# endpoint implicitamente (DOCKER_HOST > DOCKER_CONTEXT > currentContext do
+# config.json), reabrindo uma janela TOCTOU: uma mudança do ambiente ou de
+# ~/.docker/config.json entre a guarda e as operações poderia direcionar o
+# laboratório a OUTRO daemon. Exportando DOCKER_HOST com o valor unix://
+# validado e removendo DOCKER_CONTEXT do ambiente, TODA invocação docker daqui
+# em diante conecta EXATAMENTE ao endpoint auditado: pela precedência efetiva
+# da CLI (confirmada na documentação oficial), com DOCKER_HOST definido e
+# nenhum contexto expressamente selecionado, o endpoint do config.json não é
+# consultado. O bloqueio preventivo com exit 11 acima permanece intacto; a
+# fixação NÃO presume que socket Unix comprova isolamento — a comprovação do
+# endpoint pelo contexto/ambiente continua exigida pela guarda.
+if command -v docker >/dev/null 2>&1 && [ -n "${DOCKER_EFFECTIVE_ENDPOINT}" ]; then
+    export DOCKER_HOST="${DOCKER_EFFECTIVE_ENDPOINT}"
+    unset DOCKER_CONTEXT
 fi
 
 # 3. Verificação de Hostname e FQDN de produção
@@ -567,6 +614,15 @@ if ! command -v jq >/dev/null 2>&1; then
     fi
 fi
 
+# CORREÇÃO 3 (v2.1.0): 'base64' é obrigatória para a decodificação segura dos
+# campos JSON do inventário e do laboratório (jq @base64 + base64 -d, sem eval).
+# A disponibilidade é verificada ANTES do primeiro uso; ausência é falha de
+# ambiente IMPEDITIVA (divergência registrada + aborto), jamais degradação.
+if ! command -v base64 >/dev/null 2>&1; then
+    printf 'DIVERGÊNCIA: Dependência obrigatória "base64" ausente no PATH — decodificação segura de JSON impossível (falha de ambiente impeditiva).\n' >> "${DIVERGENCES_FILE}"
+    die "Dependência obrigatória não encontrada no PATH: base64 (exigida pela Correção 3 da v2.1.0)." "${EXIT_DEP_MISSING}"
+fi
+
 if ! docker info >>"${LOG_FILE}" 2>&1; then
     die "Docker daemon inacessível ou sem permissão de execução." "${EXIT_DEP_MISSING}"
 fi
@@ -664,6 +720,33 @@ is_safe_identifier() {
             return 1
             ;;
     esac
+}
+
+# ------------------------------------------------------------------------------
+# CORREÇÃO 3 (v2.1.0): DECODIFICAÇÃO SEGURA DE CAMPOS JSON SEM EVAL
+# Substitui o padrão "jq @sh + eval" (que entregava o conteúdo ao shell para
+# interpretação de comandos). Cada campo é extraído como UMA única linha base64
+# (jq @base64) e decodificado com base64 -d: aspas, apóstrofos, barras, quebras
+# de linha e demais caracteres especiais trafegam integralmente, SEM NENHUMA
+# interpretação pelo shell. O código de saída de AMBAS as etapas (jq E base64)
+# é verificado; qualquer falha (JSON inválido, campo ausente/não string, erro
+# de base64) retorna 1 e a etapa chamadora DEVE registrar DIVERGÊNCIA
+# IMPEDITIVA — nunca silêncio ou valor vazio implícito. Nota: a captura de
+# comando remove apenas quebras de linha FINAIS do valor decodificado; ambas as
+# pontas de toda comparação são normalizadas de forma idêntica (tr -d '\r';
+# tr '\n' ' '; colapso de espaços) antes de comparadas, mantendo a comparação
+# simétrica. Valores vazios legítimos (ex.: identidade vazia de função sem
+# argumentos) são decodificados corretamente (base64 de "" é "", exit 0).
+# ------------------------------------------------------------------------------
+
+jq_field_decode() {
+    local filter="$1" json="$2" b64 rc
+    b64="$(jq -r "${filter} | @base64" <<<"${json}" 2>>"${LOG_FILE}")"
+    rc=$?
+    if [ "${rc}" -ne 0 ]; then
+        return 1
+    fi
+    base64 -d <<<"${b64}" 2>>"${LOG_FILE}"
 }
 
 # ------------------------------------------------------------------------------
@@ -1329,9 +1412,10 @@ else
         # linha): aspas, quebras de linha, \u001F e caracteres especiais dentro
         # dos campos ficam ESCAPADOS pelo codificador JSON — não há separador
         # textual que possa colidir com o conteúdo e nenhum campo é truncado. Os
-        # campos são decodificados INDIVIDUALMENTE (jq @sh + eval, com aspas
-        # seguras), preservando a definição DDL integralmente (a normalização
-        # idêntica dos dois lados ocorre apenas na comparação).
+        # campos são decodificados INDIVIDUALMENTE (CORREÇÃO 3 da v2.1.0:
+        # jq @base64 + base64 -d, sem eval), preservando a definição DDL
+        # integralmente (a normalização idêntica dos dois lados ocorre apenas na
+        # comparação).
         INV_CONSTRAINTS_RAW_RC=0
         INV_CONSTRAINTS_RAW=""
         INV_CONSTRAINTS_RAW="$(jq -c '.constraints[] | {schema:(.schema|tostring), tabela:(.tabela|tostring), nome:(.nome|tostring), definicao:(.definicao|tostring)}' "${INVENTORY_FILE}" 2>>"${LOG_FILE}")" || INV_CONSTRAINTS_RAW_RC=$?
@@ -1342,18 +1426,20 @@ else
         if [ "${INV_CONSTRAINTS_COUNT}" -gt 0 ]; then
             while IFS= read -r c_line; do
                 [ -n "${c_line}" ] || continue
+                # CORREÇÃO 3 (v2.1.0): decodificação SEM eval (jq @base64 + base64 -d
+                # via jq_field_decode), código de saída de ambas as etapas verificado;
+                # falha de decodificação ou dado não representável = DIVERGÊNCIA
+                # impeditiva (nunca silêncio ou valor vazio).
                 CONSTRAINTS_PARSE_RC=0
-                CONSTRAINTS_ASSIGNMENTS="$(jq -r '@sh "c_schema=\(.schema|tostring) c_tab=\(.tabela|tostring) c_name=\(.nome|tostring) c_def=\(.definicao|tostring)"' <<<"${c_line}" 2>>"${LOG_FILE}")" || CONSTRAINTS_PARSE_RC=$?
+                c_schema="$(jq_field_decode '.schema' "${c_line}")" || CONSTRAINTS_PARSE_RC=1
+                c_tab="$(jq_field_decode '.tabela' "${c_line}")" || CONSTRAINTS_PARSE_RC=1
+                c_name="$(jq_field_decode '.nome' "${c_line}")" || CONSTRAINTS_PARSE_RC=1
+                c_def="$(jq_field_decode '.definicao' "${c_line}")" || CONSTRAINTS_PARSE_RC=1
                 if [ "${CONSTRAINTS_PARSE_RC}" -ne 0 ]; then
-                    printf 'DIVERGÊNCIA: Falha de jq ao decodificar registro de constraint do inventário (JSON-lines) — interpolação SQL recusada\n' >> "${DIVERGENCES_FILE}"
+                    printf 'DIVERGÊNCIA: Falha de decodificação (jq/base64) de campo do registro de constraint do inventário (JSON-lines) — interpolação SQL recusada\n' >> "${DIVERGENCES_FILE}"
                     CONSTRAINTS_DIFF_FOUND=$((CONSTRAINTS_DIFF_FOUND + 1))
                     continue
                 fi
-                eval "${CONSTRAINTS_ASSIGNMENTS}" || {
-                    printf 'DIVERGÊNCIA: Falha ao decodificar campos do registro de constraint do inventário — interpolação SQL recusada\n' >> "${DIVERGENCES_FILE}"
-                    CONSTRAINTS_DIFF_FOUND=$((CONSTRAINTS_DIFF_FOUND + 1))
-                    continue
-                }
                 [ -n "${c_name}" ] || continue
                 CONSTRAINTS_EXTRACTED=$((CONSTRAINTS_EXTRACTED + 1))
 
@@ -1411,7 +1497,8 @@ else
         # conter qualquer caractere) e NENHUM campo é truncado ou reescrito (o
         # gsub de v1.9.0 sobre a definição foi eliminado; a definição permanece
         # integral e a normalização idêntica dos dois lados ocorre apenas na
-        # comparação). Decodificação campo a campo (jq @sh + eval, aspas seguras).
+        # comparação). Decodificação campo a campo SEM eval (CORREÇÃO 3 da
+        # v2.1.0: jq @base64 + base64 -d, helper jq_field_decode).
         INV_FUNCTIONS_RAW="$(jq -c '.funcoes[] | {schema:(.schema|tostring), nome:(.nome|tostring), identidade:(.identidade|tostring), retorno:(.tipo_retorno|tostring), corpo:((.inclui_corpo // false)|tostring), definicao:(.definicao // "")}' "${INVENTORY_FILE}" 2>>"${LOG_FILE}")" || INV_FUNCTIONS_RAW_RC=$?
         if [ "${INV_FUNCTIONS_RAW_RC}" -ge 2 ]; then
             printf 'DIVERGÊNCIA: Falha de jq ao extrair funções do inventário (exit %s)\n' "${INV_FUNCTIONS_RAW_RC}" >> "${DIVERGENCES_FILE}"
@@ -1420,18 +1507,22 @@ else
         if [ "${INV_FUNCTIONS_COUNT}" -gt 0 ]; then
             while IFS= read -r f_line; do
                 [ -n "${f_line}" ] || continue
+                # CORREÇÃO 3 (v2.1.0): decodificação SEM eval (jq @base64 + base64 -d
+                # via jq_field_decode), código de saída de ambas as etapas verificado;
+                # falha de decodificação ou dado não representável = DIVERGÊNCIA
+                # impeditiva (nunca silêncio ou valor vazio).
                 FUNCTIONS_PARSE_RC=0
-                FUNCTIONS_ASSIGNMENTS="$(jq -r '@sh "f_schema=\(.schema|tostring) f_name=\(.nome|tostring) f_ident=\(.identidade|tostring) f_ret=\(.retorno|tostring) f_corpo=\(.corpo|tostring) f_definicao=\(.definicao|tostring)"' <<<"${f_line}" 2>>"${LOG_FILE}")" || FUNCTIONS_PARSE_RC=$?
+                f_schema="$(jq_field_decode '.schema' "${f_line}")" || FUNCTIONS_PARSE_RC=1
+                f_name="$(jq_field_decode '.nome' "${f_line}")" || FUNCTIONS_PARSE_RC=1
+                f_ident="$(jq_field_decode '.identidade' "${f_line}")" || FUNCTIONS_PARSE_RC=1
+                f_ret="$(jq_field_decode '.retorno' "${f_line}")" || FUNCTIONS_PARSE_RC=1
+                f_corpo="$(jq_field_decode '.corpo' "${f_line}")" || FUNCTIONS_PARSE_RC=1
+                f_definicao="$(jq_field_decode '.definicao' "${f_line}")" || FUNCTIONS_PARSE_RC=1
                 if [ "${FUNCTIONS_PARSE_RC}" -ne 0 ]; then
-                    printf 'DIVERGÊNCIA: Falha de jq ao decodificar registro de função do inventário (JSON-lines) — interpolação SQL recusada\n' >> "${DIVERGENCES_FILE}"
+                    printf 'DIVERGÊNCIA: Falha de decodificação (jq/base64) de campo do registro de função do inventário (JSON-lines) — interpolação SQL recusada\n' >> "${DIVERGENCES_FILE}"
                     FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
                     continue
                 fi
-                eval "${FUNCTIONS_ASSIGNMENTS}" || {
-                    printf 'DIVERGÊNCIA: Falha ao decodificar campos do registro de função do inventário — interpolação SQL recusada\n' >> "${DIVERGENCES_FILE}"
-                    FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
-                    continue
-                }
                 [ -n "${f_name}" ] || continue
                 FUNCTIONS_EXTRACTED=$((FUNCTIONS_EXTRACTED + 1))
 
@@ -1630,16 +1721,35 @@ SQL
 
         # PONTO 3 DA CORREÇÃO v2.0.0: CONFERÊNCIA ESTRUTURAL BIDIRECIONAL
         # (sentido 2: banco restaurado -> inventário). Detecta objetos ADICIONAIS
-        # presentes no banco restaurado e ausentes do inventário, respeitando o
-        # escopo documentado (schema public). A listagem do lado do laboratório
-        # vem como UM ÚNICO documento JSON (sem separador textual colidível) e
-        # cada campo é decodificado individualmente (jq @sh + eval).
+        # presentes no banco restaurado e ausentes do inventário.
+        # CORREÇÃO 2 (v2.1.0): usa os MESMOS catálogos, schemas, filtros e
+        # critérios de identidade do gerador 21-gerar-inventario.sh — constraints
+        # via pg_constraint/pg_class/pg_namespace (identidade: schema, tabela,
+        # nome, contype) e funções via pg_proc/pg_namespace (identidade: schema,
+        # nome, identidade de argumentos), AMBOS com filtro n.nspname NOT LIKE
+        # 'pg\_%' AND n.nspname <> 'information_schema' (TODOS os schemas de
+        # usuário; antes: information_schema.table_constraints/pg_proc restritos a
+        # 'public', que não exibiam constraints EXCLUDE nem objetos fora de
+        # public). SEM listas de exceções automáticas: objeto extra em qualquer
+        # schema abrangido pelo inventário é DIVERGÊNCIA BIDIRECIONAL; se algum
+        # objeto não puder ser comparado com segurança (falha de listagem,
+        # decodificação ou verificação), BIDIRECTIONAL_INCOMPLETE=1 impede a
+        # aprovação — INVENTORY_COMPARISON_VALID nunca fica SIM com verificação
+        # incompleta. A listagem do lado do laboratório vem como UM ÚNICO
+        # documento JSON (sem separador textual colidível) e cada campo é
+        # decodificado individualmente SEM eval (Correção 3 da v2.1.0).
         say "   Verificando sentido 2: Constraints e funções do backup restaurado -> presentes no inventário oficial..."
         BIDIRECTIONAL_INCOMPLETE=0
 
-        # --- Constraints do banco restaurado (schema public)
+        # --- Constraints do banco restaurado — CORREÇÃO 2 (v2.1.0): MESMOS
+        # catálogos, schemas e filtros do gerador 21-gerar-inventario.sh
+        # (pg_constraint JOIN pg_namespace JOIN pg_class, com n.nspname NOT LIKE
+        # 'pg\_%' AND n.nspname <> 'information_schema' — TODOS os schemas de
+        # usuário), exibindo também constraints EXCLUDE (contype 'x') que
+        # information_schema.table_constraints não mostra. Critério de identidade
+        # IGUAL ao do gerador: (schema, tabela, nome, tipo/contype).
         LAB_CONSTRAINTS_JSON_RC=0
-        LAB_CONSTRAINTS_JSON="$(exec_lab_sql "SELECT coalesce(json_agg(json_build_object('schema', table_schema, 'tabela', table_name, 'nome', constraint_name))::text, '[]') FROM information_schema.table_constraints WHERE table_schema = 'public'")" || LAB_CONSTRAINTS_JSON_RC=$?
+        LAB_CONSTRAINTS_JSON="$(exec_lab_sql "SELECT coalesce(json_agg(json_build_object('schema', n.nspname, 'tabela', r.relname, 'nome', c.conname, 'tipo', c.contype))::text, '[]') FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace JOIN pg_class r ON r.oid = c.conrelid WHERE n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema'")" || LAB_CONSTRAINTS_JSON_RC=$?
         LAB_CONSTRAINTS_ITEMS=""
         if [ "${LAB_CONSTRAINTS_JSON_RC}" -ne 0 ] || [ -z "${LAB_CONSTRAINTS_JSON}" ]; then
             printf 'DIVERGÊNCIA: Falha ao listar constraints do banco restaurado para conferência bidirecional (exit %s)\n' "${LAB_CONSTRAINTS_JSON_RC}" >> "${DIVERGENCES_FILE}"
@@ -1653,36 +1763,41 @@ SQL
             fi
             while IFS= read -r lc_obj; do
                 [ -n "${lc_obj}" ] || continue
+                # CORREÇÃO 3 (v2.1.0): decodificação SEM eval (jq @base64 + base64 -d
+                # via jq_field_decode); falha = verificação incompleta = sem aprovação.
                 LAB_CONSTRAINTS_PARSE_RC=0
-                LAB_CONSTRAINTS_ASSIGNMENTS="$(jq -r '@sh "lc_schema=\(.schema|tostring) lc_tab=\(.tabela|tostring) lc_name=\(.nome|tostring)"' <<<"${lc_obj}" 2>>"${LOG_FILE}")" || LAB_CONSTRAINTS_PARSE_RC=$?
+                lc_schema="$(jq_field_decode '.schema' "${lc_obj}")" || LAB_CONSTRAINTS_PARSE_RC=1
+                lc_tab="$(jq_field_decode '.tabela' "${lc_obj}")" || LAB_CONSTRAINTS_PARSE_RC=1
+                lc_name="$(jq_field_decode '.nome' "${lc_obj}")" || LAB_CONSTRAINTS_PARSE_RC=1
+                lc_tipo="$(jq_field_decode '.tipo' "${lc_obj}")" || LAB_CONSTRAINTS_PARSE_RC=1
                 if [ "${LAB_CONSTRAINTS_PARSE_RC}" -ne 0 ]; then
-                    printf 'DIVERGÊNCIA: Registro de constraint do laboratório indecifrável na conferência bidirecional\n' >> "${DIVERGENCES_FILE}"
+                    printf 'DIVERGÊNCIA: Falha de decodificação (jq/base64) de constraint do laboratório na conferência bidirecional — verificação incompleta\n' >> "${DIVERGENCES_FILE}"
                     BIDIRECTIONAL_INCOMPLETE=1
                     continue
                 fi
-                eval "${LAB_CONSTRAINTS_ASSIGNMENTS}" || {
-                    printf 'DIVERGÊNCIA: Falha ao decodificar constraint do laboratório na conferência bidirecional\n' >> "${DIVERGENCES_FILE}"
-                    BIDIRECTIONAL_INCOMPLETE=1
-                    continue
-                }
                 LC_IN_INV_RC=0
-                lc_in_inv="$(jq --arg s "${lc_schema}" --arg t "${lc_tab}" --arg n "${lc_name}" 'any(.constraints[]; .schema == $s and .tabela == $t and .nome == $n)' "${INVENTORY_FILE}" 2>>"${LOG_FILE}")" || LC_IN_INV_RC=$?
+                lc_in_inv="$(jq --arg s "${lc_schema}" --arg t "${lc_tab}" --arg n "${lc_name}" --arg k "${lc_tipo}" 'any(.constraints[]; .schema == $s and .tabela == $t and .nome == $n and .tipo == $k)' "${INVENTORY_FILE}" 2>>"${LOG_FILE}")" || LC_IN_INV_RC=$?
                 if [ "${LC_IN_INV_RC}" -ge 2 ]; then
-                    printf 'DIVERGÊNCIA: Falha de jq ao verificar constraint %s."%s"."%s" no inventário (exit %s)\n' "${lc_schema}" "${lc_tab}" "${lc_name}" "${LC_IN_INV_RC}" >> "${DIVERGENCES_FILE}"
+                    printf 'DIVERGÊNCIA: Falha de jq ao verificar constraint %s."%s"."%s" (tipo %s) no inventário (exit %s)\n' "${lc_schema}" "${lc_tab}" "${lc_name}" "${lc_tipo}" "${LC_IN_INV_RC}" >> "${DIVERGENCES_FILE}"
                     BIDIRECTIONAL_INCOMPLETE=1
                     continue
                 fi
                 if [ "${lc_in_inv}" != "true" ]; then
-                    printf 'DIVERGÊNCIA BIDIRECIONAL (constraint extra): constraint %s."%s"."%s" existe no banco restaurado mas NÃO CONSTA no inventário oficial\n' "${lc_schema}" "${lc_tab}" "${lc_name}" >> "${DIVERGENCES_FILE}"
+                    printf 'DIVERGÊNCIA BIDIRECIONAL (constraint extra): constraint %s."%s"."%s" (tipo %s) existe no banco restaurado mas NÃO CONSTA no inventário oficial\n' "${lc_schema}" "${lc_tab}" "${lc_name}" "${lc_tipo}" >> "${DIVERGENCES_FILE}"
                 else
-                    printf 'CONFERIDO BIDIRECIONAL: Constraint %s."%s"."%s" localizada em ambos os lados\n' "${lc_schema}" "${lc_tab}" "${lc_name}" >> "${CONFERIDOS_FILE}"
+                    printf 'CONFERIDO BIDIRECIONAL: Constraint %s."%s"."%s" (tipo %s) localizada em ambos os lados\n' "${lc_schema}" "${lc_tab}" "${lc_name}" "${lc_tipo}" >> "${CONFERIDOS_FILE}"
                 fi
             done <<<"${LAB_CONSTRAINTS_ITEMS}"
         fi
 
-        # --- Funções do banco restaurado (schema public, por sobrecarga)
+        # --- Funções do banco restaurado — CORREÇÃO 2 (v2.1.0): MESMO filtro de
+        # schemas do gerador 21-gerar-inventario.sh (pg_proc JOIN pg_namespace,
+        # com n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema' —
+        # TODOS os schemas de usuário; antes: restrito a 'public'). Comparação
+        # por sobrecarga com a MESMA identidade do sentido 1 e do gerador:
+        # (schema, nome, identidade de argumentos).
         LAB_FUNCOES_JSON_RC=0
-        LAB_FUNCOES_JSON="$(exec_lab_sql "SELECT coalesce(json_agg(json_build_object('schema', n.nspname, 'nome', p.proname, 'identidade', pg_get_function_identity_arguments(p.oid)))::text, '[]') FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public'")" || LAB_FUNCOES_JSON_RC=$?
+        LAB_FUNCOES_JSON="$(exec_lab_sql "SELECT coalesce(json_agg(json_build_object('schema', n.nspname, 'nome', p.proname, 'identidade', pg_get_function_identity_arguments(p.oid)))::text, '[]') FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema'")" || LAB_FUNCOES_JSON_RC=$?
         LAB_FUNCOES_ITEMS=""
         if [ "${LAB_FUNCOES_JSON_RC}" -ne 0 ] || [ -z "${LAB_FUNCOES_JSON}" ]; then
             printf 'DIVERGÊNCIA: Falha ao listar funções do banco restaurado para conferência bidirecional (exit %s)\n' "${LAB_FUNCOES_JSON_RC}" >> "${DIVERGENCES_FILE}"
@@ -1696,18 +1811,17 @@ SQL
             fi
             while IFS= read -r lf_obj; do
                 [ -n "${lf_obj}" ] || continue
+                # CORREÇÃO 3 (v2.1.0): decodificação SEM eval (jq @base64 + base64 -d
+                # via jq_field_decode); falha = verificação incompleta = sem aprovação.
                 LAB_FUNCOES_PARSE_RC=0
-                LAB_FUNCOES_ASSIGNMENTS="$(jq -r '@sh "lf_schema=\(.schema|tostring) lf_name=\(.nome|tostring) lf_ident=\(.identidade|tostring)"' <<<"${lf_obj}" 2>>"${LOG_FILE}")" || LAB_FUNCOES_PARSE_RC=$?
+                lf_schema="$(jq_field_decode '.schema' "${lf_obj}")" || LAB_FUNCOES_PARSE_RC=1
+                lf_name="$(jq_field_decode '.nome' "${lf_obj}")" || LAB_FUNCOES_PARSE_RC=1
+                lf_ident="$(jq_field_decode '.identidade' "${lf_obj}")" || LAB_FUNCOES_PARSE_RC=1
                 if [ "${LAB_FUNCOES_PARSE_RC}" -ne 0 ]; then
-                    printf 'DIVERGÊNCIA: Registro de função do laboratório indecifrável na conferência bidirecional\n' >> "${DIVERGENCES_FILE}"
+                    printf 'DIVERGÊNCIA: Falha de decodificação (jq/base64) de função do laboratório na conferência bidirecional — verificação incompleta\n' >> "${DIVERGENCES_FILE}"
                     BIDIRECTIONAL_INCOMPLETE=1
                     continue
                 fi
-                eval "${LAB_FUNCOES_ASSIGNMENTS}" || {
-                    printf 'DIVERGÊNCIA: Falha ao decodificar função do laboratório na conferência bidirecional\n' >> "${DIVERGENCES_FILE}"
-                    BIDIRECTIONAL_INCOMPLETE=1
-                    continue
-                }
                 LF_IN_INV_RC=0
                 lf_in_inv="$(jq --arg s "${lf_schema}" --arg n "${lf_name}" --arg i "${lf_ident}" 'any(.funcoes[]; .schema == $s and .nome == $n and .identidade == $i)' "${INVENTORY_FILE}" 2>>"${LOG_FILE}")" || LF_IN_INV_RC=$?
                 if [ "${LF_IN_INV_RC}" -ge 2 ]; then
