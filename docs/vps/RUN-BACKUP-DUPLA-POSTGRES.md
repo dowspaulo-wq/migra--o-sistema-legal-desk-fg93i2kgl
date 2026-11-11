@@ -2,8 +2,9 @@
 
 **Projeto:** DPSjur / SBJur (VPS Hostinger, EasyPanel/Docker)
 **Status:** PENDENTE DE VALIDAÇÃO / IMPLANTAÇÃO — autorização expressa de Douglas obrigatória antes de qualquer execução, agendamento ou alteração na VPS.
-**Versão dos scripts:** v2.1.0 (correções consolidadas pós-auditoria do commit f17a6b4)
+**Versão dos scripts:** v2.1.1 (correções pós-auditoria do commit 1f36a02 / v2.1.0)
 **Escopo desta versão:** SOMENTE código e documentação do repositório. Nenhum comando foi executado na VPS; pg_hba.conf, usuários, permissões do PostgreSQL, contêineres, EasyPanel e crontab NÃO foram alterados.
+**Auditoria independente da v2.1.0 (commit 1f36a02):** sintaxe aprovada (`bash -n`); 2 FALHAS funcionais apontadas e corrigidas nesta v2.1.1 — ver seção 2.1.
 
 ## 1. Visão geral — dois bancos DISTINTOS, duas rotinas INDEPENDENTES
 
@@ -38,6 +39,13 @@ os destinos são diretórios NOVOS (`sbjur-backups-dupla/`), com prefixos própr
 | E   | Lock sem corrida; fallback mkdir coerente                                 | flock REUTILIZÁVEL: o arquivo de lock permanece no disco e é aberto em modo APPEND (nunca trunca lock alheio); a exclusividade vem do flock (não da existência do arquivo) — a execução seguinte adquire normalmente. Fallback mkdir com recuperação de stale APENAS quando o PID registrado não existe mais (kill -0), com quarentena por mv atômico antes da remoção; `bk_release_lock` só remove com PID próprio registrado                                                                                                                                                                                                                                                                              |
 | F   | Retenção honesta e restrita                                               | MODO OBSERVAÇÃO por padrão; com `--aplicar-retencao`: apenas arquivos REGULARES do prefixo do PRÓPRIO banco no diretório correspondente, sem links simbólicos, validação individual (gzip -t + tamanho) antes de remover, rotina antiga nunca tocada                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | G   | Falhas produzem FALHA final                                               | `set -o pipefail` + `PIPESTATUS` separados p/ pg_dump e gzip; traps EXIT/INT/TERM/HUP; veredito SUCESSO/FALHA no log (`bk_finalize_session`); códigos de saída distintos por etapa                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+
+## 2.1 Correções da auditoria da v2.1.0 (commit 1f36a02) — FALHAS 1 e 2
+
+| #       | Falha apontada pela auditoria                                                                                                                                                                         | Correção nesta v2.1.1                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FALHA 1 | Compatibilidade ID×nome no Banco B: `bk_resolve_swarm_container` retorna o ID do contêiner, mas `bk_verify_container` comparava esse identificador com NOMES de `docker ps` — o casamento nunca batia | correção **M** do backup-lib.sh: `bk_verify_container` agora aceita o IDENTIFICADOR propagado pelo chamador (ID OU nome), comprovado por IGUALDADE EXATA contra a coluna ID ou a coluna Names de `docker ps`. O Banco B chega com o ID (saída de `bk_resolve_swarm_container`); o Banco A continua com o nome fixo. Mais de uma correspondência é FATAL; sem regex genérica, sem casamento parcial. Continuam exigidos: serviço `dpsjur_dpsjur-db` exclusivo, exatamente 1 contêiner elegível, versão major 18, usuário `Doug`, banco `dpsjur`; ausente/incorreto/ambíguo é rejeitado.                  |
+| FALHA 2 | Código de saída original perdido: `bk_finalize_session` lia `$?` APÓS as operações de limpeza do cleanup — podia registrar SUCESSO com falha anterior                                                 | correção **N** (lib + scripts A e B): o código ORIGINAL é capturado NO INÍCIO do cleanup (`cleanup $?` no trap EXIT) e transmitido EXPLICITAMENTE por argumento a `bk_finalize_session` (junto com flag dedicada `cleanup_failed` de falha de limpeza). SUCESSO só é registrado quando o código original é 0 E a limpeza integral concluiu; falha de limpeza é comunicada em stderr+log SEM ocultar nem substituir o erro original; o script sai com o código ORIGINAL — e com `BK_EXIT_CLEANUP_FAIL=29` quando o backup concluiu mas a limpeza falhou (falha de limpeza nunca é mascarada por exit 0). |
 
 **Três verificações NÃO equivalentes (nunca confundir no relatório):**
 
@@ -112,8 +120,9 @@ execução — passo de implantação, não automatizado):
 
 Antes de qualquer dump, `bk_verify_container` exige TUDO:
 
-1. O contêiner EXATO está em execução (Banco A: igualdade de nome; Banco B:
-   resolução Swarm da seção 3.3) — sem regex genérica;
+1. O contêiner EXATO está em execução (Banco A: igualdade de nome; Banco B: o
+   ID retornado pela resolução Swarm da seção 3.3, comprovado por igualdade
+   exata contra a coluna ID de `docker ps` — correção M) — sem regex genérica;
 2. `SHOW server_version` no contêiner retorna major **15** (A) ou **18** (B) —
    divergência é FATAL;
 3. O banco esperado (`postgres` no A; `dpsjur` no B) EXISTE em `pg_database`;
@@ -244,7 +253,8 @@ docker network rm "dpsjur-b-net-${TS}"
 
 Nesta rodada (plataforma de desenvolvimento SEM Bash):
 
-- `bash -n` nos três scripts: **NÃO VALIDADO** — não executado aqui; executar no
+- `bash -n` nos três scripts: **NÃO VALIDADO nesta rodada** — a plataforma de
+  desenvolvimento desta sessão não tem Bash disponível; executar no
   WSL2 de Douglas antes de qualquer uso:
   ```bash
   bash -n docs/vps/22-backup-banco-a-sbjur-local.sh
@@ -256,9 +266,25 @@ Nesta rodada (plataforma de desenvolvimento SEM Bash):
   shellcheck -S style docs/vps/lib/backup-lib.sh \
       docs/vps/22-backup-banco-a-sbjur-local.sh docs/vps/23-backup-banco-b-dpsjur.sh
   ```
-- Testes locais com mocks (docker/psql simulados), falha simulada, concorrência
-  (dois processos disputando o lock) e tentativa de sobrescrita: **NÃO
-  VALIDADO** — requerem Bash; executar na máquina de teste antes da VPS.
+- Testes locais com mocks: **NÃO VALIDADO nesta rodada** (plataforma de
+  desenvolvimento SEM Bash). O harness `docs/vps/tests/testes-backup-dupla-v211.sh`
+  FOI ENTREGUE pronto (mock de `docker`/`psql` à frente do PATH; NADA real é
+  executado) e cobre os cenários obrigatórios desta v2.1.1: contêiner do serviço
+  `dpsjur_dpsjur-db` identificado por ID é ACEITO por `bk_verify_container`
+  (versão 18/`Doug`/`dpsjur` confirmados); contêiner incorreto é REJEITADO;
+  contêiner ambíguo é REJEITADO; serviço/tarefa Swarm ausente é REJEITADA;
+  pg_dump falhando → FALHA (exit 20); publicação recusada por destino
+  existente → FALHA (exit 25, destino NÃO sobrescrito); SUCESSO só com código 0
+  e limpeza integral; FALHA preserva o código original; FALHA DE LIMPEZA
+  distinta quando só a limpeza falha; e a mecânica do trap EXIT preserva o
+  código original após a limpeza (exit 20 sobrevive; 0+limpeza falha → 29;
+  0+limpeza ok → 0). Executar na máquina com Bash ANTES da VPS:
+  ```bash
+  bash docs/vps/tests/testes-backup-dupla-v211.sh   # exit 0 = todos passaram
+  ```
+- Concorrência (dois processos disputando o lock) e tentativa de sobrescrita
+  além do cenário T6 do harness: NÃO VALIDADO — requerem Bash; executar na
+  máquina de teste antes da VPS.
 
 ## 8. Cron sugerido (SÓ documentado — NÃO instalar sem autorização)
 
@@ -314,8 +340,10 @@ produção até que:
 
 1. `bash -n` e `shellcheck` sejam executados nos três scripts (WSL2 de
    Douglas — plataforma de desenvolvimento sem Bash NÃO VALIDOU; seção 7);
-2. testes locais com mocks (falha simulada, concorrência, tentativa de
-   sobrescrita) sejam executados em máquina de teste (seção 7);
+2. testes locais com mocks (`docs/vps/tests/testes-backup-dupla-v211.sh`,
+   entregue nesta v2.1.1 e NÃO EXECUTADO nesta rodada) rodem SEM falhas em
+   máquina de teste, junto com concorrência e tentativa de sobrescrita
+   (seção 7);
 3. um backup de teste de CADA banco seja executado manualmente na VPS e os logs
    mostrem `VEREDITO: SUCESSO`;
 4. uma restauração isolada de CADA banco seja executada (seção 6) com

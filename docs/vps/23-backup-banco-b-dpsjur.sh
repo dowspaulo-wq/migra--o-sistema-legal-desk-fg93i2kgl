@@ -3,7 +3,7 @@
 # DPSjur / SBJur — BACKUP DO BANCO B (PostgreSQL 18, serviço Docker Swarm
 # "dpsjur_dpsjur-db", usuário "Doug", banco "dpsjur").
 # Script: docs/vps/23-backup-banco-b-dpsjur.sh
-# Versão: v2.1.0
+# Versão: v2.1.1
 #
 # REGRA ABSOLUTA: este script é EXCLUSIVO do Banco B. O Banco A (PostgreSQL 15,
 # sbsjur) tem script próprio (22-...) e rotina antiga /root/sbjur-backups/backup.sh
@@ -28,6 +28,15 @@
 #   - pg_dump SEM a opção -X (obsoleta e exige nome de opção como argumento —
 #     ver comentário do comando e correção K do backup-lib.sh).
 #   - Publicação com mv -n e prova posterior; chmod 600 do publicado é fatal.
+#
+# Mudanças v2.1.0 → v2.1.1 (auditoria 1f36a02):
+#   - FALHA 1: compatibilidade ID×nome — bk_verify_container passa a aceitar o
+#     IDENTIFICADOR propagado pelo chamador (o ID retornado por
+#     bk_resolve_swarm_container), comprovado por igualdade exata em `docker ps`
+#     (correção M do backup-lib.sh). Antes: ID comparado a NOMES — nunca casava.
+#   - FALHA 2: bk_finalize_session recebe o código de saída ORIGINAL capturado
+#     NO INÍCIO do cleanup; SUCESSO exige código 0 E limpeza integral; falha de
+#     limpeza comunicada sem ocultar o erro original; sai com o código original.
 # ==============================================================================
 
 set -o errexit
@@ -102,15 +111,33 @@ LOG_FILE="${BASE_LOG_DIR}/banco-b-${MODE}-${RUN_STAMP}.log"
 : > "${LOG_FILE}" || { printf 'Falha ao criar log: %s\n' "${LOG_FILE}" >&2; exit "${BK_EXIT_FS_FAIL}"; }
 chmod 600 "${LOG_FILE}"
 
+# Correção N (FALHA 2 da auditoria 1f36a02): o código de saída ORIGINAL é
+# capturado AQUI, no PRIMEIRO comando do cleanup — ANTES de qualquer operação
+# de limpeza (que poluiria o $? de dentro do trap EXIT). O veredito de
+# bk_finalize_session é alimentado por ARGUMENTOS EXPLÍCITOS (código original +
+# flag dedicada de falha de limpeza), nunca por $? re-lido.
 cleanup() {
+    local original_exit="$1"
+    local cleanup_failed=0
     # ${CONTAINER:-} e ${BK_PGPASS_IN_CONTAINER:-}: podem não estar definidos se
     # a falha ocorreu antes da resolução/staging (bk_remove_pgpass ignora os
     # dois vazios e recusa caminho que não seja o registrado nesta sessão).
-    bk_remove_pgpass "${CONTAINER:-}" "${BK_PGPASS_IN_CONTAINER:-}" || true
-    bk_tmp_cleanup || true
-    bk_release_lock || true
-    bk_finalize_session "Banco B"
-    printf '%s FIM DA SESSÃO Banco B (exit %s)\n' "$(date '+%F %T')" "$1" >> "${LOG_FILE}" 2>/dev/null || true
+    bk_remove_pgpass "${CONTAINER:-}" "${BK_PGPASS_IN_CONTAINER:-}" || cleanup_failed=1
+    bk_tmp_cleanup || cleanup_failed=1
+    bk_release_lock || cleanup_failed=1
+    bk_finalize_session "${original_exit}" "${cleanup_failed}" "Banco B"
+    if [ "${original_exit}" -eq 0 ] && [ "${cleanup_failed}" -ne 0 ]; then
+        # Backup concluiu, mas a limpeza falhou: a falha de limpeza NÃO pode ser
+        # mascarada por um exit 0 — código distinto, documentado no log.
+        original_exit="${BK_EXIT_CLEANUP_FAIL}"
+    fi
+    printf '%s FIM DA SESSÃO Banco B (exit %s)\n' "$(date '+%F %T')" "${original_exit}" >> "${LOG_FILE}" 2>/dev/null || true
+    # Dentro do trap EXIT, o `exit` explícito é o ÚNICO mecanismo que DEFINE o
+    # código final da sessão (o return de uma função de trap NÃO o altera):
+    # SEMPRE o código ORIGINAL (ou BK_EXIT_CLEANUP_FAIL quando o backup
+    # concluiu e só a limpeza falhou). O bash NÃO re-dispara o trap EXIT a
+    # partir de um exit dentro dele — sem recursão.
+    exit "${original_exit}"
 }
 trap 'cleanup $?' EXIT
 trap 'bk_tmp_cleanup; bk_remove_pgpass "${CONTAINER:-}" "${BK_PGPASS_IN_CONTAINER:-}" || true; exit 130' INT TERM HUP
@@ -141,7 +168,12 @@ fi
 
 # ------------------------------------------------------------------------------
 # 3) Identificação EXPLÍCITA (versão 18, banco dpsjur, usuário Doug —
-#    conexão explícita -U/-d/-p em todas as consultas)
+#    conexão explícita -U/-d/-p em todas as consultas).
+#    Correção M (FALHA 1 da auditoria 1f36a02): o IDENTIFICADOR recebido aqui é
+#    o ID retornado por bk_resolve_swarm_container — propagado SEM alteração.
+#    bk_verify_container (correção M do lib) o comprova por IGUALDADE EXATA
+#    contra a coluna ID de `docker ps` (aceita ID OU nome — o que chegar);
+#    nunca mais ID comparado a NOMES.
 # ------------------------------------------------------------------------------
 bk_verify_container "${CONTAINER}" "${PG_MAJOR}" "${PG_DB}" "${PG_USER}" "${PG_PORT}" "${PG_BIN_PREFIX}"
 

@@ -3,7 +3,7 @@
 # DPSjur / SBJur — Biblioteca compartilhada das rotinas de backup dos DOIS
 # PostgreSQL da VPS Hostinger (EasyPanel/Docker).
 # Script: docs/vps/lib/backup-lib.sh
-# Versão: v2.1.0
+# Versão: v2.1.1
 #
 # OBJETIVO:
 #   Centralizar as funções comuns usadas por:
@@ -71,6 +71,22 @@
 #      TOCTOU de publicação bem-sucedida); chmod 600 do arquivo publicado é
 #      VERIFICADO e FATAL em falha — nenhum "chmod ... || true".
 #
+# CORREÇÕES DA AUDITORIA INDEPENDENTE (1f36a02 / v2.1.0 → v2.1.1):
+#   M. bk_verify_container aceita o IDENTIFICADOR propagado pelo chamador (ID
+#      OU nome), comprovado por IGUALDADE EXATA contra a coluna ID ou a coluna
+#      Names de `docker ps`. O Banco B chega com o ID retornado por
+#      bk_resolve_swarm_container (que NUNCA é um nome) — a comparação antiga
+#      (ID × nomes) nunca casava e abortaria toda execução do Banco B. Mais de
+#      uma correspondência é fatal; sem regex genérica.
+#   N. bk_finalize_session NÃO lê mais $? — no trap EXIT, $? já foi poluído
+#      pelas operações de limpeza que precedem a chamada (podia registrar
+#      SUCESSO com falha anterior). O código original é capturado no INÍCIO do
+#      cleanup e transmitido EXPLICITAMENTE por argumentos, com flag dedicada
+#      de falha de limpeza; SUCESSO exige código original 0 E limpeza integral;
+#      falha de limpeza é comunicada em stderr/log sem ocultar nem substituir
+#      o erro original; o script sai com o código ORIGINAL (ou com
+#      BK_EXIT_CLEANUP_FAIL quando o backup concluiu mas a limpeza falhou).
+#
 # POLÍTICA DE SEGURANÇA:
 #   - umask 077 estrito; arquivos com permissão efetiva conferida por stat.
 #   - Nenhuma senha em argumento de comando (visível em ps/histórico/logs).
@@ -91,6 +107,7 @@ BK_EXIT_INTEGRITY_FAIL=22 # gzip -t / tamanho mínimo falhou
 BK_EXIT_FS_FAIL=25       # falha de filesystem (mkdir, touch, chmod, stat)
 BK_EXIT_RETENTION_FAIL=27 # retenção apontou erro
 BK_EXIT_CONFIG_FAIL=28   # configuração ausente/inválida (ex.: .pgpass)
+BK_EXIT_CLEANUP_FAIL=29  # backup concluiu (exit original 0) mas a LIMPEZA da sessão falhou
 
 # ------------------------------------------------------------------------------
 # bk_log — grava uma linha no log da sessão e espelha em stdout/stderr.
@@ -315,18 +332,36 @@ EOF_TAREFAS
 # Qualquer divergência é fatal com exit ${BK_EXIT_GUARD}.
 # Parâmetros: <container> <pg_major_esperado> <db_esperado> <user_esperado>
 #             <pg_port> <pg_bin_prefix>
+#   container: IDENTIFICADOR do contêiner propagado pelo chamador — ID (Banco B,
+#     saída de bk_resolve_swarm_container) OU nome exato (Banco A, contêiner
+#     fixo); é comprovado por igualdade exata em `docker ps` (correção M);
 #   pg_bin_prefix: "" (binário no PATH do contêiner) ou ex. "/usr/lib/postgresql/15/bin"
 # ------------------------------------------------------------------------------
 bk_verify_container() {
     local container="$1" pg_major_wanted="$2" db_wanted="$3" user_wanted="$4" pg_port="$5" pg_bin="$6"
-    local running major db_found user_found
-
-    # (a) contêiner EXATO em execução (busca por igualdade exata, não regex)
-    running="$(docker ps --format '{{.Names}}' 2>/dev/null | grep -Fx -- "${container}")" || running=""
-    if [ "${running}" != "${container}" ]; then
-        bk_die "Contêiner EXATO não está em execução: '${container}' (prova exigida por igualdade, sem regex genérica)." "${BK_EXIT_GUARD}"
+   local ps_list matches match_count matched_id matched_name
+   local major db_found user_found
+ 
+   # (a) o IDENTIFICADOR recebido (ID ou nome — o chamador propaga SEMPRE a
+   #     mesma forma que resolveu) casa com EXATAMENTE UM contêiner em
+   #     execução: igualdade exata na coluna ID OU na coluna Names de
+   #     `docker ps` — sem regex genérica, sem casamento parcial, sem
+   #     adivinhação. Nenhuma correspondência é fatal; mais de uma também
+   #     (correção M: o Banco B chega aqui com ID, não com nome).
+   if ! ps_list="$(docker ps --format '{{.ID}}\t{{.Names}}' 2>/dev/null)"; then
+       bk_die "Falha ao listar contêineres em execução (docker ps)." "${BK_EXIT_GUARD}"
+   fi
+   matches="$(printf '%s\n' "${ps_list}" | awk -F'\t' -v c="${container}" '$1 == c || $2 == c {print $1 "\t" $2}')"
+   if [ -z "${matches}" ]; then
+       bk_die "Contêiner NÃO encontrado em execução pelo identificador exato '${container}' (ID ou nome; igualdade exata, sem regex genérica)." "${BK_EXIT_GUARD}"
+   fi
+   match_count="$(printf '%s\n' "${matches}" | grep -c . || true)"
+   if [ "${match_count}" -ne 1 ]; then
+       bk_die "Identificador do contêiner AMBÍGUA: '${container}' casa com ${match_count} contêineres em execução (ID ou nome exato). Recusando prosseguir — sem adivinhação." "${BK_EXIT_GUARD}"
     fi
-    bk_log "Contêiner comprovado em execução: ${container}"
+   matched_id="$(printf '%s\n' "${matches}" | awk -F'\t' '{print $1}')"
+   matched_name="$(printf '%s\n' "${matches}" | awk -F'\t' '{print $2}')"
+   bk_log "Contêiner comprovado em execução (igualdade exata): id=${matched_id} nome=${matched_name} (identificador recebido: ${container})"
 
     # (b+e) conexão EXPLÍCITA: usuário e banco do PRÓPRIO banco em todas as
     # consultas; autenticação via PGPASSFILE interno (bk_stage_pgpass_into_container).
@@ -648,23 +683,47 @@ bk_publish_dump() {
 # ------------------------------------------------------------------------------
 # bk_finalize_session — fecha a sessão com veredito explícito de SUCESSO/FALHA
 # no log (Requisito 7). Sempre chamado no trap de EXIT.
+#
+# Parâmetros POSICIONAIS (correção N — NUNCA deduzir de $?; no trap EXIT o $?
+# já foi poluído pelas operações de limpeza que precedem esta chamada):
+#   $1 = código de saída ORIGINAL da sessão, capturado NO INÍCIO do cleanup
+#        (antes de qualquer operação de limpeza);
+#   $2 = 0 se TODA a limpeza concluiu; 1 se QUALQUER passo de limpeza falhou;
+#   $3 = rótulo da sessão (ex.: "Banco A").
+# Regras:
+#   - SUCESSO só é registrado quando o código original é 0 E a limpeza inteira
+#     concluiu (todas as etapas obrigatórias);
+#   - falha de limpeza é comunicada em stderr+log SEM ocultar nem substituir o
+#     erro original;
+#   - o chamador decide o exit: código ORIGINAL preservado (ou
+#     BK_EXIT_CLEANUP_FAIL quando o backup concluiu e só a limpeza falhou).
 # ------------------------------------------------------------------------------
 bk_finalize_session() {
-    # Chamado DENTRO do trap EXIT (cleanup $?): $? é o código real da sessão.
-    local exit_code=$?
-    if [ "${exit_code}" -eq 0 ]; then
-        printf '%s VEREDITO: SUCESSO — backup concluído, validado e publicado (%s)\n' "$(date '+%F %T')" "$*" >> "${LOG_FILE}"
-    else
-        printf '%s VEREDITO: FALHA — backup NÃO concluído, nenhum backup anterior afetado (exit %s) (%s)\n' "$(date '+%F %T')" "${exit_code}" "$*" >> "${LOG_FILE}"
-    fi
+   local exit_code="${1:-1}" cleanup_failed="${2:-1}" label="${3:-sessão}"
+   # Defesa contra chamada SEM argumentos (correção N): sem código original
+   # propagado, NUNCA presumir sucesso — trata como falha.
+   if [ "$#" -lt 3 ]; then
+       bk_log_err "bk_finalize_session chamado SEM os 3 argumentos obrigatórios (código original, flag de limpeza, rótulo) — tratado como FALHA (nada presumido)."
+       exit_code=1
+       cleanup_failed=1
+   fi
+   if [ "${exit_code}" -eq 0 ] && [ "${cleanup_failed}" -eq 0 ]; then
+       printf '%s VEREDITO: SUCESSO — backup concluído, validado, publicado e limpeza integral (%s)\n' "$(date '+%F %T')" "${label}" >> "${LOG_FILE}"
+   elif [ "${exit_code}" -ne 0 ]; then
+       printf '%s VEREDITO: FALHA — backup NÃO concluído, nenhum backup anterior afetado (exit original %s PRESERVADO) (%s)\n' "$(date '+%F %T')" "${exit_code}" "${label}" >> "${LOG_FILE}"
+       if [ "${cleanup_failed}" -ne 0 ]; then
+           bk_log_err "bk_finalize_session: além do erro original (exit ${exit_code}), a LIMPEZA da sessão TAMBÉM falhou — ver linhas de limpeza acima (erro original NÃO é substituído)."
+       fi
+   else
+       printf '%s VEREDITO: FALHA DE LIMPEZA — backup concluído e publicado, mas a limpeza da sessão falhou (exit %s); nenhuma etapa obrigatória omitida do veredito (%s)\n' "$(date '+%F %T')" "${BK_EXIT_CLEANUP_FAIL}" "${label}" >> "${LOG_FILE}"
+       bk_log_err "bk_finalize_session: backup concluído, porém a limpeza falhou — veredito NÃO é SUCESSO (exit ${BK_EXIT_CLEANUP_FAIL})."
+   fi
     # Libera o FD do flock se ainda estiver detido por este processo (o lock
     # mkdir é liberado por bk_release_lock acima, com prova de identidade).
     if [ -n "${BK_LOCK_FD:-}" ]; then
         eval "exec ${BK_LOCK_FD}>&-" 2>/dev/null || true
     fi
-    # Preserva o código da sessão: um comando dentro do trap EXIT não altera
-    # o exit original do script (o trap termina com este return).
-    return "${exit_code}"
+   return 0
 }
 
 # ------------------------------------------------------------------------------
