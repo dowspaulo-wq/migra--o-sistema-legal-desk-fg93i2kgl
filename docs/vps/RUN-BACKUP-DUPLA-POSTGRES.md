@@ -1,126 +1,153 @@
 # Backup Independente dos DOIS PostgreSQL da VPS — Banco A (PG15) e Banco B (PG18)
 
 **Projeto:** DPSjur / SBJur (VPS Hostinger, EasyPanel/Docker)
-**Status:** PENDENTE DE VALIDAÇÃO / IMPLANTAÇÃO — autorização expressa de Douglas obrigatória antes de qualquer execução ou agendamento na VPS.
-**Versão dos scripts:** v1.0.0
+**Status:** PENDENTE DE VALIDAÇÃO / IMPLANTAÇÃO — autorização expressa de Douglas obrigatória antes de qualquer execução, agendamento ou alteração na VPS.
+**Versão dos scripts:** v2.0.0 (correções consolidadas pós-auditoria do commit d510fd9)
+**Escopo desta versão:** SOMENTE código e documentação do repositório. Nenhum comando foi executado na VPS; pg_hba.conf, usuários, permissões do PostgreSQL, contêineres, EasyPanel e crontab NÃO foram alterados.
 
 ## 1. Visão geral — dois bancos DISTINTOS, duas rotinas INDEPENDENTES
 
-|                 | Banco A                                              | Banco B                                                |
-| --------------- | ---------------------------------------------------- | ------------------------------------------------------ |
-| Projeto         | `sbjur-local` (EasyPanel)                            | `dpsjur` (EasyPanel)                                   |
-| Contêiner       | `sbjur-local_supabase-db-1`                          | `dpsjur-db`                                            |
-| PostgreSQL      | **15.8** (major 15)                                  | **18**                                                 |
-| Usuário         | `postgres`                                           | `Doug`                                                 |
-| Banco           | `postgres`                                           | `dpsjur`                                               |
-| Script          | `docs/vps/22-backup-banco-a-sbjur-local.sh`          | `docs/vps/23-backup-banco-b-dpsjur.sh`                 |
-| Base de destino | `/root/sbjur-backups/`                               | `/root/dpsjur-backups/`                                |
-| Log diário      | `/root/sbjur-backups/logs/bk-a-sbjur15-AAAAMMDD.log` | `/root/dpsjur-backups/logs/bk-b-dpsjur18-AAAAMMDD.log` |
-| .pgpass         | `/root/.pgpass-sbjur-a`                              | `/root/.pgpass-dpsjur-b`                               |
-| Lock            | `/root/sbjur-backups/.lock-bk-a`                     | `/root/dpsjur-backups/.lock-bk-b`                      |
+|                              | Banco A                                                | Banco B                                                                        |
+| ---------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| Projeto                      | `sbjur-local` (EasyPanel, compose)                     | `dpsjur` (EasyPanel, Docker **Swarm**)                                         |
+| Contêiner                    | `sbjur-local_supabase-db-1` (NOME FIXO)                | resolvido via serviço Swarm `dpsjur_dpsjur-db` (NÃO é nome literal)            |
+| PostgreSQL                   | **15.8** (major 15)                                    | **18** (não presumido como banco principal — confirmação operacional pendente) |
+| Usuário                      | `postgres`                                             | `Doug`                                                                         |
+| Banco                        | `postgres`                                             | `dpsjur`                                                                       |
+| Script                       | `docs/vps/22-backup-banco-a-sbjur-local.sh`            | `docs/vps/23-backup-banco-b-dpsjur.sh`                                         |
+| Lib comum                    | `docs/vps/lib/backup-lib.sh` (fonte única das funções) | idem                                                                           |
+| Base de destino              | `/root/sbjur-backups-dupla/banco-a`                    | `/root/sbjur-backups-dupla/banco-b`                                            |
+| .pgpass (host)               | `$HOME/.pgpass-bk-banco-a` (chmod 600)                 | `$HOME/.pgpass-bk-banco-b` (chmod 600)                                         |
+| .pgpass (contêiner, efêmero) | `/tmp/.pgpass-bk-banco-a`                              | `/tmp/.pgpass-bk-banco-b`                                                      |
+| Lock                         | `<base>/.lock-banco-a`                                 | `<base>/.lock-banco-b`                                                         |
 
-Nenhum script toca o contêiner/banco do outro: cada um tem identificação FIXA
-(contêiner, usuário, banco) e PROVA obrigatória (equalidade exata de nome +
-versão major confere + banco existe + usuário existe + pg_dump disponível)
-antes de qualquer dump — sem regex genérica.
+**A rotina antiga `/root/sbjur-backups/backup.sh` (Banco A, diária 03h) permanece
+intocada.** Nenhum script desta solução lê, altera, move ou exclui seus arquivos:
+os destinos são diretórios NOVOS (`sbjur-backups-dupla/`), com prefixos próprios
+(`sbsjur-*` / `dpsjur-*`), e a retenção só considera esses prefixos.
 
-## 2. Requisitos de Douglas — onde cada um está atendido
+## 2. Correções da auditoria (d510fd9) — onde cada uma está
 
-| #   | Requisito                                              | Onde está                                                              |
-| --- | ------------------------------------------------------ | ---------------------------------------------------------------------- |
-| 1   | Rotinas independentes PG15.8 / PG18                    | Um script por banco (22 e 23) + lib compartilhada                      |
-| 2   | Contêiner/usuário/banco explícitos, sem regex genérica | `bk_verify_container` na lib (usada por ambos)                         |
-| 3   | Senha fora de argumento/log                            | `.pgpass` com chmod 600 validado; pg_dump com `-w` (nunca pedir senha) |
-| 4   | pipefail + verificação de pg_dump E compactação        | `bk_run_dump_pipeline` (PIPESTATUS)                                    |
-| 5   | gzip -t + tamanho mínimo                               | `bk_validate_dump` (mín. 1024 bytes configurável)                      |
-| 6   | Diretórios separados diário/semanal/mensal             | `bk_setup_dirs`                                                        |
-| 7   | Logs independentes, sem /dev/null                      | Cada banco tem `logs/` próprio; pipeline vai para o log                |
-| 8   | Retenção sem excluir na migração                       | `bk_apply_retention` em modo OBSERVAÇÃO por padrão                     |
-| 9   | Lock + proteção contra sobrescrita                     | `bk_acquire_lock` (flock com fallback mkdir) + `noclobber` + timestamp |
-| 10  | Restauração isolada por banco                          | Seção 6 deste documento                                                |
+| #   | Correção obrigatória                                                      | Implementação                                                                                                                                                                                                                                                                                                                                                         |
+| --- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A   | Conexão psql EXPLÍCITA em todas as verificações; Banco B sem nome literal | `bk_psql_in_container` sempre roda com `-U <usuário> -d <banco> -p <porta>`; Banco B resolve o contêiner por `bk_resolve_swarm_container` (serviço Swarm, igualdade exata, recusa ausente/ambíguo)                                                                                                                                                                    |
+| B   | Credenciais disponíveis AO pg_dump (dentro do contêiner)                  | `bk_stage_pgpass_into_container`: `docker cp` do .pgpass para `/tmp/` DENTRO do contêiner + `chmod 600` + `chown <usuário>`; pg_dump/psql rodam com `env PGPASSFILE=...` no `docker exec`. **Não se presume que o PGPASSFILE do host chega ao docker exec — ele NÃO chega.** Nada é alterado no PostgreSQL (pg_hba.conf, usuários, permissões — proibido nesta etapa) |
+| C   | Captura de erro SEM inversão                                              | `rc=0; if bk_run_dump_pipeline "${OUT_FILE}"; then :; else rc=$?; fi` — o `!` original invertia o status (rc=0 na falha)                                                                                                                                                                                                                                              |
+| D   | Sem sobrescrita; publicação atômica                                       | dump em temporário EXCLUSIVO (mktemp no MESMO diretório do destino, chmod 600), validação (`bk_validate_dump`) e publicação por `mv` atômico no mesmo filesystem (`bk_publish_dump` recusa destino existente); limpeza só remove o nome próprio (`bk_tmp_cleanup`)                                                                                                    |
+| E   | Lock sem corrida; fallback mkdir coerente                                 | flock com noclobber (arquivo criado antes do FD, sem `: >` destrutivo); fallback mkdir define `BK_LOCK_KIND/PATH/DIR/PID` DURANTE a aquisição; `bk_release_lock` só remove com PID próprio registrado                                                                                                                                                                 |
+| F   | Retenção honesta e restrita                                               | MODO OBSERVAÇÃO por padrão; com `--aplicar-retencao`: apenas arquivos REGULARES do prefixo do PRÓPRIO banco no diretório correspondente, sem links simbólicos, validação individual (gzip -t + tamanho) antes de remover, rotina antiga nunca tocada                                                                                                                  |
+| G   | Falhas produzem FALHA final                                               | `set -o pipefail` + `PIPESTATUS` separados p/ pg_dump e gzip; traps EXIT/INT/TERM/HUP; veredito SUCESSO/FALHA no log (`bk_finalize_session`); códigos de saída distintos por etapa                                                                                                                                                                                    |
+
+**Três verificações NÃO equivalentes (nunca confundir no relatório):**
+
+1. **Integridade gzip** (`gzip -t`) — o ARQUIVO está íntegro como bytes comprimidos;
+2. **Consistência do dump** — o CONTEÚDO é um dump pleno e coerente do banco (não é provado por gzip);
+3. **Sucesso de restauração isolada** — o dump restaura num PostgreSQL limpo e as contagens conferem (seção 6).
+
+`gzip -t` OK + veredito SUCESSO do backup **NÃO** significam backup restaurável. O pré-requisito para considerar a solução pronta é a restauração isolada de CADA banco (seção 6).
 
 ## 3. Pré-requisitos antes da primeira execução
 
 **Lição do projeto (registrar sempre):** NÃO usar `curl | bash` — baixar o
 arquivo e rodar via SSH com comando.
 
-### 3.1 Banco A (sbjur-local, PG15)
+### 3.1 Implantação dos arquivos (sem executar ainda)
 
-1. Copiar o dump do repositório para a VPS (ou baixar via URL raw do Git):
+```bash
+# Na VPS, copiar os três arquivos (ex.: scp a partir do repositório clonado,
+# ou baixar via URL raw — nunca curl | bash):
+#   docs/vps/22-backup-banco-a-sbjur-local.sh  -> /root/
+#   docs/vps/23-backup-banco-b-dpsjur.sh       -> /root/
+#   docs/vps/lib/backup-lib.sh                 -> /root/sbjur-backups-dupla/lib/
+chmod 700 /root/22-backup-banco-a-sbjur-local.sh /root/23-backup-banco-b-dpsjur.sh
+chmod 600 /root/sbjur-backups-dupla/lib/backup-lib.sh
+```
 
-   ```bash
-   curl -fsSL -o /root/22-backup-banco-a-sbjur-local.sh   <URL_RAW>/docs/vps/22-backup-banco-a-sbjur-local.sh
-   curl -fsSL -o /root/23-backup-banco-b-dpsjur.sh        <URL_RAW>/docs/vps/23-backup-banco-b-dpsjur.sh
-   mkdir -p /root/sbjur-backups/lib
-   curl -fsSL -o /root/sbjur-backups/lib/backup-lib.sh    <URL_RAW>/docs/vps/lib/backup-lib.sh
-   ```
+### 3.2 Credenciais — o que precisa existir DENTRO de cada contêiner
 
-2. Criar o .pgpass do Banco A (senha do usuário `postgres` do Supabase
-   self-hosted):
-   ```bash
-   printf 'localhost:5432:postgres:postgres:SENHA_DO_POSTGRES\n' > /root/.pgpass-sbjur-a
-   chmod 600 /root/.pgpass-sbjur-a
-   ```
-   Obs.: o script também funciona com o TRUST local do socket (padrão do
-   Supabase self-hosted), pois o pg_dump conecta com `-w` (nunca pede senha)
-   pelo socket Unix dentro do contêiner.
+A solução NÃO altera `pg_hba.conf`, usuários ou permissões do PostgreSQL. Ela
+EXIGE que o cenário abaixo já exista (conferir na VPS ANTES da primeira
+execução — passo de implantação, não automatizado):
 
-### 3.2 Banco B (dpsjur, PG18)
+1. **Formato do .pgpass do host:** 5 campos separados por `:` —
+   `localhost:5432:<banco>:<usuário>:<senha>`; senha NÃO pode conter `:` sem
+   escape (`\:`); chmod 600 obrigatório (o script recusa outras permissões).
+   - Banco A: `localhost:5432:postgres:postgres:<senha do postgres>`
+   - Banco B: `localhost:5432:dpsjur:Doug:<senha do Doug>`
+2. **O pg_hba.conf de cada contêiner precisa AUTORIZAR a forma de conexão
+   usada pelo pg_dump/psql:** conexão TCP local dentro do contêiner
+   (`127.0.0.1` ou o socket local do contêiner) para o usuário/banco do
+   respectivo banco, com método compatível com `.pgpass` (md5/scram). **Conferir
+   manualmente em cada contêiner** (cat no pg_hba.conf efetivo) durante a
+   implantação — se a autenticação falhar, o script aborta com exit 13/28 e
+   NADA é gravado; ajuste no PostgreSQL é decisão futura de Douglas.
+3. **O usuário da conexão precisa poder executar pg_dump** (Banco A: `postgres`
+   já é superusuário; Banco B: `Doug` precisa de permissão de leitura sobre
+   todas as tabelas do banco `dpsjur` — conferir na implantação).
+4. **A senha é copiada para DENTRO do contêiner na hora do dump** (`docker cp`
+   para `/tmp/.pgpass-bk-banco-{a,b}`, chmod 600, dono = usuário da conexão) e
+   REMOVIDA ao final da sessão (inclusive em falha, pelo trap). Ela nunca
+   aparece em argumento de comando, log ou arquivo versionado.
 
-1. Criar o .pgpass do Banco B — a senha é a do usuário `Doug` no PostgreSQL 18:
+### 3.3 Banco B — Docker Swarm
 
-   ```bash
-   printf 'localhost:5432:dpsjur:Doug:SENHA_DO_Doug\n' > /root/.pgpass-dpsjur-b
-   chmod 600 /root/.pgpass-dpsjur-b
-   ```
+- O nó onde o cron roda precisa ser **manager** do Swarm (os comandos
+  `docker service ls` / `docker service ps` exigem). Se o nó não for manager,
+  o script aborta com exit 13 — sem adivinhação.
+- O contêiner é resolvido a CADA execução por `bk_resolve_swarm_container`:
+  serviço `dpsjur_dpsjur-db` por igualdade exata → tarefas `desired-state=running`
+  → apenas as cujo contêiner existe NESTE nó → exatamente UM contêiner elegível.
+  Ausência ou ambiguidade (mais de uma réplica Running neste nó) é FATAL (exit 13).
 
-   **Atenção:** a senha precisa estar no formato de 5 campos separados por `:`
-   (o próprio `.pgpass` do PostgreSQL valida; não usar `:` na senha, ou escapar
-   com `\:`).
-
-2. O script do Banco B copia o `.pgpass` para DENTRO do contêiner
-   (`/tmp/.pgpass-bk-b`, chmod 600) na hora do dump e remove ao final. Para
-   isso funcionar, a senha precisa valer para conexão TCP em `127.0.0.1:5432`
-   dentro do contêiner. Se o `pg_hba.conf` do Banco B não aceitar essa forma,
-   ajustar o `pg_hba.conf` OU (preferível) usar a forma de socket local com
-   `local all Doug md5` — a sessão de implantação deve conferir no contêiner.
-
-## 4. Validação de contêiner — o que é PROVADO (Requisito 2)
+## 4. Validação de contêiner — o que é PROVADO (Requisito A)
 
 Antes de qualquer dump, `bk_verify_container` exige TUDO:
 
-1. O contêiner com o NOME EXATO (`sbjur-local_supabase-db-1` OU `dpsjur-db`)
-   está em execução (igualdade de string, nunca regex genérica).
-2. `SHOW server_version` no contêiner retorna major **15** (Banco A) ou
-   **18** (Banco B) — a versão divergente é FATAL.
-3. O banco esperado (`postgres` no A; `dpsjur` no B) EXISTE em `pg_database`.
-4. O usuário esperado (`postgres` no A; `Doug` no B) EXISTE em `pg_roles`.
+1. O contêiner EXATO está em execução (Banco A: igualdade de nome; Banco B:
+   resolução Swarm da seção 3.3) — sem regex genérica;
+2. `SHOW server_version` no contêiner retorna major **15** (A) ou **18** (B) —
+   divergência é FATAL;
+3. O banco esperado (`postgres` no A; `dpsjur` no B) EXISTE em `pg_database`;
+4. O usuário esperado (`postgres` no A; `Doug` no B) EXISTE em `pg_roles`;
 5. `pg_dump` está disponível dentro do contêiner.
 
-Qualquer divergência aborta com `exit 13` ANTES de gravar qualquer arquivo.
+Todas as consultas psql dos passos 2–4 usam conexão EXPLÍCITA
+(`-U <usuário> -d <banco> -p <porta>`, PGPASSFILE interno). Qualquer divergência
+aborta com `exit 13` ANTES de gravar qualquer arquivo.
 
-## 5. Retenção — período de sobreposição e como autorizar exclusões
+## 5. Retenção — modo observação e como autorizar exclusões (Requisito F)
 
-- **Padrão:** MODO OBSERVAÇÃO. A retenção apenas LISTA no log o que SERIA
-  removido. Nada é apagado. A rotina atual do Banco A
-  (`/root/sbjur-backups/backup.sh`, diário 03h) continua rodando normalmente
+- **Padrão: MODO OBSERVAÇÃO.** A retenção apenas LISTA no log o que SERIA
+  removido. NADA é apagado. A rotina atual do Banco A
+  (`/root/sbjur-backups/backup.sh`, diária 03h) continua rodando normalmente
   durante toda a sobreposição.
 - **Para habilitar exclusões (SÓ APÓS validação e autorização de Douglas):**
-  rodar o script com `--aplicar-retencao`. A retenção só remove arquivos com
-  o PREFIXO do próprio banco (`bk-a-sbjur15-A-*` ou `bk-b-dpsjur18-B-*`),
-  nunca backups da rotina antiga (`backup-*` ou outros prefixos).
-- Políticas iniciais (ajustáveis): diário 14, semanal 8, mensal 12.
+  rodar o script com `--aplicar-retencao`. Mesmo então:
+  - candidatos são APENAS arquivos REGULARES com o PREFIXO do próprio banco
+    (`sbsjur-*` / `dpsjur-*`) no diretório correspondente (`diario`/`semanal`/
+    `mensal` do próprio banco) — links simbólicos e outros arquivos NUNCA são
+    considerados;
+  - cada candidato é VALIDADO individualmente (gzip -t + tamanho mínimo) antes
+    da exclusão — arquivo que não valida NÃO é removido e a retenção termina
+    em FALHA (exit 27);
+  - backups da rotina antiga (qualquer outro prefixo, ex. `backup-*`) NUNCA são
+    tocados;
+  - falha de backup NUNCA provoca exclusão: a retenção só roda APÓS publicação
+    bem-sucedida do dump do dia.
+- Políticas atuais nos scripts: diário 7, semanal 4, mensal 12 (ajustáveis).
 
-## 6. Restauração isolada — NUNCA em banco de produção (Requisito 10)
+## 6. Restauração isolada — NUNCA em banco de produção
 
 **REGRA DE OURO:** o destino da restauração é SEMPRE um contêiner/diretório
-TEMPORÁRIO e ISOLADO (rede `none`, volume descartável, nome único com
-timestamp). Jamais `sbjur-local_supabase-db-1` nem `dpsjur-db`.
+TEMPORÁRIO e ISOLADO (rede `none`/`--internal`, volume descartável, nome único
+com timestamp). Jamais `sbjur-local_supabase-db-1`, jamais o serviço
+`dpsjur_dpsjur-db`. **Pré-requisito para declarar a solução pronta: restauração
+isolada de AMBOS os bancos com verificação pós-restauração aprovada.**
 
 ### 6.1 Restauração isolada do Banco A (PG15)
 
 Este é o fluxo OFICIAL já coberto pelo auditor `docs/vps/20-auditar-backup.sh`
-(v2.1.3, executado em máquina de teste / WSL2 / Docker Desktop isolado — a
+(v2.1.2, executado em máquina de teste / WSL2 / Docker Desktop isolado — a
 guarda anti-VPS impede rodá-lo na VPS de produção):
 
 ```bash
@@ -131,13 +158,14 @@ bash docs/vps/20-auditar-backup.sh \
 
 Pré-requisito: gerar o inventário estrutural na VPS com
 `docs/vps/21-gerar-inventario.sh` (somente leitura, fora do expediente) e
-copiar o JSON para a máquina de teste.
+copiar o JSON para a máquina de teste. Os dumps desta solução ficam em
+`/root/sbjur-backups-dupla/banco-a/<modo>/sbsjur-<modo>-<TS>.sql.gz`.
 
 ### 6.2 Restauração isolada do Banco B (PG18) — passo a passo
 
 O auditor 20-auditar-backup.sh é calibrado para o Banco A (imagem
-supabase/postgres, usuário postgres). Para o Banco B use o procedimento
-manual abaixo em máquina de teste (NUNCA na VPS):
+supabase/postgres, usuário postgres). Para o Banco B use o procedimento manual
+abaixo em máquina de teste (NUNCA na VPS):
 
 ```bash
 TS=$(date +%Y%m%d-%H%M%S)
@@ -168,7 +196,7 @@ docker exec "${LAB_NAME}" psql -U labadmin -d labdb -c "CREATE ROLE \"Doug\" LOG
 docker exec "${LAB_NAME}" psql -U labadmin -d labdb -c "CREATE DATABASE dpsjur OWNER \"Doug\";"
 
 # 5. Copiar o dump para dentro do laboratório
-docker cp /caminho/bk-b-dpsjur18-B-diario-<TS>.sql.gz "${LAB_NAME}":/tmp/dump.sql.gz
+docker cp /root/sbjur-backups-dupla/banco-b/diario/dpsjur-diario-<TS>.sql.gz "${LAB_NAME}":/tmp/dump.sql.gz
 
 # 6. Restaurar com verificação de erros
 docker exec "${LAB_NAME}" sh -c 'gunzip -c /tmp/dump.sql.gz | psql -U "Doug" -d dpsjur -v ON_ERROR_STOP=1' > restore-b.log 2>&1
@@ -186,9 +214,9 @@ docker volume rm "${LAB_VOL}"
 docker network rm "dpsjur-b-net-${TS}"
 ```
 
-**Verificação pós-restauração mínima (ambos os bancos):**
+**Verificação pós-restauração mínima (AMBOS os bancos):**
 
-- `gzip -t` do arquivo de dump (integridade do arquivo em si);
+- `gzip -t` do arquivo de dump (integridade do arquivo em si — seção 2);
 - contagem de tabelas em `public` e `auth` (Banco A) / `public` (Banco B);
 - contagens de `clients`, `cases`, `transactions` iguais ou compatíveis com o
   inventário (diferenças = INCONCLUSIVO, nunca presumir crescimento);
@@ -203,28 +231,52 @@ docker network rm "dpsjur-b-net-${TS}"
   Banco A. Para o Banco B, a validação é a lista de verificações da seção 6.2
   — status PENDENTE DE VALIDAÇÃO até ser executada em laboratório.
 
-## 7. Cron sugerido (SÓ documentado — NÃO instalar sem autorização)
+## 7. Testes de sintaxe e análise estática
+
+Nesta rodada (plataforma de desenvolvimento SEM Bash):
+
+- `bash -n` nos três scripts: **NÃO VALIDADO** — não executado aqui; executar no
+  WSL2 de Douglas antes de qualquer uso:
+  ```bash
+  bash -n docs/vps/22-backup-banco-a-sbjur-local.sh
+  bash -n docs/vps/23-backup-banco-b-dpsjur.sh
+  bash -n docs/vps/lib/backup-lib.sh
+  ```
+- `shellcheck` nos três scripts: **NÃO VALIDADO** — idem:
+  ```bash
+  shellcheck -S style docs/vps/lib/backup-lib.sh \
+      docs/vps/22-backup-banco-a-sbjur-local.sh docs/vps/23-backup-banco-b-dpsjur.sh
+  ```
+- Testes locais com mocks (docker/psql simulados), falha simulada, concorrência
+  (dois processos disputando o lock) e tentativa de sobrescrita: **NÃO
+  VALIDADO** — requerem Bash; executar na máquina de teste antes da VPS.
+
+## 8. Cron sugerido (SÓ documentado — NÃO instalar sem autorização)
 
 A instalação no crontab é PASSO DE IMPLANTAÇÃO FUTURA, autorizada por Douglas.
 
 ```cron
-# Banco A (sbjur-local, PG15) — supre a rotina atual, sem removê-la
-# (mesmo horário 03h BSB = 06h UTC; conferir TZ do host com `date`)
-# A rotina ATUAL /root/sbjur-backups/backup.sh continua agendada e é preservada.
-0 3 * * * root /bin/bash /root/22-backup-banco-a-sbjur-local.sh --diario >> /root/sbjur-backups/logs/cron-a.log 2>&1
-0 4 * * 0 root /bin/bash /root/22-backup-banco-a-sbjur-local.sh --semanal >> /root/sbjur-backups/logs/cron-a.log 2>&1
-0 5 1 * * root /bin/bash /root/22-backup-banco-a-sbjur-local.sh --mensal >> /root/sbjur-backups/logs/cron-a.log 2>&1
+# Banco A (sbjur-local, PG15) — complementa a rotina atual, sem removê-la
+# (conferir TZ do host com `date`; preferir /etc/cron.d com CRON_TZ=America/Sao_Paulo)
+0 3 * * * root /bin/bash /root/22-backup-banco-a-sbjur-local.sh --diario >> /root/sbjur-backups-dupla/banco-a/logs/cron-a.log 2>&1
+0 4 * * 0 root /bin/bash /root/22-backup-banco-a-sbjur-local.sh --semanal >> /root/sbjur-backups-dupla/banco-a/logs/cron-a.log 2>&1
+0 5 1 * * root /bin/bash /root/22-backup-banco-a-sbjur-local.sh --mensal >> /root/sbjur-backups-dupla/banco-a/logs/cron-a.log 2>&1
 
 # Banco B (dpsjur, PG18) — nova rotina (não existe hoje)
-0 3 * * * root /bin/bash /root/23-backup-banco-b-dpsjur.sh --diario >> /root/dpsjur-backups/logs/cron-b.log 2>&1
-0 4 * * 0 root /bin/bash /root/23-backup-banco-b-dpsjur.sh --semanal >> /root/dpsjur-backups/logs/cron-b.log 2>&1
-0 5 1 * * root /bin/bash /root/23-backup-banco-b-dpsjur.sh --mensal >> /root/dpsjur-backups/logs/cron-b.log 2>&1
+0 3 * * * root /bin/bash /root/23-backup-banco-b-dpsjur.sh --diario >> /root/sbjur-backups-dupla/banco-b/logs/cron-b.log 2>&1
+0 4 * * 0 root /bin/bash /root/23-backup-banco-b-dpsjur.sh --semanal >> /root/sbjur-backups-dupla/banco-b/logs/cron-b.log 2>&1
+0 5 1 * * root /bin/bash /root/23-backup-banco-b-dpsjur.sh --mensal >> /root/sbjur-backups-dupla/banco-b/logs/cron-b.log 2>&1
 ```
+
+**Atenção à sobreposição no Banco A:** às 03h a rotina antiga e a nova rodam
+juntas (deliberado — períodos independentes, destinos independentes, lock
+próprio de cada script). Se Douglas preferir escalonar, mover a nova para 03h30
+no momento da implantação.
 
 Recomendação: usar `/etc/cron.d/` com `CRON_TZ=America/Sao_Paulo` (padrão já
 adotado nas rotinas de e-mail do projeto).
 
-## 8. Rollback / reversão
+## 9. Rollback / reversão
 
 - **Desativar a nova rotina do Banco A:** remover a linha do cron e nada mais —
   a rotina atual `/root/sbjur-backups/backup.sh` NUNCA foi desligada; a
@@ -232,18 +284,33 @@ adotado nas rotinas de e-mail do projeto).
 - **Desativar a nova rotina do Banco B:** remover a linha do cron; não havia
   rotina anterior.
 - **Backups existentes:** NENHUM arquivo da rotina atual é renomeado, movido
-  ou excluído por estes scripts (prefixos distintos + retenção em modo
-  observação por padrão).
+  ou excluído por estes scripts (destinos e prefixos distintos + retenção em
+  modo observação por padrão).
+- **Arquivos da nova solução:** podem ser removidos da VPS a qualquer momento
+  (`/root/22-*.sh`, `/root/23-*.sh`, `/root/sbjur-backups-dupla/`) sem afetar a
+  rotina antiga — decisão de Douglas.
 
-## 9. Status e pendências
+## 10. Cópia externa à VPS (possibilidade futura — NÃO implementado)
 
-**Status: PENDENTE DE VALIDAÇÃO / IMPLANTAÇÃO.** Não declarar pronto para
+Os dumps finais ficam em `/root/sbjur-backups-dupla/<banco>/<modo>/`, estrutura
+regular adequada a uma cópia futura para fora da VPS (Google Drive do escritório
+via `rclone`, como já decidido para os demais backups do projeto). A implantação
+dessa cópia EXTERNA é etapa futura separada, com autorização de Douglas, e não
+faz parte desta solução.
+
+## 11. Status e pendências
+
+**Status: PENDENTE DE VALIDAÇÃO / IMPLANTAÇÃO.** NÃO declarar pronto para
 produção até que:
 
 1. `bash -n` e `shellcheck` sejam executados nos três scripts (WSL2 de
-   Douglas — plataforma de desenvolvimento sem Bash não validou);
-2. um backup de teste de CADA banco seja executado manualmente na VPS e os
-   logs `bk-a-*` / `bk-b-*` mostrem VEREDITO: SUCESSO;
-3. uma restauração isolada de CADA banco seja executada (seção 6) com
+   Douglas — plataforma de desenvolvimento sem Bash NÃO VALIDOU; seção 7);
+2. testes locais com mocks (falha simulada, concorrência, tentativa de
+   sobrescrita) sejam executados em máquina de teste (seção 7);
+3. um backup de teste de CADA banco seja executado manualmente na VPS e os logs
+   mostrem `VEREDITO: SUCESSO`;
+4. uma restauração isolada de CADA banco seja executada (seção 6) com
    verificação pós-restauração aprovada;
-4. Douglas autorize expressamente a instalação das linhas de cron (seção 7).
+5. Douglas confirme operacionalmente qual banco é o principal (o PostgreSQL 18
+   NÃO é presumido principal nesta solução);
+6. Douglas autorize expressamente a instalação das linhas de cron (seção 8).
