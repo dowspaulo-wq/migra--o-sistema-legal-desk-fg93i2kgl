@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur / SBJur — Auditoria Independente de Integridade de Backup
 # Script: docs/vps/20-auditar-backup.sh
-# Versão: v2.1.1
+# Versão: v2.1.2
 # Destino de execução: MÁQUINA DE TESTE / WSL2 / DOCKER DESKTOP ISOLADO
 #
 # GUARDA DE SEGURANÇA MÁXIMA (ANTI-VPS) E CONTROLE ESTRITO DE SESSÃO DOCKER:
@@ -144,6 +144,36 @@
 #      'information_schema' — TODOS os schemas de usuário); sem misturar
 #      contagens restritas a public com comparações de escopo completo.
 #
+# CORREÇÕES v2.1.2 (auditoria externa independente — 1 ponto, correção cirúrgica):
+#   1. record_query_failure com fail-closed COMPLETO: se a escrita no registro
+#      (QUERY_FAILURES_FILE) E no sinal fatal em arquivo (QUERY_FAILURES_FATAL_FLAG)
+#      falharem SIMULTANEAMENTE, o script ainda dispõe de canais adicionais que,
+#      por construção, quase não falham em conjunto:
+#        (B) flag em ARQUIVO (QUERY_FAILURES_FATAL_FLAG, v2.1.1 preservada);
+#        (C) DIRETÓRIO dedicado criado no pre-voo (mkdir sem -p, chmod 700 e
+#            permissão efetiva stat-validated); o sinal é a criação ATÔMICA do
+#            subdiretório "registro-sql-fatal" (mkdir), que só falha quando o
+#            próprio sistema de arquivos falha;
+#        (D) marcadores alternativos em DIRETÓRIOS FORA do diretório de
+#            diagnóstico (no diretório base de auditoria e no TMPDIR);
+#        (E) flag em MEMÓRIA do processo principal (QUERY_FAILURES_UNSIGNABLE)
+#            — último recurso, NÃO é o mecanismo principal (não sobrevive a
+#            subshell), e por isso os canais A/B/C/D em disco são os primários.
+#        (Obs.: nesta nomenclatura A = arquivo de registro, B = flag, C =
+#        diretório dedicado, D = marcadores alternativos, E = memória.)
+#      A CONSULTA do mecanismo na consolidação também é verificada (fail-closed
+#      completo): função check_query_failure_signal valida o canal com uma
+#      SONDA mkdir+rmdir; canal inacessível, diretório ausente/ilegível ou
+#      sonda que falhe são tratados como sinal NÃO CONFIÁVEL ⇒ contagem
+#      forçada a 999 e veredito NUNCA é APROVADO. Fundamento: se o sistema de
+#      arquivos está quebrado a ponto de os canais A/B/C/D falharem na
+#      gravação, a mesma quebra é detectada pela sonda na consolidação — a
+#      condição "impossível sinalizar" vira sistematicamente REPROVADO,
+#      inclusive quando a função é chamada dentro de $(...).
+#      TODAS as chamadas de record_query_failure verificam o retorno da função
+#      e propagam a falha (DIVERGÊNCIA impeditiva registrada ou return não
+#      zero ao chamador imediato).
+#
 # POLÍTICA DE AUDITORIA E VEREDITO (v1.5.0):
 #   - O veredito APROVADO é emitido UNICAMENTE se TODOS os critérios técnicos
 #     passarem sem exceção:
@@ -174,7 +204,7 @@
 set -u -o pipefail
 umask 077
 
-SCRIPT_VERSION="v2.1.1"
+SCRIPT_VERSION="v2.1.2"
 
 # ------------------------------------------------------------------------------
 # PONTO 9 E PONTO 10 DA AUDITORIA: GUARDA DE SEGURANÇA MÁXIMA (ANTI-VPS)
@@ -402,6 +432,17 @@ QUERY_FAILURES_FILE="${DIAG_DIR}/falhas-sql-${TS_STAMP}-${PID_ATUAL}.txt"
 # criado na inicialização (e por isso NÃO entra no loop de touch/chmod 600
 # abaixo): o sinal é a própria existência do arquivo.
 QUERY_FAILURES_FATAL_FLAG="${DIAG_DIR}/falha-fatal-registro-sql-${TS_STAMP}-${PID_ATUAL}.flag"
+# CORREÇÃO (v2.1.2): canal de sinalização ADICIONAL em DIRETÓRIO dedicado —
+# criado no pre-voo com mkdir sem -p (atômico: prova ausência preexistente),
+# chmod 700 e permissão efetiva validada por stat. O sinal fatal é a criação
+# ATÔMICA do subdiretório "registro-sql-fatal" (mkdir), que independe da
+# escrita em arquivos e por isso quase nunca falha junto com os canais A
+# (registro) e B (flag). Marcadores alternativos FORA de DIAG_DIR completam a
+# cascata (canal D) e a flag em memória (QUERY_FAILURES_UNSIGNABLE) é o
+# último recurso (canal E).
+QUERY_FAILURES_SIGNAL_DIR="${DIAG_DIR}/sinal-registro-sql-${TS_STAMP}-${PID_ATUAL}.dir"
+QUERY_FAILURES_FATAL_ALT_WORK_DIR="${AUDIT_WORK_DIR}/sinal-fatal-registro-sql-${SESSION_ID}.dir"
+QUERY_FAILURES_FATAL_ALT_TMP_DIR="${TMPDIR:-/tmp}/sbjur-audit-sinal-fatal-${SESSION_ID}.dir"
 TEMPORAL_DIFFS_FILE="${DIAG_DIR}/diferencas-temporais-${TS_STAMP}-${PID_ATUAL}.txt"
 REPORT_FILE="${DIAG_DIR}/relatorio-${TS_STAMP}-${PID_ATUAL}.txt"
 
@@ -413,6 +454,10 @@ PG_IMAGE_FALLBACK="postgres:15-alpine"
 # Variáveis globais de rastreamento de resultado e integridade
 RESTORE_ORIGINAL_STATUS="PENDENTE"
 QUERY_FAILURES_COUNT=0
+# CORREÇÃO (v2.1.2): último recurso em memória — ativado APENAS quando TODOS
+# os canais persistentes (registro, flag, diretório dedicado e alternativos)
+# falharem. Consultado na consolidação do veredito (processo principal).
+QUERY_FAILURES_UNSIGNABLE=0
 TOTAL_TABELAS_LAB=0
 TOTAL_TABELAS_AUTH_LAB=0
 INVENTORY_COMPARISON_VALID="NAO"
@@ -606,6 +651,26 @@ for f in "${TRACKED_RESOURCES_FILE}" "${LOG_FILE}" "${RESTORE_ERRORS_FILE}" "${D
     fi
 done
 
+# ------------------------------------------------------------------------------
+# CORREÇÃO (v2.1.2): CRIAÇÃO DO CANAL DE SINALIZAÇÃO FATAL EM DIRETÓRIO DEDICADO
+# mkdir SEM -p é atômico e prova que o diretório não preexistia; chmod 700 e
+# permissão efetiva (stat) são validados como nos demais recursos da sessão.
+# ------------------------------------------------------------------------------
+if ! mkdir "${QUERY_FAILURES_SIGNAL_DIR}"; then
+    printf '❌ Falha ao criar diretório do canal de sinalização de falhas SQL: %s\n' "${QUERY_FAILURES_SIGNAL_DIR}" >&2
+    exit "${EXIT_FS_FAIL}"
+fi
+if ! chmod 700 "${QUERY_FAILURES_SIGNAL_DIR}"; then
+    printf '❌ Falha ao definir permissões (700) no diretório do canal de sinalização: %s\n' "${QUERY_FAILURES_SIGNAL_DIR}" >&2
+    exit "${EXIT_FS_FAIL}"
+fi
+SIGNAL_DIR_PERM="$(stat -c '%a' "${QUERY_FAILURES_SIGNAL_DIR}" 2>/dev/null || stat -f '%Lp' "${QUERY_FAILURES_SIGNAL_DIR}" 2>/dev/null || echo "")"
+if [ -z "${SIGNAL_DIR_PERM}" ] || [ "${SIGNAL_DIR_PERM}" != "700" ]; then
+    printf '❌ Permissão efetiva do diretório do canal de sinalização inválida (%s).\n' "${SIGNAL_DIR_PERM}" >&2
+    exit "${EXIT_FS_FAIL}"
+fi
+log "Canal de sinalização de falhas SQL pronto: ${QUERY_FAILURES_SIGNAL_DIR}"
+
 log "Iniciando script de auditoria ${SCRIPT_VERSION} (PID $$)"
 log "Diretório de diagnóstico privado: ${DIAG_DIR}"
 
@@ -702,7 +767,13 @@ exec_lab_sql() {
         rc=$?
     fi
     if [ "${rc}" -ne 0 ]; then
-        record_query_failure "exec_lab_sql (exit ${rc}): ${sql}"
+        # Correção (v2.1.2): o retorno de record_query_failure é verificado —
+        # falha de registro é anunciada (não silenciada) e o mecanismo fail-
+        # closed interno (canais A/B/C/D + sonda na consolidação) é acionado;
+        # o exit code da consulta SQL continua propagando ao chamador.
+        if ! record_query_failure "exec_lab_sql (exit ${rc}): ${sql}"; then
+            say_err "Falha de consulta SQL (exit ${rc}) NÃO pôde ser registrada no arquivo de falhas; mecanismo fail-closed de sinalização acionado."
+        fi
         log "FALHA SQL (exit ${rc}): ${sql}"
         return "${rc}"
     fi
@@ -720,7 +791,11 @@ exec_lab_sql_file() {
         rc=$?
     fi
     if [ "${rc}" -ne 0 ]; then
-        record_query_failure "exec_lab_sql_file (exit ${rc}): ${file}"
+        # Correção (v2.1.2): retorno de record_query_failure verificado (idem
+        # exec_lab_sql); exit code da consulta continua propagando ao chamador.
+        if ! record_query_failure "exec_lab_sql_file (exit ${rc}): ${file}"; then
+            say_err "Falha de consulta SQL em arquivo (exit ${rc}) NÃO pôde ser registrada no arquivo de falhas; mecanismo fail-closed de sinalização acionado."
+        fi
         log "FALHA SQL FILE (exit ${rc}): ${file}"
         return "${rc}"
     fi
@@ -745,22 +820,125 @@ exec_lab_sql_file() {
 # umask 077). Por ser baseada em ARQUIVO, a flag sobrevive ao retorno de
 # subshells $(...) ao processo principal (idem ao arquivo de registro) e é
 # checada na consolidação do veredito; presença = aprovação impossível.
+#
+# CORREÇÃO (v2.1.2): a checagem da consolidação NÃO se limita mais à presença
+# da flag — a própria CONSULTA é verificada (sonda mkdir+rmdir no diretório
+# dedicado) e cascata de canais B/C/D completa o fail-closed (ver cabeçalho).
 # ------------------------------------------------------------------------------
+
+# Correção (v2.1.2): ativa o sinal fatal de registro em CASCATA por canais
+# independentes. Retorna 0 se QUALQUER canal conseguir sinalizar.
+signal_query_failure_fatal() {
+    local desc="$1"
+    local stamp
+    stamp="$(date '+%F %T')"
+
+    # Canal B (v2.1.1, preservado): arquivo flag próprio (existência = sinal).
+    if [ -n "${QUERY_FAILURES_FATAL_FLAG:-}" ]; then
+        if printf '%s Falha fatal de registro SQL: %s\n' "${stamp}" "${desc}" >> "${QUERY_FAILURES_FATAL_FLAG}" 2>/dev/null; then
+            return 0
+        fi
+        printf '❌ FALHA FATAL (registro SQL): escrita no sinal fatal %s falhou (%s) — tentando canais adicionais (diretório dedicado e alternativos).\n' "${QUERY_FAILURES_FATAL_FLAG}" "${desc}" >&2
+    fi
+
+    # Canal C (v2.1.2): DIRETÓRIO dedicado criado no pre-voo — sinal atômico
+    # por mkdir (independe de escrita em arquivo). Diretório já existente =
+    # sinal já ativo (também sucesso). É o canal PRIMÁRIO da v2.1.2: resiste
+    # quando a escrita em arquivos falha.
+    if [ -n "${QUERY_FAILURES_SIGNAL_DIR:-}" ]; then
+        if mkdir "${QUERY_FAILURES_SIGNAL_DIR}/registro-sql-fatal" 2>/dev/null; then
+            printf '%s Falha fatal de registro SQL: %s\n' "${stamp}" "${desc}" >> "${QUERY_FAILURES_SIGNAL_DIR}/registro-sql-fatal/motivo.txt" 2>/dev/null || true
+            return 0
+        elif [ -d "${QUERY_FAILURES_SIGNAL_DIR}/registro-sql-fatal" ]; then
+            return 0
+        fi
+    fi
+
+    # Canal D (v2.1.2): marcadores alternativos FORA de DIAG_DIR (diretório
+    # base de auditoria e TMPDIR). Marcadores deixados no TMPDIR são evidência
+    # deliberada da sessão (não são removidos pelo cleanup). Canal E: flag em
+    # memória (QUERY_FAILURES_UNSIGNABLE, definida em record_query_failure).
+    local alt
+    for alt in "${QUERY_FAILURES_FATAL_ALT_WORK_DIR:-}" "${QUERY_FAILURES_FATAL_ALT_TMP_DIR:-}"; do
+        [ -n "${alt}" ] || continue
+        if mkdir "${alt}" 2>/dev/null; then
+            printf '%s Falha fatal de registro SQL: %s\n' "${stamp}" "${desc}" >> "${alt}/motivo.txt" 2>/dev/null || true
+            return 0
+        elif [ -d "${alt}" ]; then
+            return 0
+        fi
+    done
+
+    printf '❌ FALHA FATAL GRAVE (registro SQL): TODOS os canais persistentes de sinalização falharam (%s).\n' "${desc}" >&2
+    return 1
+}
+
+# Correção (v2.1.2): consulta do mecanismo de sinalização com VERIFICAÇÃO DA
+# PRÓPRIA CONSULTA (fail-closed completo). Códigos de retorno:
+#   0 = canal íntegro e SEM sinal fatal;
+#   1 = sinal fatal presente (qualquer canal);
+#   2 = canal INACESSÍVEL ou consulta NÃO CONFIÁVEL (diretório ausente,
+#       ilegível/inexecutável, ou sonda mkdir+rmdir que falhe) — a etapa
+#       chamadora trata 2 como sinal NÃO CONFIÁVEL: veredito NUNCA é APROVADO.
+check_query_failure_signal() {
+    if [ -z "${QUERY_FAILURES_SIGNAL_DIR:-}" ] || [ ! -d "${QUERY_FAILURES_SIGNAL_DIR}" ]; then
+        return 2
+    fi
+    if [ ! -r "${QUERY_FAILURES_SIGNAL_DIR}" ] || [ ! -x "${QUERY_FAILURES_SIGNAL_DIR}" ]; then
+        return 2
+    fi
+    # Sonda: a consulta só é confiável se o canal conseguir criar E remover um
+    # diretório de sonda agora. Falha aqui indica exatamente a condição em que
+    # os canais de gravação também falhariam (fail-closed por construção).
+    local probe="${QUERY_FAILURES_SIGNAL_DIR}/probe-consulta-$$"
+    if ! mkdir "${probe}" 2>/dev/null; then
+        return 2
+    fi
+    if ! rmdir "${probe}" 2>/dev/null; then
+        return 2
+    fi
+    if [ -d "${QUERY_FAILURES_SIGNAL_DIR}/registro-sql-fatal" ]; then
+        return 1
+    fi
+    if [ -f "${QUERY_FAILURES_FATAL_FLAG}" ]; then
+        return 1
+    fi
+    if [ -d "${QUERY_FAILURES_FATAL_ALT_WORK_DIR:-}" ]; then
+        return 1
+    fi
+    if [ -d "${QUERY_FAILURES_FATAL_ALT_TMP_DIR:-}" ]; then
+        return 1
+    fi
+    return 0
+}
 
 record_query_failure() {
     local desc="$1"
+    local registered=0
+
     if [ -z "${QUERY_FAILURES_FILE:-}" ]; then
         printf '❌ FALHA FATAL (registro SQL): QUERY_FAILURES_FILE não configurado — impossível registrar a falha de consulta (%s).\n' "${desc}" >&2
-        if ! printf '%s Falha fatal de registro SQL (arquivo de registro não configurado): %s\n' "$(date '+%F %T')" "${desc}" >> "${QUERY_FAILURES_FATAL_FLAG}" 2>/dev/null; then
-            printf '❌ FALHA FATAL GRAVE (registro SQL): impossível ativar o sinal fatal em %s — verifique o sistema de arquivos.\n' "${QUERY_FAILURES_FATAL_FLAG}" >&2
-        fi
-        return 1
-    fi
-    if ! printf '%s %s\n' "$(date '+%F %T')" "${desc}" >> "${QUERY_FAILURES_FILE}"; then
+    elif printf '%s %s\n' "$(date '+%F %T')" "${desc}" >> "${QUERY_FAILURES_FILE}" 2>/dev/null; then
+        registered=1
+    else
         printf '❌ FALHA FATAL (registro SQL): escrita no arquivo de registro de falhas SQL falhou (%s) ao registrar: %s\n' "${QUERY_FAILURES_FILE}" "${desc}" >&2
-        if ! printf '%s Falha fatal de registro SQL (falha de escrita no arquivo %s): %s\n' "$(date '+%F %T')" "${QUERY_FAILURES_FILE}" "${desc}" >> "${QUERY_FAILURES_FATAL_FLAG}" 2>/dev/null; then
-            printf '❌ FALHA FATAL GRAVE (registro SQL): impossível ativar o sinal fatal em %s — verifique o sistema de arquivos.\n' "${QUERY_FAILURES_FATAL_FLAG}" >&2
+    fi
+
+    if [ "${registered}" -eq 0 ]; then
+        # Correção (v2.1.2): cascata de canais de sinalização (flag, diretório
+        # dedicado por mkdir atômico, marcadores alternativos). Retorno 1 é
+        # verificado por TODOS os call sites.
+        if signal_query_failure_fatal "${desc}"; then
+            return 1
         fi
+        # NENHUM canal persistente conseguiu sinalizar: último recurso em
+        # MEMÓRIA do processo principal (canal E). NÃO sobrevive a subshell —
+        # e por isso NÃO é o mecanismo principal: se o sistema de arquivos está
+        # quebrado a ponto de os canais A/B/C/D falharem, a SONDA da consolidação
+        # (check_query_failure_signal) também falha e o veredito é negado de
+        # forma independente desta flag.
+        QUERY_FAILURES_UNSIGNABLE=1
+        printf '❌ FALHA FATAL GRAVE (registro SQL): impossível registrar a falha E impossível sinalizar em disco (%s) — condição registrada em memória (QUERY_FAILURES_UNSIGNABLE) e detectável na consolidação pela sonda do canal; a auditoria NUNCA será APROVADA nesta condição.\n' "${desc}" >&2
         return 1
     fi
     return 0
@@ -1695,7 +1873,11 @@ SQL
                 fi
                 rm -f "${FUNCOES_IDENT_QUERY_TMP}" 2>/dev/null || true
                 if [ "${FUNCOES_IDENT_RC}" -ne 0 ]; then
-                    record_query_failure "consulta de identidade de funções ${f_schema}.${f_name} (exit ${FUNCOES_IDENT_RC})"
+                    # Correção (v2.1.2): retorno de record_query_failure verificado;
+                    # falha de registro gera DIVERGÊNCIA impeditiva adicional.
+                    if ! record_query_failure "consulta de identidade de funções ${f_schema}.${f_name} (exit ${FUNCOES_IDENT_RC})"; then
+                        printf 'DIVERGÊNCIA: Falha AO REGISTRAR a falha de consulta SQL (identidade de funções %s."%s", exit %s) — mecanismo fail-closed de sinalização acionado\n' "${f_schema}" "${f_name}" "${FUNCOES_IDENT_RC}" >> "${DIVERGENCES_FILE}"
+                    fi
                     printf 'DIVERGÊNCIA: Falha de consulta SQL ao recuperar identidades de %s."%s" (exit %s)\n' "${f_schema}" "${f_name}" "${FUNCOES_IDENT_RC}" >> "${DIVERGENCES_FILE}"
                     FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
                     continue
@@ -1705,7 +1887,11 @@ SQL
                 FUNCOES_IDENT_JQ_RC=0
                 FUNCOES_IDENT_JSON="$(printf '%s' "${FUNCOES_IDENT_OUT}" | jq -ce '.' 2>>"${LOG_FILE}")" || FUNCOES_IDENT_JQ_RC=$?
                 if [ "${FUNCOES_IDENT_JQ_RC}" -ne 0 ] || [ -z "${FUNCOES_IDENT_JSON}" ]; then
-                    record_query_failure "interpretação jq da identidade de funções ${f_schema}.${f_name} (exit ${FUNCOES_IDENT_JQ_RC})"
+                    # Correção (v2.1.2): retorno de record_query_failure verificado;
+                    # falha de registro gera DIVERGÊNCIA impeditiva adicional.
+                    if ! record_query_failure "interpretação jq da identidade de funções ${f_schema}.${f_name} (exit ${FUNCOES_IDENT_JQ_RC})"; then
+                        printf 'DIVERGÊNCIA: Falha AO REGISTRAR a falha de interpretação jq (identidade de funções %s."%s") — mecanismo fail-closed de sinalização acionado\n' "${f_schema}" "${f_name}" >> "${DIVERGENCES_FILE}"
+                    fi
                     printf 'DIVERGÊNCIA: Resposta da consulta de identidade de %s."%s" não é JSON interpretável (jq exit %s)\n' "${f_schema}" "${f_name}" "${FUNCOES_IDENT_JQ_RC}" >> "${DIVERGENCES_FILE}"
                     FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
                     continue
@@ -1794,7 +1980,11 @@ SQL
                         fi
                         rm -f "${FUNCOES_FDEF_QUERY_TMP}" 2>/dev/null || true
                         if [ "${FUNCOES_FDEF_RC}" -ne 0 ]; then
-                            record_query_failure "pg_get_functiondef de ${f_schema}.${f_name} (exit ${FUNCOES_FDEF_RC})"
+                            # Correção (v2.1.2): retorno de record_query_failure verificado;
+                            # falha de registro gera DIVERGÊNCIA impeditiva adicional.
+                            if ! record_query_failure "pg_get_functiondef de ${f_schema}.${f_name} (exit ${FUNCOES_FDEF_RC})"; then
+                                printf 'DIVERGÊNCIA: Falha AO REGISTRAR a falha de pg_get_functiondef (%s."%s") — mecanismo fail-closed de sinalização acionado\n' "${f_schema}" "${f_name}" >> "${DIVERGENCES_FILE}"
+                            fi
                         fi
                         if [ "${FUNCOES_FDEF_RC}" -ne 0 ] || [ -z "${lab_fdef_raw}" ]; then
                             printf 'DIVERGÊNCIA ESTRUTURAL (corpo funcao): %s."%s" sem definição recuperável via pg_get_functiondef no laboratório\n' "${f_schema}" "${f_name}" >> "${DIVERGENCES_FILE}"
@@ -2132,13 +2322,54 @@ log "Falhas de consulta SQL registradas nesta sessão: ${QUERY_FAILURES_COUNT}"
 # falha): contagem forçada ao valor conservador 999 e aprovação impossível,
 # MESMO que o arquivo de registro esteja vazio ou ilegível (count_query_failures
 # não é a única fonte de bloqueio).
+#
+# CORREÇÃO (v2.1.2): a CONSULTA do mecanismo de sinalização é ELA MESMA
+# verificada (fail-closed completo): a função check_query_failure_signal executa
+# uma SONDA mkdir+rmdir no diretório dedicado e valida TODOS os canais (B: flag
+# em arquivo; C: subdiretório de sinal; D: marcadores alternativos). Resultados:
+#   0 = canal íntegro e sem sinal  → segue o fluxo normal;
+#   1 = sinal fatal presente       → contagem 999, aprovação impossível;
+#   2 (ou qualquer outro) = canal INACESSÍVEL / consulta NÃO CONFIÁVEL →
+#       MESMO tratamento conservador (contagem 999, aprovação impossível).
+# Assim, a condição apontada na auditoria (falha simultânea da escrita no
+# registro E no flag) fica sistematicamente bloqueada: se o sistema de arquivos
+# está quebrado a ponto de os canais de gravação falharem, a sonda da
+# consolidação falha da mesma forma e o veredito é negado de forma INDEPENDENTE
+# de variáveis de subshell ou da leitura dos dois arquivos originais.
 QUERY_FAILURES_FATAL=0
-if [ -f "${QUERY_FAILURES_FATAL_FLAG}" ]; then
+QUERY_FAILURES_SIGNAL_STATE=0
+check_query_failure_signal
+QUERY_FAILURES_SIGNAL_STATE=$?
+case "${QUERY_FAILURES_SIGNAL_STATE}" in
+    0)
+        : # Canal íntegro e sem sinal fatal: fluxo normal.
+        ;;
+    1)
+        QUERY_FAILURES_FATAL=1
+        QUERY_FAILURES_COUNT=999
+        printf 'DIVERGÊNCIA: Sinal fatal de registro SQL presente (canais verificados: %s, %s e marcadores alternativos) — veredito NUNCA é APROVADO nesta condição\n' "${QUERY_FAILURES_SIGNAL_DIR}" "${QUERY_FAILURES_FATAL_FLAG}" >> "${DIVERGENCES_FILE}"
+        say_err "Sinal fatal presente: falha de escrita no registro de falhas SQL; a auditoria NÃO pode ser aprovada."
+        log "FALHA FATAL (registro SQL): sinal fatal presente (canal dedicado: ${QUERY_FAILURES_SIGNAL_DIR}; flag: ${QUERY_FAILURES_FATAL_FLAG})"
+        ;;
+    *)
+        QUERY_FAILURES_FATAL=1
+        QUERY_FAILURES_COUNT=999
+        printf 'DIVERGÊNCIA: Canal de sinalização de falhas SQL INACESSÍVEL ou consulta NÃO CONFIÁVEL (estado %s da sonda) — fail-closed: veredito NUNCA é APROVADO nesta condição\n' "${QUERY_FAILURES_SIGNAL_STATE}" >> "${DIVERGENCES_FILE}"
+        say_err "Canal de sinalização de falhas SQL inacessível ou consulta não confiável (fail-closed); a auditoria NÃO pode ser aprovada."
+        log "FALHA FATAL (registro SQL): consulta do canal de sinalização não confiável (estado ${QUERY_FAILURES_SIGNAL_STATE})"
+        ;;
+esac
+
+# Correção (v2.1.2): último recurso em memória (canal E). Só é ativo quando o
+# record_query_failure rodou no PROCESSO PRINCIPAL e até os canais em disco
+# falharam; cobre o caso em que o sistema de arquivos se recupera antes da
+# consolidação (a sonda passaria, mas a impossibilidade ficou registrada aqui).
+if [ "${QUERY_FAILURES_UNSIGNABLE:-0}" -ne 0 ]; then
     QUERY_FAILURES_FATAL=1
     QUERY_FAILURES_COUNT=999
-    printf 'DIVERGÊNCIA: Falha de escrita no registro de falhas SQL detectada (sinal fatal presente em %s) — veredito NUNCA é APROVADO nesta condição\n' "${QUERY_FAILURES_FATAL_FLAG}" >> "${DIVERGENCES_FILE}"
-    say_err "Falha de escrita no registro de falhas SQL detectada (sinal fatal presente); a auditoria NÃO pode ser aprovada."
-    log "FALHA FATAL (registro SQL): sinal fatal presente: ${QUERY_FAILURES_FATAL_FLAG}"
+    printf 'DIVERGÊNCIA: Registro de falhas SQL ficou IMPOSSÍVEL de sinalizar em disco durante a sessão (flag em memória) — veredito NUNCA é APROVADO nesta condição\n' >> "${DIVERGENCES_FILE}"
+    say_err "Impossibilidade de sinalizar falhas SQL em disco detectada; a auditoria NÃO pode ser aprovada."
+    log "FALHA FATAL (registro SQL): QUERY_FAILURES_UNSIGNABLE ativo na consolidação"
 fi
 
 CRIT_A="FALHA"
@@ -2245,7 +2476,7 @@ cat <<EOF > "${REPORT_FILE}"
    Total de divergências impeditivas: ${DIVERGENCES_COUNT}
    Total de diferenças de contagem inconclusivas: ${TEMPORAL_DIFFS_COUNT}
    Total de falhas de consulta SQL: ${QUERY_FAILURES_COUNT}
-   Falha fatal de registro SQL (sinal independente): ${QUERY_FAILURES_FATAL} (0 = nenhum; >0 = escrita no registro comprometida, aprovação impossível)
+   Falha fatal de registro SQL (sinal independente, consulta verificada/fail-closed): ${QUERY_FAILURES_FATAL} (0 = canal íntegro e sem sinal; >0 = escrita no registro comprometida OU canal de sinalização inacessível — aprovação impossível)
 EOF
 
 if [ -s "${DIVERGENCES_FILE}" ]; then
