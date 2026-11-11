@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur / SBJur — Auditoria Independente de Integridade de Backup
 # Script: docs/vps/20-auditar-backup.sh
-# Versão: v1.7.0
+# Versão: v1.8.0
 # Destino de execução: MÁQUINA DE TESTE / WSL2 / DOCKER DESKTOP ISOLADO
 #
 # GUARDA DE SEGURANÇA MÁXIMA (ANTI-VPS) E CONTROLE ESTRITO DE SESSÃO DOCKER:
@@ -12,13 +12,34 @@
 #   QUALQUER DETECÇÃO DE AMBIENTE OU CONTÊINER DE PRODUÇÃO (HOSTINGER,
 #   srv1737667, 2.25.181.69, sbljur-local_supabase-db-1, sbjur-local_supabase-db-1)
 #   ABORTA IMEDIATAMENTE A EXECUÇÃO COM EXIT 11, SEM QUALQUER EFEITO COLATERAL.
-#   ADICIONALMENTE, SÃO INSPECIONADOS OS ENDPOINTS EFETIVOS DE TODOS OS CONTEXTOS
-#   DOCKER (INCLUSIVE default, desktop-linux E colima) E ABORTADOS DIANTE DE
-#   QUALQUER ENDPOINT REMOTO OU NÃO VERIFICÁVEL (tcp://, ssh://, http(s)://, npipe://).
-#   O CONTÊINER DE LABORATÓRIO UTILIZA OBRIGATORIAMENTE --network none.
+#   ADICIONALMENTE (v1.8.0), A GUARDA RESOLVE O ENDPOINT EFETIVO DA CLI DOCKER —
+#   DOCKER_HOST QUANDO DEFINIDO, CASO CONTRÁRIO O ENDPOINT DO CONTEXTO ATUAL VIA
+#   docker context inspect — E DECIDE PELO ENDPOINT (NUNCA PELO NOME DO CONTEXTO),
+#   EXIGINDO SOCKET UNIX EXISTENTE E ABORTANDO DIANTE DE tcp://, ssh://, http(s)://
+#   OU npipe://. O CONTÊINER DE LABORATÓRIO UTILIZA OBRIGATORIAMENTE --network none.
 #   APENAS RECURSOS DOCKER COMPROVADAMENTE CRIADOS PELA SESSÃO ATUAL
 #   (IDENTIFICADOS POR LABEL ESPECÍFICO E REGISTRADOS EM ARQUIVO DE SESSÃO) PODEM
 #   SER REMOVIDOS NO TRAP/CLEANUP.
+#
+# CORREÇÕES v1.8.0 (auditoria externa independente — 8 pontos, correção cirúrgica):
+#   1. Validação jq do inventário termina em `true` (nunca `else empty`), com
+#      campos numéricos obrigatórios exigidos como inteiros não negativos.
+#   2. Guarda Docker decide pelo ENDPOINT EFETIVO (DOCKER_HOST ou endpoint do
+#      contexto atual via docker context inspect + existência do socket), nunca
+#      pelo nome do contexto.
+#   3. Contagem de erros SQL produz SEMPRE um único inteiro válido (wc -l sobre
+#      arquivo temporário + validação de inteiro; grep exit 1 não é fatal).
+#   4. Corpos de funções comparados via pg_get_functiondef quando o inventário
+#      traz a definição efetiva (inclui_corpo=true), além da identidade.
+#   5. INVENTORY_COMPARISON_VALID=SIM somente sem divergências nesta etapa,
+#      com extrações jq completas (nada INCONCLUSIVO pendente).
+#   6. pg_graphql verificado em pg_extension/pg_available_extensions (extname +
+#      extversion), nunca pela existência de função homônima.
+#   7. INT/TERM com handler próprio: limpeza restrita aos recursos da sessão e
+#      término imediato (128+n), sem retomar a execução.
+#   8. Identificadores do inventário (schema/tabela/constraint/função) validados
+#      com regex estrita ^[a-zA-Z_][a-zA-Z0-9_]*$ antes de qualquer interpolação
+#      SQL; inválidos geram DIVERGÊNCIA e recusa da interpolação.
 #
 # POLÍTICA DE AUDITORIA E VEREDITO (v1.5.0):
 #   - O veredito APROVADO é emitido UNICAMENTE se TODOS os critérios técnicos
@@ -50,7 +71,7 @@
 set -u -o pipefail
 umask 077
 
-SCRIPT_VERSION="v1.7.0"
+SCRIPT_VERSION="v1.8.0"
 
 # ------------------------------------------------------------------------------
 # PONTO 9 E PONTO 10 DA AUDITORIA: GUARDA DE SEGURANÇA MÁXIMA (ANTI-VPS)
@@ -76,39 +97,57 @@ if [ -n "${DOCKER_HOST:-}" ]; then
     esac
 fi
 
-# 2. Bloqueio estrito de contexto Docker remoto e não verificável (Ponto 4 da auditoria)
-# Inspeciona os endpoints efetivos de TODOS os contextos Docker — inclusive default, desktop-linux e colima.
-# Aborta com exit 11 diante de qualquer endpoint remoto ou não verificável (tcp://, ssh://, http://, https://, npipe://, etc.).
+# 2. Bloqueio estrito de endpoint Docker remoto e não verificável (Ponto 4 da auditoria,
+#    corrigido no Ponto 2 da correção v1.8.0):
+#    A guarda resolve o ENDPOINT EFETIVO da CLI do Docker — DOCKER_HOST quando
+#    definido (já validado acima); caso contrário, o endpoint do contexto ATUAL
+#    obtido via docker context inspect — e decide PELO ENDPOINT, nunca pelo nome
+#    do contexto. Endpoint unix:// só é aceito se o socket existir de fato;
+#    tcp://, ssh://, http(s):// e npipe:// são sempre abortados com exit 11.
 if command -v docker >/dev/null 2>&1; then
-    DOCKER_CURRENT_CONTEXT="$(docker context show 2>/dev/null || echo "default")"
-    if [ -z "${DOCKER_CURRENT_CONTEXT}" ]; then
-        printf '❌ ERRO CRÍTICO DE SEGURANÇA: Não foi possível obter o contexto Docker atual.\n' >&2
-        exit 11
-    fi
-
-    DOCKER_CONTEXT_HOST="$(docker context inspect "${DOCKER_CURRENT_CONTEXT}" --format '{{.Endpoints.docker.Host}}' 2>/dev/null || echo "")"
-    if [ -z "${DOCKER_CONTEXT_HOST}" ]; then
-        # Caso o inspect do contexto não retorne endpoint (ex: daemon padrão em contexto default não inspecionável)
-        # Se DOCKER_HOST estiver vazio, o default utiliza o socket local /var/run/docker.sock
-        if [ "${DOCKER_CURRENT_CONTEXT}" != "default" ] && [ "${DOCKER_CURRENT_CONTEXT}" != "desktop-linux" ] && [ "${DOCKER_CURRENT_CONTEXT}" != "colima" ]; then
-            printf '❌ ERRO CRÍTICO DE SEGURANÇA: Contexto Docker (%s) possui endpoint não verificável.\n' "${DOCKER_CURRENT_CONTEXT}" >&2
+    if [ -n "${DOCKER_HOST:-}" ]; then
+        DOCKER_EFFECTIVE_ENDPOINT="${DOCKER_HOST}"
+        DOCKER_ENDPOINT_ORIGIN="DOCKER_HOST"
+    else
+        DOCKER_CURRENT_CONTEXT="$(docker context show 2>/dev/null || echo "default")"
+        if [ -z "${DOCKER_CURRENT_CONTEXT}" ]; then
+            printf '❌ ERRO CRÍTICO DE SEGURANÇA: Não foi possível obter o contexto Docker atual.\n' >&2
             exit 11
         fi
-    else
-        case "${DOCKER_CONTEXT_HOST}" in
-            tcp://*|ssh://*|http://*|https://*|npipe://*)
-                printf '❌ ERRO CRÍTICO DE SEGURANÇA: Contexto Docker (%s) aponta para host remoto ou pipe não verificado (%s).\n' "${DOCKER_CURRENT_CONTEXT}" "${DOCKER_CONTEXT_HOST}" >&2
-                exit 11
-                ;;
-            unix://*)
-                # Socket local UNIX verificado
-                ;;
-            *)
-                printf '❌ ERRO CRÍTICO DE SEGURANÇA: Contexto Docker (%s) possui endpoint não suportado (%s).\n' "${DOCKER_CURRENT_CONTEXT}" "${DOCKER_CONTEXT_HOST}" >&2
-                exit 11
-                ;;
-        esac
+
+        DOCKER_CONTEXT_HOST="$(docker context inspect "${DOCKER_CURRENT_CONTEXT}" --format '{{.Endpoints.docker.Host}}' 2>/dev/null || echo "")"
+        if [ -z "${DOCKER_CONTEXT_HOST}" ]; then
+            # Sem endpoint declarado no contexto e sem DOCKER_HOST: a CLI cai no
+            # socket local padrão. Aceitável apenas nesse cenário específico.
+            DOCKER_EFFECTIVE_ENDPOINT="unix:///var/run/docker.sock"
+            DOCKER_ENDPOINT_ORIGIN="socket local padrão (contexto ${DOCKER_CURRENT_CONTEXT} sem endpoint declarado)"
+        else
+            DOCKER_EFFECTIVE_ENDPOINT="${DOCKER_CONTEXT_HOST}"
+            DOCKER_ENDPOINT_ORIGIN="contexto ${DOCKER_CURRENT_CONTEXT}"
+        fi
     fi
+
+    case "${DOCKER_EFFECTIVE_ENDPOINT}" in
+        tcp://*|ssh://*|http://*|https://*|npipe://*)
+            printf '❌ ERRO CRÍTICO DE SEGURANÇA: Endpoint Docker efetivo remoto ou não verificado (%s; origem: %s).\n' "${DOCKER_EFFECTIVE_ENDPOINT}" "${DOCKER_ENDPOINT_ORIGIN}" >&2
+            exit 11
+            ;;
+        unix://*)
+            # Socket local UNIX: verificação efetiva de existência do socket
+            DOCKER_SOCKET_PATH="${DOCKER_EFFECTIVE_ENDPOINT#unix://}"
+            if [ -z "${DOCKER_SOCKET_PATH}" ]; then
+                DOCKER_SOCKET_PATH="/var/run/docker.sock"
+            fi
+            if ! [ -S "${DOCKER_SOCKET_PATH}" ]; then
+                printf '❌ ERRO CRÍTICO DE SEGURANÇA: Socket do endpoint Docker efetivo não existe (%s; origem: %s).\n' "${DOCKER_SOCKET_PATH}" "${DOCKER_ENDPOINT_ORIGIN}" >&2
+                exit 11
+            fi
+            ;;
+        *)
+            printf '❌ ERRO CRÍTICO DE SEGURANÇA: Endpoint Docker efetivo não suportado (%s; origem: %s).\n' "${DOCKER_EFFECTIVE_ENDPOINT}" "${DOCKER_ENDPOINT_ORIGIN}" >&2
+            exit 11
+            ;;
+    esac
 fi
 
 # 3. Verificação de Hostname e FQDN de produção
@@ -324,7 +363,26 @@ cleanup_lab() {
     return "${exit_code}"
 }
 
-trap cleanup_lab EXIT INT TERM
+# Ponto 7 da correção v1.8.0: INT/TERM possuem handler PRÓPRIO (não compartilham
+# o trap de EXIT): executa a mesma limpeza RESTRITA aos recursos desta sessão
+# (laboratório rastreado por label + arquivo de sessão) e TERMINA imediatamente
+# com 128+n, sem permitir que a execução seja retomada após o sinal.
+cleanup_lab_on_signal() {
+    local signal_name="$1" signal_num="$2"
+    trap '' INT TERM
+    log "Sinal ${signal_name} recebido; executando limpeza restrita aos recursos da sessão e encerrando."
+    say ""
+    say "⚠️  Sinal ${signal_name} recebido: removendo apenas os recursos desta sessão e encerrando..."
+    KEEP_LAB_SAVED="${KEEP_LAB}"
+    KEEP_LAB=0
+    cleanup_lab 0
+    KEEP_LAB="${KEEP_LAB_SAVED}"
+    trap - EXIT
+    exit $((128 + signal_num))
+}
+trap 'cleanup_lab_on_signal INT 2' INT
+trap 'cleanup_lab_on_signal TERM 15' TERM
+trap cleanup_lab EXIT
 
 # ------------------------------------------------------------------------------
 # PONTO 2 E PONTO 3 DA AUDITORIA: CRIAÇÃO SEGURA DE DIRETÓRIOS E PERMISSÕES EFETIVAS
@@ -375,7 +433,7 @@ for f in "${TRACKED_RESOURCES_FILE}" "${LOG_FILE}" "${RESTORE_ERRORS_FILE}" "${D
     fi
 done
 
-log "Iniciando script de auditoria v1.5.0 (PID $$)"
+log "Iniciando script de auditoria ${SCRIPT_VERSION} (PID $$)"
 log "Diretório de diagnóstico privado: ${DIAG_DIR}"
 
 # ------------------------------------------------------------------------------
@@ -488,6 +546,30 @@ exec_lab_sql_file() {
 }
 
 # ------------------------------------------------------------------------------
+# PONTO 8 DA CORREÇÃO v1.8.0: VALIDAÇÃO DE IDENTIFICADORES DO INVENTÁRIO
+# Identificadores (schema, tabela, constraint, função) provenientes do
+# inventário são interpolados em SQL; aceitar apenas ^[a-zA-Z_][a-zA-Z0-9_]*$.
+# A etapa chamadora registra DIVERGÊNCIA e recusa a interpolação quando falha.
+# ------------------------------------------------------------------------------
+
+is_safe_identifier() {
+    local ident="$1"
+    case "${ident}" in
+        ''|*[!a-zA-Z0-9_]*)
+            return 1
+            ;;
+    esac
+    case "${ident}" in
+        [a-zA-Z_]*)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
 # APRESENTAÇÃO
 # ------------------------------------------------------------------------------
 
@@ -585,7 +667,25 @@ if [ -z "${RESTORE_ERR_PERM}" ] || [ "${RESTORE_ERR_PERM}" != "600" ]; then
     die "Permissão efetiva do arquivo de erros do restore inválida (${RESTORE_ERR_PERM})." "${EXIT_FS_FAIL}"
 fi
 
-RESTORE_RAW_ERRORS_COUNT="$(grep -cE 'ERROR:|ERRO:|FATAL:' "${RESTORE_ERRORS_FILE}" 2>/dev/null || echo 0)"
+# Ponto 3 da correção v1.8.0: contagem de erros SQL SEMPRE como UM único inteiro
+# válido, inclusive quando grep não encontra correspondências (exit 1 não é
+# fatal). A contagem é feita com wc -l sobre arquivo temporário e validada como
+# inteiro; falha real de grep (exit >= 2) é fatal.
+SQL_ERR_COUNT_TMP="${DIAG_DIR}/erros-sql-count-${TS_STAMP}-$$.txt"
+SQL_ERR_GREP_RC=0
+grep -E 'ERROR:|ERRO:|FATAL:' "${RESTORE_ERRORS_FILE}" >"${SQL_ERR_COUNT_TMP}" 2>/dev/null
+SQL_ERR_GREP_RC=$?
+if [ "${SQL_ERR_GREP_RC}" -ge 2 ]; then
+    die "Falha ao varrer o log de erros SQL do restore (grep exit ${SQL_ERR_GREP_RC})." "${EXIT_FS_FAIL}"
+fi
+RESTORE_RAW_ERRORS_COUNT="$(wc -l < "${SQL_ERR_COUNT_TMP}" 2>/dev/null | tr -d '[:space:]')"
+case "${RESTORE_RAW_ERRORS_COUNT}" in
+    ''|*[!0-9]*)
+        printf 'DIVERGÊNCIA: Contagem de erros SQL produziu valor não inteiro ("%s"); tratada como falha fatal\n' "${RESTORE_RAW_ERRORS_COUNT}" >> "${DIVERGENCES_FILE}"
+        RESTORE_RAW_ERRORS_COUNT=999
+        ;;
+esac
+rm -f "${SQL_ERR_COUNT_TMP}" 2>/dev/null || true
 log "Restauração finalizada. GZIP_EXIT=${GZIP_EXIT}, PSQL_EXIT=${PSQL_EXIT}, ERROS_SQL=${RESTORE_RAW_ERRORS_COUNT}"
 
 # Ponto 1: Exigência simultânea de gunzip 0, psql 0 e zero erros SQL
@@ -611,51 +711,68 @@ say "   Status da Restauração Original: ${RESTORE_ORIGINAL_STATUS} (gunzip: ${
 # NUNCA DROP EXTENSION CASCADE! Apenas CREATE EXTENSION IF NOT EXISTS.
 # ------------------------------------------------------------------------------
 
-say "🔬 Verificando extensão pg_graphql..."
+say "🔬 Verificando extensão pg_graphql (catálogo pg_extension/pg_available_extensions)..."
 GRAPHQL_REC_STATUS="NAO_NECESSARIO"
 GRAPHQL_FINAL_STATUS="FALHA"
 
-GRAPHQL_FN_EXISTS="f"
-if ! GRAPHQL_FN_EXISTS="$(exec_lab_sql "SELECT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'graphql')")"; then
-    printf 'DIVERGÊNCIA: Falha de consulta SQL ao verificar pg_graphql\n' >> "${DIVERGENCES_FILE}"
+# Ponto 6 da correção v1.8.0: verificação INEQUÍVOCA da extensão — consulta
+# pg_extension (instalada, com extversion) e pg_available_extensions (disponível).
+# A existência de função homônima (pg_proc.proname = 'graphql') NÃO é aceita
+# como prova de extensão operacional.
+if ! GRAPHQL_EXT_INFO="$(exec_lab_sql "SELECT CASE WHEN e.extname IS NOT NULL THEN 'INSTALADA:' || e.extversion WHEN a.name IS NOT NULL THEN 'DISPONIVEL:' || a.default_version ELSE 'AUSENTE' END FROM (SELECT 1) d LEFT JOIN pg_extension e ON e.extname = 'pg_graphql' LEFT JOIN pg_available_extensions a ON a.name = 'pg_graphql'")"; then
+    GRAPHQL_EXT_INFO="ERRO_CONSULTA"
 fi
-GRAPHQL_FN_EXISTS="$(printf '%s\n' "${GRAPHQL_FN_EXISTS}" | tr -d '[:space:]')"
+GRAPHQL_EXT_INFO="$(printf '%s\n' "${GRAPHQL_EXT_INFO}" | tr -d '[:space:]')"
 
-if [ "${GRAPHQL_FN_EXISTS}" = "t" ]; then
-    GRAPHQL_FINAL_STATUS="OK"
-    say "✅ Extensão pg_graphql operacional nativamente no backup restaurado."
-else
-    say "⚠️  Função graphql() não localizada no catálogo restaurado."
-    if [ "${SKIP_GRAPHQL_FIX}" -eq 1 ]; then
-        say "   Opção --pular-graphql-fix ativada. Nenhuma recuperação assistida será tentada."
-        GRAPHQL_REC_STATUS="PULADO"
-    else
-        say "🛠️  Tentando recuperação assistida SEGURA (CREATE EXTENSION IF NOT EXISTS pg_graphql)..."
-        # Execução estritamente aditiva: NUNCA DROP EXTENSION CASCADE!
-        CREATE_EXT_RC=0
-        if ! exec_lab_sql "CREATE EXTENSION IF NOT EXISTS pg_graphql WITH SCHEMA extensions;" >>"${LOG_FILE}" 2>&1; then
-            CREATE_EXT_RC=1
-        fi
-
-        GRAPHQL_FN_AFTER="f"
-        if ! GRAPHQL_FN_AFTER="$(exec_lab_sql "SELECT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'graphql')")"; then
-            printf 'DIVERGÊNCIA: Falha de consulta SQL ao revalidar pg_graphql\n' >> "${DIVERGENCES_FILE}"
-        fi
-        GRAPHQL_FN_AFTER="$(printf '%s\n' "${GRAPHQL_FN_AFTER}" | tr -d '[:space:]')"
-
-        if [ "${CREATE_EXT_RC}" -eq 0 ] && [ "${GRAPHQL_FN_AFTER}" = "t" ]; then
-            GRAPHQL_REC_STATUS="RECUPERADO_COM_SUCESSO"
-            GRAPHQL_FINAL_STATUS="OK_RECUPERADO"
-            say "✅ Extensão pg_graphql recuperada com sucesso via CREATE EXTENSION aditivo."
-            printf 'Aviso Operacional: Extensão pg_graphql necessitou de CREATE EXTENSION aditivo pós-restauração.\n' >> "${CONFERIDOS_FILE}"
+case "${GRAPHQL_EXT_INFO}" in
+    INSTALADA:*)
+        GRAPHQL_FINAL_STATUS="OK"
+        say "✅ Extensão pg_graphql instalada no backup restaurado (versão: ${GRAPHQL_EXT_INFO#INSTALADA:})."
+        ;;
+    DISPONIVEL:*)
+        say "⚠️  Extensão pg_graphql NÃO instalada no backup restaurado (disponível no catálogo: ${GRAPHQL_EXT_INFO#DISPONIVEL:})."
+        if [ "${SKIP_GRAPHQL_FIX}" -eq 1 ]; then
+            say "   Opção --pular-graphql-fix ativada. Nenhuma recuperação assistida será tentada."
+            GRAPHQL_REC_STATUS="PULADO"
         else
-            GRAPHQL_REC_STATUS="FALHA_NA_RECUPERACAO"
-            GRAPHQL_FINAL_STATUS="FALHA"
-            say_err "Falha na recuperação assistida de pg_graphql."
-            printf 'DIVERGÊNCIA: Falha na recuperação assistida de pg_graphql (CREATE_EXT_RC=%s, fn_exists=%s)\n' "${CREATE_EXT_RC}" "${GRAPHQL_FN_AFTER}" >> "${DIVERGENCES_FILE}"
+            say "🛠️  Tentando recuperação assistida SEGURA (CREATE EXTENSION IF NOT EXISTS pg_graphql)..."
+            # Execução estritamente aditiva: NUNCA DROP EXTENSION CASCADE!
+            CREATE_EXT_RC=0
+            if ! exec_lab_sql "CREATE EXTENSION IF NOT EXISTS pg_graphql WITH SCHEMA extensions;" >>"${LOG_FILE}" 2>&1; then
+                CREATE_EXT_RC=1
+            fi
+
+            # Revalidação pelo catálogo de extensões (nunca por função homônima)
+            if ! GRAPHQL_EXT_AFTER="$(exec_lab_sql "SELECT CASE WHEN e.extname IS NOT NULL THEN 'INSTALADA:' || e.extversion ELSE 'AUSENTE' END FROM (SELECT 1) d LEFT JOIN pg_extension e ON e.extname = 'pg_graphql'")"; then
+                GRAPHQL_EXT_AFTER="ERRO_CONSULTA"
+            fi
+            GRAPHQL_EXT_AFTER="$(printf '%s\n' "${GRAPHQL_EXT_AFTER}" | tr -d '[:space:]')"
+
+            GRAPHQL_REVALID_OK=0
+            case "${GRAPHQL_EXT_AFTER}" in
+                INSTALADA:*) GRAPHQL_REVALID_OK=1 ;;
+            esac
+
+            if [ "${CREATE_EXT_RC}" -eq 0 ] && [ "${GRAPHQL_REVALID_OK}" -eq 1 ]; then
+                GRAPHQL_REC_STATUS="RECUPERADO_COM_SUCESSO"
+                GRAPHQL_FINAL_STATUS="OK_RECUPERADO"
+                say "✅ Extensão pg_graphql recuperada com sucesso via CREATE EXTENSION aditivo."
+                printf 'Aviso Operacional: Extensão pg_graphql necessitou de CREATE EXTENSION aditivo pós-restauração.\n' >> "${CONFERIDOS_FILE}"
+            else
+                GRAPHQL_REC_STATUS="FALHA_NA_RECUPERACAO"
+                GRAPHQL_FINAL_STATUS="FALHA"
+                say_err "Falha na recuperação assistida de pg_graphql."
+                printf 'DIVERGÊNCIA: Falha na recuperação assistida de pg_graphql (CREATE_EXT_RC=%s, estado_catalogo=%s)\n' "${CREATE_EXT_RC}" "${GRAPHQL_EXT_AFTER}" >> "${DIVERGENCES_FILE}"
+            fi
         fi
-    fi
-fi
+        ;;
+    *)
+        GRAPHQL_REC_STATUS="FALHA_NA_RECUPERACAO"
+        GRAPHQL_FINAL_STATUS="FALHA"
+        say_err "Não foi possível determinar o estado da extensão pg_graphql (${GRAPHQL_EXT_INFO})."
+        printf 'DIVERGÊNCIA: Estado da extensão pg_graphql indeterminável (%s)\n' "${GRAPHQL_EXT_INFO}" >> "${DIVERGENCES_FILE}"
+        ;;
+esac
 
 # ------------------------------------------------------------------------------
 # ETAPA 3: VALIDAÇÃO ESTRUTURAL DO BANCO RESTAURADO (public e auth)
@@ -799,7 +916,19 @@ else
     else
         say "📋 Validando integridade e campos obrigatórios do inventário com jq..."
 
+        # Ponto 5 da correção v1.8.0: linha de base de divergências ANTES das
+        # etapas de comparação, para permitir atribuir SIM somente se esta etapa
+        # não registrar nenhuma divergência nova.
+        DIVERG_BASELINE_COUNT="$(wc -l < "${DIVERGENCES_FILE}" 2>/dev/null | tr -d '[:space:]')"
+        case "${DIVERG_BASELINE_COUNT}" in
+            ''|*[!0-9]*) DIVERG_BASELINE_COUNT=0 ;;
+        esac
+        INVENTORY_EXTRACTION_INCOMPLETE=0
+
         # Ponto 3 e Ponto 6: Validação rigorosa da estrutura e tipos do inventário JSON
+        # Ponto 1 da correção v1.8.0: o filtro termina em `true` (nunca `else empty`),
+        # tornando o exit code de jq -e determinístico: 0 somente quando TODOS os
+        # campos obrigatórios existem e estão tipados corretamente; 1 caso contrário.
         INV_SCHEMA_VALID=1
         if ! jq -e '
             if type != "object" then error("raiz não é objeto")
@@ -809,23 +938,31 @@ else
             elif ((.tabelas | type) != "array") then error("tabelas deve ser array")
             elif ((.constraints | type) != "array") then error("constraints deve ser array")
             elif ((.funcoes | type) != "array") then error("funcoes deve ser array")
-            else empty end
+            else true end
         ' "${INVENTORY_FILE}" >/dev/null 2>&1; then
             printf 'DIVERGÊNCIA: Inventário JSON reprovado na validação de campos obrigatórios e tipos\n' >> "${DIVERGENCES_FILE}"
             INV_SCHEMA_VALID=0
         fi
 
-        INV_TOTAL_PUBLIC="$(jq -er '.sumario.total_tabelas_public // .sumario.total_tabelas // empty' "${INVENTORY_FILE}" 2>/dev/null || echo "")"
-        if [ -z "${INV_TOTAL_PUBLIC}" ]; then
-            printf 'DIVERGÊNCIA: Campo total_tabelas_public ausente ou nulo no inventário\n' >> "${DIVERGENCES_FILE}"
-            INV_SCHEMA_VALID=0
-        fi
+        # Ponto 1 da correção v1.8.0: totais devem existir E ser inteiros não
+        # negativos (rejeita ausente, nulo, texto ou negativo).
+        INV_TOTAL_PUBLIC="$(jq -er '.sumario.total_tabelas_public // empty' "${INVENTORY_FILE}" 2>/dev/null || echo "")"
+        case "${INV_TOTAL_PUBLIC}" in
+            ''|*[!0-9]*)
+                printf 'DIVERGÊNCIA: Campo total_tabelas_public ausente, nulo ou não inteiro no inventário (valor: "%s")\n' "${INV_TOTAL_PUBLIC}" >> "${DIVERGENCES_FILE}"
+                INV_TOTAL_PUBLIC=""
+                INV_SCHEMA_VALID=0
+                ;;
+        esac
 
         INV_TOTAL_AUTH="$(jq -er '.sumario.total_tabelas_auth // empty' "${INVENTORY_FILE}" 2>/dev/null || echo "")"
-        if [ -z "${INV_TOTAL_AUTH}" ]; then
-            printf 'DIVERGÊNCIA: Campo total_tabelas_auth ausente no inventário\n' >> "${DIVERGENCES_FILE}"
-            INV_SCHEMA_VALID=0
-        fi
+        case "${INV_TOTAL_AUTH}" in
+            ''|*[!0-9]*)
+                printf 'DIVERGÊNCIA: Campo total_tabelas_auth ausente, nulo ou não inteiro no inventário (valor: "%s")\n' "${INV_TOTAL_AUTH}" >> "${DIVERGENCES_FILE}"
+                INV_TOTAL_AUTH=""
+                INV_SCHEMA_VALID=0
+                ;;
+        esac
 
         INV_METODO_CONTAGEM="$(jq -er '.politica_seguranca.metodo_contagem // empty' "${INVENTORY_FILE}" 2>/dev/null || echo "desconhecido")"
 
@@ -849,8 +986,11 @@ else
 
         # Extração de tabelas do inventário via jq estrito
         INV_TABLES_RAW="$(jq -er '.tabelas[] | "\(.schema // "public")|\(.tabela)|\(.contagem)|\(.tipo_contagem // "desconhecido")"' "${INVENTORY_FILE}" 2>/dev/null || echo "")"
-        if [ -z "${INV_TABLES_RAW}" ]; then
-            printf 'DIVERGÊNCIA: Falha na extração da lista de tabelas do inventário com jq -er\n' >> "${DIVERGENCES_FILE}"
+        INV_TABLES_LEN="$(jq -e '.tabelas | length' "${INVENTORY_FILE}" 2>/dev/null || echo 0)"
+        # Ponto 5: extração jq falha com inventário não vazio = verificação incompleta
+        if [ -z "${INV_TABLES_RAW}" ] && [ "${INV_TABLES_LEN}" -gt 0 ]; then
+            printf 'DIVERGÊNCIA: Falha na extração da lista de tabelas do inventário com jq -er (%s tabelas declaradas, 0 extraídas)\n' "${INV_TABLES_LEN}" >> "${DIVERGENCES_FILE}"
+            INVENTORY_EXTRACTION_INCOMPLETE=1
         fi
 
         # SENTIDO 1 (Ponto 7): Tabelas presentes no INVENTÁRIO -> Verificar se existem no BACKUP RESTAURADO
@@ -858,6 +998,21 @@ else
         if [ -n "${INV_TABLES_RAW}" ]; then
             while IFS='|' read -r inv_schema inv_tab inv_cnt inv_tipo; do
                 [ -n "${inv_tab}" ] || continue
+
+                # Ponto 8 da correção v1.8.0: identificadores do inventário
+                # validados com regex estrita ANTES de qualquer interpolação em SQL.
+                if ! is_safe_identifier "${inv_schema}" || ! is_safe_identifier "${inv_tab}"; then
+                    printf 'DIVERGÊNCIA: Identificador inválido no inventário (schema="%s", tabela="%s") — interpolação SQL recusada\n' "${inv_schema}" "${inv_tab}" >> "${DIVERGENCES_FILE}"
+                    continue
+                fi
+
+                # Ponto 8: contagem do inventário deve ser inteiro não negativo
+                case "${inv_cnt}" in
+                    ''|*[!0-9]*)
+                        printf 'DIVERGÊNCIA: Contagem inválida no inventário para %s."%s" (valor: "%s")\n' "${inv_schema}" "${inv_tab}" "${inv_cnt}" >> "${DIVERGENCES_FILE}"
+                        continue
+                        ;;
+                esac
 
                 # Salvaguarda: auth.users não pode ser catalogado como public.users
                 if [ "${inv_schema}" = "public" ] && [ "${inv_tab}" = "users" ]; then
@@ -947,13 +1102,47 @@ else
         # - Comparar definições COMPLETAS das constraints (pg_get_constraintdef).
         # - Comparar identidade de argumentos (pg_get_function_identity_arguments) e definição (pg_get_functiondef quando disponível).
         say "   Comparando integralmente definições de constraints (pg_get_constraintdef) e funções (sem amostragem)..."
-        INV_CONSTRAINTS_COUNT="$(jq -e '.constraints | if type == "array" then length else 0 end' "${INVENTORY_FILE}" 2>/dev/null || echo 0)"
-        INV_FUNCTIONS_COUNT="$(jq -e '.funcoes | if type == "array" then length else 0 end' "${INVENTORY_FILE}" 2>/dev/null || echo 0)"
+        # Ponto 5: falha de extração jq das contagens é registrada e impede SIM
+        if ! INV_CONSTRAINTS_COUNT="$(jq -e '.constraints | if type == "array" then length else 0 end' "${INVENTORY_FILE}" 2>/dev/null)"; then
+            printf 'DIVERGÊNCIA: Falha na extração jq da contagem de constraints do inventário\n' >> "${DIVERGENCES_FILE}"
+            INV_CONSTRAINTS_COUNT=0
+            INVENTORY_EXTRACTION_INCOMPLETE=1
+        fi
+        if ! INV_FUNCTIONS_COUNT="$(jq -e '.funcoes | if type == "array" then length else 0 end' "${INVENTORY_FILE}" 2>/dev/null)"; then
+            printf 'DIVERGÊNCIA: Falha na extração jq da contagem de funções do inventário\n' >> "${DIVERGENCES_FILE}"
+            INV_FUNCTIONS_COUNT=0
+            INVENTORY_EXTRACTION_INCOMPLETE=1
+        fi
+        case "${INV_CONSTRAINTS_COUNT}" in
+            ''|*[!0-9]*)
+                printf 'DIVERGÊNCIA: Contagem de constraints do inventário não inteira (%s)\n' "${INV_CONSTRAINTS_COUNT}" >> "${DIVERGENCES_FILE}"
+                INV_CONSTRAINTS_COUNT=0
+                INVENTORY_EXTRACTION_INCOMPLETE=1
+                ;;
+        esac
+        case "${INV_FUNCTIONS_COUNT}" in
+            ''|*[!0-9]*)
+                printf 'DIVERGÊNCIA: Contagem de funções do inventário não inteira (%s)\n' "${INV_FUNCTIONS_COUNT}" >> "${DIVERGENCES_FILE}"
+                INV_FUNCTIONS_COUNT=0
+                INVENTORY_EXTRACTION_INCOMPLETE=1
+                ;;
+        esac
+        # Ponto 4: corpos só são comparáveis se o inventário não os tiver ofuscado
+        INV_OFUSCACAO_APLICADA="$(jq -er '.politica_sigilo.ofuscacao_segredos_aplicada // false' "${INVENTORY_FILE}" 2>/dev/null || echo "false")"
 
         CONSTRAINTS_DIFF_FOUND=0
+        CONSTRAINTS_EXTRACTED=0
         if [ "${INV_CONSTRAINTS_COUNT}" -gt 0 ]; then
             while IFS='|' read -r c_schema c_tab c_name c_def; do
                 [ -n "${c_name}" ] || continue
+                CONSTRAINTS_EXTRACTED=$((CONSTRAINTS_EXTRACTED + 1))
+
+                # Ponto 8: identificadores do inventário validados antes da interpolação SQL
+                if ! is_safe_identifier "${c_schema}" || ! is_safe_identifier "${c_tab}" || ! is_safe_identifier "${c_name}"; then
+                    printf 'DIVERGÊNCIA: Identificador inválido no inventário (constraint %s."%s"."%s") — interpolação SQL recusada\n' "${c_schema}" "${c_tab}" "${c_name}" >> "${DIVERGENCES_FILE}"
+                    CONSTRAINTS_DIFF_FOUND=$((CONSTRAINTS_DIFF_FOUND + 1))
+                    continue
+                fi
                 lab_c_def_raw="$(exec_lab_sql "SELECT pg_get_constraintdef(c.oid, true) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace JOIN pg_class r ON r.oid = c.conrelid WHERE n.nspname = '${c_schema}' AND r.relname = '${c_tab}' AND c.conname = '${c_name}'")" || echo ""
                 lab_c_def="$(printf '%s\n' "${lab_c_def_raw}" | tr -d '\r\n')"
                 if [ -z "${lab_c_def}" ]; then
@@ -969,35 +1158,98 @@ else
                     fi
                 fi
             done < <(jq -er '.constraints[] | "\(.schema)|\(.tabela)|\(.nome)|\(.definicao)"' "${INVENTORY_FILE}" 2>/dev/null)
-            if [ "${CONSTRAINTS_DIFF_FOUND}" -eq 0 ]; then
+            # Ponto 5: extração jq incompleta impede SIM
+            if [ "${CONSTRAINTS_EXTRACTED}" -ne "${INV_CONSTRAINTS_COUNT}" ]; then
+                printf 'DIVERGÊNCIA: Extração jq das constraints incompleta (%s de %s extraídas)\n' "${CONSTRAINTS_EXTRACTED}" "${INV_CONSTRAINTS_COUNT}" >> "${DIVERGENCES_FILE}"
+                INVENTORY_EXTRACTION_INCOMPLETE=1
+            fi
+            if [ "${CONSTRAINTS_DIFF_FOUND}" -eq 0 ] && [ "${INVENTORY_EXTRACTION_INCOMPLETE}" -eq 0 ]; then
                 printf 'CONFERIDO ESTRUTURAL: Todas as %s constraints conferidas integralmente por nome e definicao DDL\n' "${INV_CONSTRAINTS_COUNT}" >> "${CONFERIDOS_FILE}"
             fi
         fi
 
+        # Ponto 4 da correção v1.8.0: comparação de funções por identidade completa
+        # E, quando o inventário traz a definição efetiva (inclui_corpo=true),
+        # também pelo corpo via pg_get_functiondef (normalizado como as constraints).
         FUNCTIONS_DIFF_FOUND=0
+        FUNCTIONS_EXTRACTED=0
         if [ "${INV_FUNCTIONS_COUNT}" -gt 0 ]; then
-            while IFS='|' read -r f_schema f_name f_ident f_ret f_corpo; do
+            while IFS='|' read -r f_schema f_name f_ident f_ret f_corpo f_definicao; do
                 [ -n "${f_name}" ] || continue
+                FUNCTIONS_EXTRACTED=$((FUNCTIONS_EXTRACTED + 1))
+
+                # Ponto 8: identificadores do inventário validados antes da interpolação SQL
+                if ! is_safe_identifier "${f_schema}" || ! is_safe_identifier "${f_name}"; then
+                    printf 'DIVERGÊNCIA: Identificador inválido no inventário (função %s."%s") — interpolação SQL recusada\n' "${f_schema}" "${f_name}" >> "${DIVERGENCES_FILE}"
+                    FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
+                    continue
+                fi
+
                 lab_f_raw="$(exec_lab_sql "SELECT pg_get_function_identity_arguments(p.oid) || '->' || pg_get_function_result(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = '${f_schema}' AND p.proname = '${f_name}'")" || echo ""
                 lab_f="$(printf '%s\n' "${lab_f_raw}" | tr -d '\r\n')"
                 if [ -z "${lab_f}" ]; then
                     printf 'DIVERGÊNCIA ESTRUTURAL (funcao ausente): %s."%s" ausente no banco restaurado\n' "${f_schema}" "${f_name}" >> "${DIVERGENCES_FILE}"
                     FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
-                else
-                    expected_sig="${f_ident}->${f_ret}"
-                    if [ "${lab_f}" != "${expected_sig}" ]; then
-                        printf 'DIVERGÊNCIA ESTRUTURAL (assinatura funcao): %s."%s" difere (Inv: "%s" != Lab: "%s")\n' "${f_schema}" "${f_name}" "${expected_sig}" "${lab_f}" >> "${DIVERGENCES_FILE}"
+                    continue
+                fi
+
+                expected_sig="${f_ident}->${f_ret}"
+                if [ "${lab_f}" != "${expected_sig}" ]; then
+                    printf 'DIVERGÊNCIA ESTRUTURAL (assinatura funcao): %s."%s" difere (Inv: "%s" != Lab: "%s")\n' "${f_schema}" "${f_name}" "${expected_sig}" "${lab_f}" >> "${DIVERGENCES_FILE}"
+                    FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
+                    continue
+                fi
+
+                # Corpo: comparado somente quando o inventário traz a definição
+                # efetiva NÃO ofuscada (corpos redigidos não são comparáveis).
+                if [ "${f_corpo}" = "true" ]; then
+                    if [ -z "${f_definicao}" ]; then
+                        printf 'DIVERGÊNCIA: Inventário inconsistente: inclui_corpo=true sem definicao para %s."%s"\n' "${f_schema}" "${f_name}" >> "${DIVERGENCES_FILE}"
                         FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
+                    elif [ "${INV_OFUSCACAO_APLICADA}" = "true" ]; then
+                        printf 'NÃO VALIDADO (corpo funcao): %s."%s" corpo não comparável — inventário declara ofuscacao_segredos_aplicada=true (definição redigida, não é a definição efetiva)\n' "${f_schema}" "${f_name}" >> "${CONFERIDOS_FILE}"
+                    else
+                        lab_fdef_raw="$(exec_lab_sql "SELECT pg_get_functiondef(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = '${f_schema}' AND p.proname = '${f_name}'")" || echo ""
+                        lab_fdef="$(printf '%s\n' "${lab_fdef_raw}" | tr -d '\r\n' | sed -e 's/[[:space:]]\+/ /g' -e 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+                        norm_inv_fdef="$(printf '%s\n' "${f_definicao}" | tr -d '\r\n' | sed -e 's/[[:space:]]\+/ /g' -e 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+                        if [ -z "${lab_fdef}" ]; then
+                            printf 'DIVERGÊNCIA ESTRUTURAL (corpo funcao): %s."%s" sem definição recuperável via pg_get_functiondef no laboratório\n' "${f_schema}" "${f_name}" >> "${DIVERGENCES_FILE}"
+                            FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
+                        elif [ "${norm_inv_fdef}" != "${lab_fdef}" ]; then
+                            printf 'DIVERGÊNCIA ESTRUTURAL (corpo funcao): %s."%s" corpo difere (Inv: "%s" != Lab: "%s")\n' "${f_schema}" "${f_name}" "${norm_inv_fdef}" "${lab_fdef}" >> "${DIVERGENCES_FILE}"
+                            FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
+                        fi
                     fi
                 fi
-            done < <(jq -er '.funcoes[] | "\(.schema)|\(.nome)|\(.identidade)|\(.tipo_retorno)|\(.inclui_corpo // false)"' "${INVENTORY_FILE}" 2>/dev/null)
-            if [ "${FUNCTIONS_DIFF_FOUND}" -eq 0 ]; then
-                printf 'CONFERIDO ESTRUTURAL: Todas as %s funcoes conferidas integralmente por identidade e assinatura\n' "${INV_FUNCTIONS_COUNT}" >> "${CONFERIDOS_FILE}"
+            done < <(jq -er '.funcoes[] | [ (.schema|tostring), (.nome|tostring), (.identidade|tostring), (.tipo_retorno|tostring), ((.inclui_corpo // false)|tostring), ((.definicao // "") | gsub("\\s+"; " ")) ] | join("|")' "${INVENTORY_FILE}" 2>/dev/null)
+            # Ponto 5: extração jq incompleta impede SIM
+            if [ "${FUNCTIONS_EXTRACTED}" -ne "${INV_FUNCTIONS_COUNT}" ]; then
+                printf 'DIVERGÊNCIA: Extração jq das funções incompleta (%s de %s extraídas)\n' "${FUNCTIONS_EXTRACTED}" "${INV_FUNCTIONS_COUNT}" >> "${DIVERGENCES_FILE}"
+                INVENTORY_EXTRACTION_INCOMPLETE=1
+            fi
+            if [ "${FUNCTIONS_DIFF_FOUND}" -eq 0 ] && [ "${INVENTORY_EXTRACTION_INCOMPLETE}" -eq 0 ]; then
+                printf 'CONFERIDO ESTRUTURAL: Todas as %s funcoes conferidas integralmente por identidade, assinatura e corpo (quando disponível no inventário)\n' "${INV_FUNCTIONS_COUNT}" >> "${CONFERIDOS_FILE}"
             fi
         fi
 
-        # Ponto 3: INVENTORY_COMPARISON_VALID=SIM estritamente após todas as verificações passarem sem falha
-        if [ "${INV_SCHEMA_VALID}" -eq 1 ] && [ "${CONSTRAINTS_DIFF_FOUND}" -eq 0 ] && [ "${FUNCTIONS_DIFF_FOUND}" -eq 0 ]; then
+        # Ponto 5 da correção v1.8.0: SIM somente se NADA ficou pendente nesta
+        # etapa: schema válido, zero divergências de constraints e funções,
+        # extrações jq completas e nenhuma divergência nova registrada pelas
+        # comparações (bidirecionais incluídas).
+        DIVERG_FINAL_COUNT="$(wc -l < "${DIVERGENCES_FILE}" 2>/dev/null | tr -d '[:space:]')"
+        case "${DIVERG_FINAL_COUNT}" in
+            ''|*[!0-9]*) DIVERG_FINAL_COUNT="${DIVERG_BASELINE_COUNT}" ;;
+        esac
+        INVENTORY_STAGE_DIVERGED=0
+        if [ "${DIVERG_FINAL_COUNT}" -gt "${DIVERG_BASELINE_COUNT}" ]; then
+            INVENTORY_STAGE_DIVERGED=1
+        fi
+
+        if [ "${INV_SCHEMA_VALID}" -eq 1 ] \
+            && [ "${CONSTRAINTS_DIFF_FOUND}" -eq 0 ] \
+            && [ "${FUNCTIONS_DIFF_FOUND}" -eq 0 ] \
+            && [ "${INVENTORY_EXTRACTION_INCOMPLETE}" -eq 0 ] \
+            && [ "${INVENTORY_STAGE_DIVERGED}" -eq 0 ]; then
             INVENTORY_BIDIRECTIONAL_CHECK_PASSED=1
             INVENTORY_COMPARISON_VALID="SIM"
         else
