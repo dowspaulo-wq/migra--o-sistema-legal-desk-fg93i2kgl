@@ -376,8 +376,9 @@ cleanup_lab_on_signal() {
     KEEP_LAB_SAVED="${KEEP_LAB}"
     KEEP_LAB=0
     cleanup_lab 0
-    KEEP_LAB="${KEEP_LAB_SAVED}"
     trap - EXIT
+    # O estado de KEEP_LAB da sessão é preservado: a limpeza no sinal é um evento
+    # de encerramento; nenhum retorno à execução principal ocorre a partir daqui.
     exit $((128 + signal_num))
 }
 trap 'cleanup_lab_on_signal INT 2' INT
@@ -916,13 +917,6 @@ else
     else
         say "📋 Validando integridade e campos obrigatórios do inventário com jq..."
 
-        # Ponto 5 da correção v1.8.0: linha de base de divergências ANTES das
-        # etapas de comparação, para permitir atribuir SIM somente se esta etapa
-        # não registrar nenhuma divergência nova.
-        DIVERG_BASELINE_COUNT="$(wc -l < "${DIVERGENCES_FILE}" 2>/dev/null | tr -d '[:space:]')"
-        case "${DIVERG_BASELINE_COUNT}" in
-            ''|*[!0-9]*) DIVERG_BASELINE_COUNT=0 ;;
-        esac
         INVENTORY_EXTRACTION_INCOMPLETE=0
 
         # Ponto 3 e Ponto 6: Validação rigorosa da estrutura e tipos do inventário JSON
@@ -1074,7 +1068,9 @@ else
             while IFS= read -r lab_t; do
                 [ -n "${lab_t}" ] || continue
                 # Validação via jq se lab_t existe no array de tabelas do inventário com schema public
-                t_in_inv="$(jq -er --arg tab "${lab_t}" 'any(.tabelas[]; .schema == "public" and .tabela == $tab)' "${INVENTORY_FILE}" 2>/dev/null || echo "false")"
+                # jq SEM -e: "false" é saída legítima (tabela não catalogada) e não
+                # deve ser interpretada como falha de jq (exit 1).
+                t_in_inv="$(jq --arg tab "${lab_t}" 'any(.tabelas[]; .schema == "public" and .tabela == $tab)' "${INVENTORY_FILE}" 2>/dev/null || echo "false")"
                 if [ "${t_in_inv}" != "true" ]; then
                     printf 'DIVERGÊNCIA BIDIRECIONAL: Tabela public."%s" existe no backup restaurado mas NÃO CONSTA no inventário oficial\n' "${lab_t}" >> "${DIVERGENCES_FILE}"
                 else
@@ -1087,7 +1083,7 @@ else
             while IFS= read -r lab_auth_t; do
                 [ -n "${lab_auth_t}" ] || continue
                 # Validação via jq se lab_auth_t existe no array de tabelas do inventário com schema auth
-                t_in_inv_auth="$(jq -er --arg tab "${lab_auth_t}" 'any(.tabelas[]; .schema == "auth" and .tabela == $tab)' "${INVENTORY_FILE}" 2>/dev/null || echo "false")"
+                t_in_inv_auth="$(jq --arg tab "${lab_auth_t}" 'any(.tabelas[]; .schema == "auth" and .tabela == $tab)' "${INVENTORY_FILE}" 2>/dev/null || echo "false")"
                 if [ "${t_in_inv_auth}" != "true" ]; then
                     printf 'DIVERGÊNCIA BIDIRECIONAL: Tabela auth."%s" existe no backup restaurado mas NÃO CONSTA no inventário oficial\n' "${lab_auth_t}" >> "${DIVERGENCES_FILE}"
                 else
@@ -1103,12 +1099,15 @@ else
         # - Comparar identidade de argumentos (pg_get_function_identity_arguments) e definição (pg_get_functiondef quando disponível).
         say "   Comparando integralmente definições de constraints (pg_get_constraintdef) e funções (sem amostragem)..."
         # Ponto 5: falha de extração jq das contagens é registrada e impede SIM
-        if ! INV_CONSTRAINTS_COUNT="$(jq -e '.constraints | if type == "array" then length else 0 end' "${INVENTORY_FILE}" 2>/dev/null)"; then
+        # jq SEM -e: um array vazio legítimo (length 0) é saída válida e NÃO deve
+        # ser tratado como falha de extração (jq -e retornaria exit 1 e bloquearia
+        # indevidamente o INVENTORY_COMPARISON_VALID=SIM).
+        if ! INV_CONSTRAINTS_COUNT="$(jq '.constraints | if type == "array" then length else 0 end' "${INVENTORY_FILE}" 2>/dev/null)"; then
             printf 'DIVERGÊNCIA: Falha na extração jq da contagem de constraints do inventário\n' >> "${DIVERGENCES_FILE}"
             INV_CONSTRAINTS_COUNT=0
             INVENTORY_EXTRACTION_INCOMPLETE=1
         fi
-        if ! INV_FUNCTIONS_COUNT="$(jq -e '.funcoes | if type == "array" then length else 0 end' "${INVENTORY_FILE}" 2>/dev/null)"; then
+        if ! INV_FUNCTIONS_COUNT="$(jq '.funcoes | if type == "array" then length else 0 end' "${INVENTORY_FILE}" 2>/dev/null)"; then
             printf 'DIVERGÊNCIA: Falha na extração jq da contagem de funções do inventário\n' >> "${DIVERGENCES_FILE}"
             INV_FUNCTIONS_COUNT=0
             INVENTORY_EXTRACTION_INCOMPLETE=1
@@ -1232,16 +1231,17 @@ else
             fi
         fi
 
-        # Ponto 5 da correção v1.8.0: SIM somente se NADA ficou pendente nesta
-        # etapa: schema válido, zero divergências de constraints e funções,
-        # extrações jq completas e nenhuma divergência nova registrada pelas
-        # comparações (bidirecionais incluídas).
+        # Ponto 5 da correção v1.8.0: SIM somente se NADA ficou pendente —
+        # schema válido, zero divergências de constraints e funções, extrações
+        # jq completas e NENHUMA divergência acumulada no arquivo (contagem
+        # absoluta igual a zero, não apenas divergências novas desta etapa);
+        # contagem não inteira é tratada de forma conservadora (divergido).
         DIVERG_FINAL_COUNT="$(wc -l < "${DIVERGENCES_FILE}" 2>/dev/null | tr -d '[:space:]')"
         case "${DIVERG_FINAL_COUNT}" in
-            ''|*[!0-9]*) DIVERG_FINAL_COUNT="${DIVERG_BASELINE_COUNT}" ;;
+            ''|*[!0-9]*) DIVERG_FINAL_COUNT=1 ;;
         esac
         INVENTORY_STAGE_DIVERGED=0
-        if [ "${DIVERG_FINAL_COUNT}" -gt "${DIVERG_BASELINE_COUNT}" ]; then
+        if [ "${DIVERG_FINAL_COUNT}" -gt 0 ]; then
             INVENTORY_STAGE_DIVERGED=1
         fi
 
@@ -1249,7 +1249,8 @@ else
             && [ "${CONSTRAINTS_DIFF_FOUND}" -eq 0 ] \
             && [ "${FUNCTIONS_DIFF_FOUND}" -eq 0 ] \
             && [ "${INVENTORY_EXTRACTION_INCOMPLETE}" -eq 0 ] \
-            && [ "${INVENTORY_STAGE_DIVERGED}" -eq 0 ]; then
+            && [ "${INVENTORY_STAGE_DIVERGED}" -eq 0 ] \
+            && [ ! -s "${DIVERGENCES_FILE}" ]; then
             INVENTORY_BIDIRECTIONAL_CHECK_PASSED=1
             INVENTORY_COMPARISON_VALID="SIM"
         else
