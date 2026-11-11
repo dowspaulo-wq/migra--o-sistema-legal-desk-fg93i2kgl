@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur / SBJur — Auditoria Independente de Integridade de Backup
 # Script: docs/vps/20-auditar-backup.sh
-# Versão: v2.1.2
+# Versão: v2.1.3
 # Destino de execução: MÁQUINA DE TESTE / WSL2 / DOCKER DESKTOP ISOLADO
 #
 # GUARDA DE SEGURANÇA MÁXIMA (ANTI-VPS) E CONTROLE ESTRITO DE SESSÃO DOCKER:
@@ -175,6 +175,48 @@
 #      zero ao chamador imediato). Rodada v2.1.2 (reaplicação idempotente da
 #      implementação completa, confirmando os 5 call sites verificados).
 #
+# CORREÇÃO v2.1.3 (auditoria externa independente — 1 ponto, correção cirúrgica):
+#   1. PROPAGAÇÃO DA FALHA DE REGISTRO POR CÓDIGO DE RETORNO (canal F). Ressalva
+#      da auditoria: a sonda mkdir+rmdir da consolidação não comprova que os
+#      canais de sinalização estavam operacionais NO MOMENTO da falha — uma
+#      indisponibilidade transitória do filesystem pode desaparecer antes da
+#      verificação, e o flag em memória (QUERY_FAILURES_UNSIGNABLE) definido
+#      dentro de $(...) não sobrevive à subshell. O mecanismo primário de
+#      sobrevivência passa a ser o CÓDIGO DE RETORNO (exit codes atravessam
+#      subshells; variáveis não):
+#        - exec_lab_sql/exec_lab_sql_file retornam o código RESERVADO 26
+#          (EXIT_QUERY_REC_FAIL) quando record_query_failure falha;
+#        - TODOS os call sites capturam o exit code APÓS a atribuição
+#          (var=$(...) || { rc=$?; ... }) e chamam note_query_record_failure_rc,
+#          que roda NO PROCESSO PRINCIPAL (o handler `||` de uma atribuição
+#          $(...) NUNCA executa dentro da subshell) e marca
+#          QUERY_FAILURES_RC_FATAL=1; a saída capturada continua invalidada
+#          pelos fallbacks já existentes (nunca dependente do stdout);
+#        - chamadas DIRETAS a record_query_failure (processo principal) marcam
+#          o mesmo estado via mark_query_record_failure;
+#        - a consolidação trata QUERY_FAILURES_RC_FATAL=1 como FATAL (contagem
+#          999, APROVADO impossível): estado em memória do processo principal,
+#          NÃO apagável por sonda posterior bem-sucedida.
+#      A sonda mkdir+rmdir e todos os canais A/B/C/D/E da v2.1.2 permanecem
+#      intactos (defesa em profundidade; a sonda nunca é a única prova).
+#      RASTREIO DA PROPAGAÇÃO (chamada a chamada até o gate do veredito):
+#        (a) exec_lab_sql [bloco rc!=0] → record_query_failure retorna não-zero
+#            → return 26 → exit da subshell $(...) = 26 → handler `||` do
+#            chamador (processo principal) → note_query_record_failure_rc 26 →
+#            QUERY_FAILURES_RC_FATAL=1 → consolidação (bloco v2.1.3) →
+#            QUERY_FAILURES_FATAL=1 e QUERY_FAILURES_COUNT=999 → CRIT_D_OK=0 e
+#            condição do veredito final falha → REPROVADO;
+#        (b) exec_lab_sql_file [bloco rc!=0] → idem (a) (único call site: bloco
+#            transacional da Etapa 5);
+#        (c) record_query_failure direto no processo principal (3 call sites:
+#            identidade de funções, interpretação jq da identidade e
+#            pg_get_functiondef) → handler `if !` → mark_query_record_failure →
+#            QUERY_FAILURES_RC_FATAL=1 → idem (a);
+#        (d) canais em disco que FUNCIONARAM no momento da falha (flag A/B,
+#            diretório C, marcadores D) continuam detectados por
+#            check_query_failure_signal na consolidação (estados 1 e 2) —
+#            inalterado; o canal E (memória) permanece como último recurso.
+#
 # POLÍTICA DE AUDITORIA E VEREDITO (v1.5.0):
 #   - O veredito APROVADO é emitido UNICAMENTE se TODOS os critérios técnicos
 #     passarem sem exceção:
@@ -205,7 +247,7 @@
 set -u -o pipefail
 umask 077
 
-SCRIPT_VERSION="v2.1.2"
+SCRIPT_VERSION="v2.1.3"
 
 # ------------------------------------------------------------------------------
 # PONTO 9 E PONTO 10 DA AUDITORIA: GUARDA DE SEGURANÇA MÁXIMA (ANTI-VPS)
@@ -459,6 +501,12 @@ QUERY_FAILURES_COUNT=0
 # os canais persistentes (registro, flag, diretório dedicado e alternativos)
 # falharem. Consultado na consolidação do veredito (processo principal).
 QUERY_FAILURES_UNSIGNABLE=0
+# CORREÇÃO (v2.1.3): canal F — falha de registro de falha SQL PROPAGADA ao
+# PROCESSO PRINCIPAL por CÓDIGO DE RETORNO (exit 26 atravessa subshells; o
+# handler `||` da atribuição roda fora da subshell). Consultado na consolidação
+# e impeditivo do APROVADO; por estar em memória do processo principal, NÃO é
+# apagável por sonda posterior bem-sucedida.
+QUERY_FAILURES_RC_FATAL=0
 TOTAL_TABELAS_LAB=0
 TOTAL_TABELAS_AUTH_LAB=0
 INVENTORY_COMPARISON_VALID="NAO"
@@ -476,6 +524,12 @@ EXIT_STRUCTURE_FAIL=22
 EXIT_INVENTORY_FAIL=23
 EXIT_OP_FAIL=24
 EXIT_FS_FAIL=25
+# CORREÇÃO (v2.1.3): código RESERVADO de exec_lab_sql/exec_lab_sql_file para
+# "a consulta falhou E o registro da falha TAMBÉM falhou" (record_query_failure
+# retornou não-zero). 26 não colide com códigos de psql (0-3), gunzip (1) nem
+# timeout (124). O código atravessa a subshell $(...) da atribuição do chamador
+# e é filtrado por note_query_record_failure_rc no handler do chamador.
+EXIT_QUERY_REC_FAIL=26
 
 # ------------------------------------------------------------------------------
 # HELPERS DE LOG E CONSOLE
@@ -759,7 +813,7 @@ fi
 
 exec_lab_sql() {
     local sql="$1"
-    local out rc
+    local out rc rec_rc
     if command -v timeout >/dev/null 2>&1; then
         out="$(timeout 60 docker exec "${LAB_NAME}" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -t -A -c "${sql}" 2>>"${LOG_FILE}")"
         rc=$?
@@ -768,14 +822,23 @@ exec_lab_sql() {
         rc=$?
     fi
     if [ "${rc}" -ne 0 ]; then
-        # Correção (v2.1.2): o retorno de record_query_failure é verificado —
-        # falha de registro é anunciada (não silenciada) e o mecanismo fail-
-        # closed interno (canais A/B/C/D + sonda na consolidação) é acionado;
-        # o exit code da consulta SQL continua propagando ao chamador.
-        if ! record_query_failure "exec_lab_sql (exit ${rc}): ${sql}"; then
-            say_err "Falha de consulta SQL (exit ${rc}) NÃO pôde ser registrada no arquivo de falhas; mecanismo fail-closed de sinalização acionado."
-        fi
+        # Correção (v2.1.2, preservada): o retorno de record_query_failure é
+        # verificado — falha de registro é anunciada (não silenciada) e o
+        # mecanismo fail-closed interno (canais A/B/C/D + sonda na consolidação)
+        # é acionado.
+        # CORREÇÃO (v2.1.3): a falha de registro AGORA É PROPAGADA POR CÓDIGO DE
+        # RETORNO — exit ${EXIT_QUERY_REC_FAIL} (26) substitui o exit da consulta
+        # quando o registro falha. O código atravessa a subshell $(...) da
+        # atribuição do chamador, cujo handler `||` roda NO PROCESSO PRINCIPAL
+        # e marca QUERY_FAILURES_RC_FATAL=1 (estado impeditivo do APROVADO, não
+        # apagável por sonda posterior bem-sucedida).
+        rec_rc=0
+        record_query_failure "exec_lab_sql (exit ${rc}): ${sql}" || rec_rc=$?
         log "FALHA SQL (exit ${rc}): ${sql}"
+        if [ "${rec_rc}" -ne 0 ]; then
+            say_err "Falha de consulta SQL (exit ${rc}) NÃO pôde ser registrada no arquivo de falhas; propagando exit ${EXIT_QUERY_REC_FAIL} ao chamador (fail-closed, v2.1.3)."
+            return "${EXIT_QUERY_REC_FAIL}"
+        fi
         return "${rc}"
     fi
     printf '%s\n' "${out}"
@@ -783,7 +846,7 @@ exec_lab_sql() {
 
 exec_lab_sql_file() {
     local file="$1"
-    local rc
+    local rc rec_rc
     if command -v timeout >/dev/null 2>&1; then
         timeout 120 docker exec -i "${LAB_NAME}" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < "${file}" >>"${LOG_FILE}" 2>&1
         rc=$?
@@ -792,12 +855,18 @@ exec_lab_sql_file() {
         rc=$?
     fi
     if [ "${rc}" -ne 0 ]; then
-        # Correção (v2.1.2): retorno de record_query_failure verificado (idem
-        # exec_lab_sql); exit code da consulta continua propagando ao chamador.
-        if ! record_query_failure "exec_lab_sql_file (exit ${rc}): ${file}"; then
-            say_err "Falha de consulta SQL em arquivo (exit ${rc}) NÃO pôde ser registrada no arquivo de falhas; mecanismo fail-closed de sinalização acionado."
-        fi
+        # Correção (v2.1.2, preservada): retorno de record_query_failure
+        # verificado (idem exec_lab_sql).
+        # CORREÇÃO (v2.1.3): falha de registro PROPAGADA POR CÓDIGO DE RETORNO
+        # (exit ${EXIT_QUERY_REC_FAIL}), que atravessa a subshell $(...) e é
+        # checado pelo handler do chamador no PROCESSO PRINCIPAL.
+        rec_rc=0
+        record_query_failure "exec_lab_sql_file (exit ${rc}): ${file}" || rec_rc=$?
         log "FALHA SQL FILE (exit ${rc}): ${file}"
+        if [ "${rec_rc}" -ne 0 ]; then
+            say_err "Falha de consulta SQL em arquivo (exit ${rc}) NÃO pôde ser registrada no arquivo de falhas; propagando exit ${EXIT_QUERY_REC_FAIL} ao chamador (fail-closed, v2.1.3)."
+            return "${EXIT_QUERY_REC_FAIL}"
+        fi
         return "${rc}"
     fi
     return 0
@@ -956,6 +1025,51 @@ count_query_failures() {
             ;;
     esac
     printf '%s' "${n}"
+}
+
+# ------------------------------------------------------------------------------
+# CORREÇÃO (v2.1.3): PROPAGAÇÃO DE FALHA DE REGISTRO POR CÓDIGO DE RETORNO
+# A auditoria da v2.1.2 apontou: a sonda mkdir+rmdir da consolidação não
+# comprova que os canais estavam operacionais NO MOMENTO da falha — uma
+# indisponibilidade transitória do filesystem pode desaparecer antes da
+# verificação, e o flag em memória definido dentro de $(...) não sobrevive à
+# subshell. O mecanismo primário de sobrevivência passa a ser o CÓDIGO DE
+# RETORNO:
+#   - exec_lab_sql/exec_lab_sql_file retornam EXIT_QUERY_REC_FAIL (26) quando
+#     record_query_failure falha (em qualquer canal);
+#   - o exit 26 atravessa a subshell $(...) da atribuição (o exit status da
+#     substituição de comando É o status do último comando interno);
+#   - o handler `||` do chamador roda NO PROCESSO PRINCIPAL e, via
+#     note_query_record_failure_rc, marca QUERY_FAILURES_RC_FATAL=1 — estado
+#     impeditivo do APROVADO que NÃO depende de disco e NÃO pode ser apagado
+#     por sonda posterior bem-sucedida;
+#   - chamadas DIRETAS a record_query_failure (processo principal) marcam o
+#     mesmo estado via mark_query_record_failure.
+# A sonda mkdir+rmdir da consolidação permanece (defesa em profundidade), mas
+# nunca é a única prova: "não pôde provar no momento da falha" permanece
+# impeditivo mesmo que o filesystem se recupere depois.
+# ------------------------------------------------------------------------------
+
+mark_query_record_failure() {
+    # Chamado EXCLUSIVAMENTE no PROCESSO PRINCIPAL (handlers `||` de
+    # atribuições $(...) ou call sites diretos a record_query_failure). Marca
+    # estado impeditivo do APROVADO em memória do processo principal.
+    QUERY_FAILURES_RC_FATAL=1
+    say_err "Falha AO REGISTRAR falha de consulta SQL confirmada no processo principal (propagação por código de retorno/chamada direta); a auditoria NÃO pode ser aprovada."
+    log "FALHA FATAL (registro SQL): QUERY_FAILURES_RC_FATAL=1 marcado no processo principal"
+    return 0
+}
+
+note_query_record_failure_rc() {
+    # Filtra o exit code capturado APÓS a atribuição de uma chamada
+    # exec_lab_sql* em $(...): APENAS EXIT_QUERY_REC_FAIL (26) significa "falha
+    # de registro"; demais códigos são falhas da consulta SQL em si (tratadas
+    # pelos canais já existentes) e NÃO marcam o estado fatal.
+    local rc="$1"
+    if [ "${rc}" -eq "${EXIT_QUERY_REC_FAIL}" ]; then
+        mark_query_record_failure
+    fi
+    return 0
 }
 
 # ------------------------------------------------------------------------------
@@ -1175,9 +1289,11 @@ GRAPHQL_DEP_NOTE="não requerida"
 # pg_extension (instalada, com extversion) e pg_available_extensions (disponível).
 # A existência de função homônima (pg_proc.proname = 'graphql') NÃO é aceita
 # como prova de extensão operacional.
-if ! GRAPHQL_EXT_INFO="$(exec_lab_sql "SELECT CASE WHEN e.extname IS NOT NULL THEN 'INSTALADA:' || e.extversion WHEN a.name IS NOT NULL THEN 'DISPONIVEL:' || a.default_version ELSE 'AUSENTE' END FROM (SELECT 1) d LEFT JOIN pg_extension e ON e.extname = 'pg_graphql' LEFT JOIN pg_available_extensions a ON a.name = 'pg_graphql'")"; then
+GRAPHQL_EXT_INFO="$(exec_lab_sql "SELECT CASE WHEN e.extname IS NOT NULL THEN 'INSTALADA:' || e.extversion WHEN a.name IS NOT NULL THEN 'DISPONIVEL:' || a.default_version ELSE 'AUSENTE' END FROM (SELECT 1) d LEFT JOIN pg_extension e ON e.extname = 'pg_graphql' LEFT JOIN pg_available_extensions a ON a.name = 'pg_graphql'")" || {
+    SQL_RC_HOOK=$?
+    note_query_record_failure_rc "${SQL_RC_HOOK}"
     GRAPHQL_EXT_INFO="ERRO_CONSULTA"
-fi
+}
 GRAPHQL_EXT_INFO="$(printf '%s\n' "${GRAPHQL_EXT_INFO}" | tr -d '[:space:]')"
 
 case "${GRAPHQL_EXT_INFO}" in
@@ -1194,14 +1310,17 @@ case "${GRAPHQL_EXT_INFO}" in
             say "🛠️  Tentando recuperação assistida SEGURA (CREATE EXTENSION IF NOT EXISTS pg_graphql)..."
             # Execução estritamente aditiva: NUNCA DROP EXTENSION CASCADE!
             CREATE_EXT_RC=0
-            if ! exec_lab_sql "CREATE EXTENSION IF NOT EXISTS pg_graphql WITH SCHEMA extensions;" >>"${LOG_FILE}" 2>&1; then
-                CREATE_EXT_RC=1
-            fi
+            exec_lab_sql "CREATE EXTENSION IF NOT EXISTS pg_graphql WITH SCHEMA extensions;" >>"${LOG_FILE}" 2>&1 || {
+                CREATE_EXT_RC=$?
+                note_query_record_failure_rc "${CREATE_EXT_RC}"
+            }
 
             # Revalidação pelo catálogo de extensões (nunca por função homônima)
-            if ! GRAPHQL_EXT_AFTER="$(exec_lab_sql "SELECT CASE WHEN e.extname IS NOT NULL THEN 'INSTALADA:' || e.extversion ELSE 'AUSENTE' END FROM (SELECT 1) d LEFT JOIN pg_extension e ON e.extname = 'pg_graphql'")"; then
+            GRAPHQL_EXT_AFTER="$(exec_lab_sql "SELECT CASE WHEN e.extname IS NOT NULL THEN 'INSTALADA:' || e.extversion ELSE 'AUSENTE' END FROM (SELECT 1) d LEFT JOIN pg_extension e ON e.extname = 'pg_graphql'")" || {
+                SQL_RC_HOOK=$?
+                note_query_record_failure_rc "${SQL_RC_HOOK}"
                 GRAPHQL_EXT_AFTER="ERRO_CONSULTA"
-            fi
+            }
             GRAPHQL_EXT_AFTER="$(printf '%s\n' "${GRAPHQL_EXT_AFTER}" | tr -d '[:space:]')"
 
             GRAPHQL_REVALID_OK=0
@@ -1242,9 +1361,11 @@ esac
 
 say "📊 Executando inventário estrutural do banco restaurado..."
 
-if ! TOTAL_TABELAS_LAB_RAW="$(exec_lab_sql "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'")"; then
+TOTAL_TABELAS_LAB_RAW="$(exec_lab_sql "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'")" || {
+    SQL_RC_HOOK=$?
+    note_query_record_failure_rc "${SQL_RC_HOOK}"
     printf 'DIVERGÊNCIA: Falha de consulta SQL ao contar tabelas public no laboratório\n' >> "${DIVERGENCES_FILE}"
-fi
+}
 TOTAL_TABELAS_LAB="$(printf '%s\n' "${TOTAL_TABELAS_LAB_RAW:-0}" | tr -d '[:space:]')"
 
 case "${TOTAL_TABELAS_LAB}" in
@@ -1254,9 +1375,11 @@ case "${TOTAL_TABELAS_LAB}" in
         ;;
 esac
 
-if ! TOTAL_TABELAS_AUTH_RAW="$(exec_lab_sql "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'auth' AND table_type = 'BASE TABLE'")"; then
+TOTAL_TABELAS_AUTH_RAW="$(exec_lab_sql "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'auth' AND table_type = 'BASE TABLE'")" || {
+    SQL_RC_HOOK=$?
+    note_query_record_failure_rc "${SQL_RC_HOOK}"
     printf 'DIVERGÊNCIA: Falha de consulta SQL ao contar tabelas auth no laboratório\n' >> "${DIVERGENCES_FILE}"
-fi
+}
 TOTAL_TABELAS_AUTH_LAB="$(printf '%s\n' "${TOTAL_TABELAS_AUTH_RAW:-0}" | tr -d '[:space:]')"
 
 case "${TOTAL_TABELAS_AUTH_LAB}" in
@@ -1277,24 +1400,32 @@ esac
 # completo (nunca misturar contagens de escopo público com comparações
 # abrangendo todos os schemas de usuário).
 TOTAL_CONSTRAINTS_LAB_RAW="$(exec_lab_sql "SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace WHERE n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema'")" || {
+    SQL_RC_HOOK=$?
+    note_query_record_failure_rc "${SQL_RC_HOOK}"
     printf 'DIVERGÊNCIA: Falha de consulta SQL ao contar constraints\n' >> "${DIVERGENCES_FILE}"
     TOTAL_CONSTRAINTS_LAB_RAW=0
 }
 TOTAL_CONSTRAINTS_LAB="$(printf '%s\n' "${TOTAL_CONSTRAINTS_LAB_RAW}" | tr -d '[:space:]')"
 
 TOTAL_FUNCOES_LAB_RAW="$(exec_lab_sql "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema'")" || {
+    SQL_RC_HOOK=$?
+    note_query_record_failure_rc "${SQL_RC_HOOK}"
     printf 'DIVERGÊNCIA: Falha de consulta SQL ao contar funções public\n' >> "${DIVERGENCES_FILE}"
     TOTAL_FUNCOES_LAB_RAW=0
 }
 TOTAL_FUNCOES_LAB="$(printf '%s\n' "${TOTAL_FUNCOES_LAB_RAW}" | tr -d '[:space:]')"
 
 TOTAL_TRIGGERS_LAB_RAW="$(exec_lab_sql "SELECT count(*) FROM information_schema.triggers WHERE trigger_schema = 'public'")" || {
+    SQL_RC_HOOK=$?
+    note_query_record_failure_rc "${SQL_RC_HOOK}"
     printf 'DIVERGÊNCIA: Falha de consulta SQL ao contar triggers public\n' >> "${DIVERGENCES_FILE}"
     TOTAL_TRIGGERS_LAB_RAW=0
 }
 TOTAL_TRIGGERS_LAB="$(printf '%s\n' "${TOTAL_TRIGGERS_LAB_RAW}" | tr -d '[:space:]')"
 
 TOTAL_EXTENSOES_LAB_RAW="$(exec_lab_sql "SELECT count(*) FROM pg_extension")" || {
+    SQL_RC_HOOK=$?
+    note_query_record_failure_rc "${SQL_RC_HOOK}"
     printf 'DIVERGÊNCIA: Falha de consulta SQL ao contar extensões\n' >> "${DIVERGENCES_FILE}"
     TOTAL_EXTENSOES_LAB_RAW=0
 }
@@ -1309,20 +1440,26 @@ say "   Extensões instaladas .......: ${TOTAL_EXTENSOES_LAB}"
 
 # Contagem de registros no laboratório (schemas public e auth)
 LAB_PUBLIC_TABLES_LIST=""
-if ! LAB_PUBLIC_TABLES_LIST="$(exec_lab_sql "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name")"; then
+LAB_PUBLIC_TABLES_LIST="$(exec_lab_sql "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name")" || {
+    SQL_RC_HOOK=$?
+    note_query_record_failure_rc "${SQL_RC_HOOK}"
     printf 'DIVERGÊNCIA: Falha de consulta SQL ao listar tabelas public\n' >> "${DIVERGENCES_FILE}"
-fi
+}
 
 LAB_AUTH_TABLES_LIST=""
-if ! LAB_AUTH_TABLES_LIST="$(exec_lab_sql "SELECT table_name FROM information_schema.tables WHERE table_schema = 'auth' AND table_type = 'BASE TABLE' ORDER BY table_name")"; then
+LAB_AUTH_TABLES_LIST="$(exec_lab_sql "SELECT table_name FROM information_schema.tables WHERE table_schema = 'auth' AND table_type = 'BASE TABLE' ORDER BY table_name")" || {
+    SQL_RC_HOOK=$?
+    note_query_record_failure_rc "${SQL_RC_HOOK}"
     printf 'DIVERGÊNCIA: Falha de consulta SQL ao listar tabelas auth\n' >> "${DIVERGENCES_FILE}"
-fi
+}
 
 TOTAL_REGISTROS_STATUS="OK"
 if [ -n "${LAB_PUBLIC_TABLES_LIST}" ]; then
     while IFS= read -r t; do
         [ -n "${t}" ] || continue
         cnt_raw="$(exec_lab_sql "SELECT count(*) FROM public.\"${t}\"")" || {
+            SQL_RC_HOOK=$?
+            note_query_record_failure_rc "${SQL_RC_HOOK}"
             printf 'DIVERGÊNCIA: Falha de consulta SQL ao contar registros de public."%s"\n' "${t}" >> "${DIVERGENCES_FILE}"
             TOTAL_REGISTROS_STATUS="FALHA"
             continue
@@ -1344,6 +1481,8 @@ if [ -n "${LAB_AUTH_TABLES_LIST}" ]; then
     while IFS= read -r t; do
         [ -n "${t}" ] || continue
         cnt_raw="$(exec_lab_sql "SELECT count(*) FROM auth.\"${t}\"")" || {
+            SQL_RC_HOOK=$?
+            note_query_record_failure_rc "${SQL_RC_HOOK}"
             printf 'DIVERGÊNCIA: Falha de consulta SQL ao contar registros de auth."%s"\n' "${t}" >> "${DIVERGENCES_FILE}"
             TOTAL_REGISTROS_STATUS="FALHA"
             continue
@@ -1539,6 +1678,8 @@ else
 
                 # Verifica existência física no laboratório
                 table_exists_raw="$(exec_lab_sql "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = '${inv_schema}' AND table_name = '${inv_tab}' AND table_type = 'BASE TABLE')")" || {
+                    SQL_RC_HOOK=$?
+                    note_query_record_failure_rc "${SQL_RC_HOOK}"
                     printf 'DIVERGÊNCIA: Falha de consulta SQL ao verificar existência de %s."%s"\n' "${inv_schema}" "${inv_tab}" >> "${DIVERGENCES_FILE}"
                     continue
                 }
@@ -1552,6 +1693,8 @@ else
                 # Comparação de contagens conforme o método (Ponto 8)
                 if [ "${inv_tipo}" = "exata" ]; then
                     lab_cnt_raw="$(exec_lab_sql "SELECT count(*) FROM \"${inv_schema}\".\"${inv_tab}\"")" || {
+                        SQL_RC_HOOK=$?
+                        note_query_record_failure_rc "${SQL_RC_HOOK}"
                         printf 'DIVERGÊNCIA: Falha de consulta SQL na contagem exata de %s."%s"\n' "${inv_schema}" "${inv_tab}" >> "${DIVERGENCES_FILE}"
                         continue
                     }
@@ -1585,6 +1728,8 @@ else
                     #     (impede APROVADO enquanto não houver contagem exata);
                     #   - verificação aprovada: somente contagens "exata" iguais.
                     lab_est_raw="$(exec_lab_sql "SELECT round(reltuples)::bigint FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = '${inv_schema}' AND c.relname = '${inv_tab}'")" || {
+                        SQL_RC_HOOK=$?
+                        note_query_record_failure_rc "${SQL_RC_HOOK}"
                         printf 'DIVERGÊNCIA: Falha de consulta SQL ao estimar tuplas de %s."%s"\n' "${inv_schema}" "${inv_tab}" >> "${DIVERGENCES_FILE}"
                         continue
                     }
@@ -1735,7 +1880,14 @@ else
                     CONSTRAINTS_DIFF_FOUND=$((CONSTRAINTS_DIFF_FOUND + 1))
                     continue
                 fi
-                lab_c_def_raw="$(exec_lab_sql "SELECT pg_get_constraintdef(c.oid, true) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace JOIN pg_class r ON r.oid = c.conrelid WHERE n.nspname = '${c_schema}' AND r.relname = '${c_tab}' AND c.conname = '${c_name}'")" || lab_c_def_raw=""
+                # CORREÇÃO (v2.1.3): exit code capturado após a atribuição (antes
+                # o código era descartado por "|| lab_c_def_raw=\"\"") — falha de
+                # registro (exit 26) chega ao processo principal e é marcada.
+                lab_c_def_raw="$(exec_lab_sql "SELECT pg_get_constraintdef(c.oid, true) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace JOIN pg_class r ON r.oid = c.conrelid WHERE n.nspname = '${c_schema}' AND r.relname = '${c_tab}' AND c.conname = '${c_name}'")" || {
+                    SQL_RC_HOOK=$?
+                    note_query_record_failure_rc "${SQL_RC_HOOK}"
+                    lab_c_def_raw=""
+                }
                 # Correção 4 (v1.9.0): normalização NÃO destrutiva (quebras viram
                 # espaço; nunca remoção pura que colaria palavras).
                 lab_c_def="$(printf '%s\n' "${lab_c_def_raw}" | tr -d '\r' | tr '\n' ' ' | sed -e 's/[[:space:]]\+/ /g' -e 's/^[[:space:]]*//;s/[[:space:]]*$//')"
@@ -1877,6 +2029,9 @@ SQL
                     # Correção (v2.1.2): retorno de record_query_failure verificado;
                     # falha de registro gera DIVERGÊNCIA impeditiva adicional.
                     if ! record_query_failure "consulta de identidade de funções ${f_schema}.${f_name} (exit ${FUNCOES_IDENT_RC})"; then
+                        # CORREÇÃO (v2.1.3): marca estado impeditivo no PROCESSO
+                        # PRINCIPAL (não apagável por sonda posterior).
+                        mark_query_record_failure
                         printf 'DIVERGÊNCIA: Falha AO REGISTRAR a falha de consulta SQL (identidade de funções %s."%s", exit %s) — mecanismo fail-closed de sinalização acionado\n' "${f_schema}" "${f_name}" "${FUNCOES_IDENT_RC}" >> "${DIVERGENCES_FILE}"
                     fi
                     printf 'DIVERGÊNCIA: Falha de consulta SQL ao recuperar identidades de %s."%s" (exit %s)\n' "${f_schema}" "${f_name}" "${FUNCOES_IDENT_RC}" >> "${DIVERGENCES_FILE}"
@@ -1891,6 +2046,9 @@ SQL
                     # Correção (v2.1.2): retorno de record_query_failure verificado;
                     # falha de registro gera DIVERGÊNCIA impeditiva adicional.
                     if ! record_query_failure "interpretação jq da identidade de funções ${f_schema}.${f_name} (exit ${FUNCOES_IDENT_JQ_RC})"; then
+                        # CORREÇÃO (v2.1.3): marca estado impeditivo no PROCESSO
+                        # PRINCIPAL (não apagável por sonda posterior).
+                        mark_query_record_failure
                         printf 'DIVERGÊNCIA: Falha AO REGISTRAR a falha de interpretação jq (identidade de funções %s."%s") — mecanismo fail-closed de sinalização acionado\n' "${f_schema}" "${f_name}" >> "${DIVERGENCES_FILE}"
                     fi
                     printf 'DIVERGÊNCIA: Resposta da consulta de identidade de %s."%s" não é JSON interpretável (jq exit %s)\n' "${f_schema}" "${f_name}" "${FUNCOES_IDENT_JQ_RC}" >> "${DIVERGENCES_FILE}"
@@ -1984,6 +2142,9 @@ SQL
                             # Correção (v2.1.2): retorno de record_query_failure verificado;
                             # falha de registro gera DIVERGÊNCIA impeditiva adicional.
                             if ! record_query_failure "pg_get_functiondef de ${f_schema}.${f_name} (exit ${FUNCOES_FDEF_RC})"; then
+                                # CORREÇÃO (v2.1.3): marca estado impeditivo no
+                                # PROCESSO PRINCIPAL (não apagável por sonda posterior).
+                                mark_query_record_failure
                                 printf 'DIVERGÊNCIA: Falha AO REGISTRAR a falha de pg_get_functiondef (%s."%s") — mecanismo fail-closed de sinalização acionado\n' "${f_schema}" "${f_name}" >> "${DIVERGENCES_FILE}"
                             fi
                         fi
@@ -2054,7 +2215,10 @@ SQL
         # information_schema.table_constraints não mostra. Critério de identidade
         # IGUAL ao do gerador: (schema, tabela, nome, tipo/contype).
         LAB_CONSTRAINTS_JSON_RC=0
-        LAB_CONSTRAINTS_JSON="$(exec_lab_sql "SELECT coalesce(json_agg(json_build_object('schema', n.nspname, 'tabela', r.relname, 'nome', c.conname, 'tipo', c.contype))::text, '[]') FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace JOIN pg_class r ON r.oid = c.conrelid WHERE n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema'")" || LAB_CONSTRAINTS_JSON_RC=$?
+        LAB_CONSTRAINTS_JSON="$(exec_lab_sql "SELECT coalesce(json_agg(json_build_object('schema', n.nspname, 'tabela', r.relname, 'nome', c.conname, 'tipo', c.contype))::text, '[]') FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace JOIN pg_class r ON r.oid = c.conrelid WHERE n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema'")" || {
+            LAB_CONSTRAINTS_JSON_RC=$?
+            note_query_record_failure_rc "${LAB_CONSTRAINTS_JSON_RC}"
+        }
         LAB_CONSTRAINTS_ITEMS=""
         if [ "${LAB_CONSTRAINTS_JSON_RC}" -ne 0 ] || [ -z "${LAB_CONSTRAINTS_JSON}" ]; then
             printf 'DIVERGÊNCIA: Falha ao listar constraints do banco restaurado para conferência bidirecional (exit %s)\n' "${LAB_CONSTRAINTS_JSON_RC}" >> "${DIVERGENCES_FILE}"
@@ -2102,7 +2266,10 @@ SQL
         # por sobrecarga com a MESMA identidade do sentido 1 e do gerador:
         # (schema, nome, identidade de argumentos).
         LAB_FUNCOES_JSON_RC=0
-        LAB_FUNCOES_JSON="$(exec_lab_sql "SELECT coalesce(json_agg(json_build_object('schema', n.nspname, 'nome', p.proname, 'identidade', pg_get_function_identity_arguments(p.oid)))::text, '[]') FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema'")" || LAB_FUNCOES_JSON_RC=$?
+        LAB_FUNCOES_JSON="$(exec_lab_sql "SELECT coalesce(json_agg(json_build_object('schema', n.nspname, 'nome', p.proname, 'identidade', pg_get_function_identity_arguments(p.oid)))::text, '[]') FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema'")" || {
+            LAB_FUNCOES_JSON_RC=$?
+            note_query_record_failure_rc "${LAB_FUNCOES_JSON_RC}"
+        }
         LAB_FUNCOES_ITEMS=""
         if [ "${LAB_FUNCOES_JSON_RC}" -ne 0 ] || [ -z "${LAB_FUNCOES_JSON}" ]; then
             printf 'DIVERGÊNCIA: Falha ao listar funções do banco restaurado para conferência bidirecional (exit %s)\n' "${LAB_FUNCOES_JSON_RC}" >> "${DIVERGENCES_FILE}"
@@ -2196,6 +2363,8 @@ SELECT (
     (SELECT count(*) FROM public.appointments a LEFT JOIN public.clients cl ON cl.id = a.client_id WHERE a.client_id IS NOT NULL AND cl.id IS NULL)
 ) as total_orfãos;
 ")" || {
+    SQL_RC_HOOK=$?
+    note_query_record_failure_rc "${SQL_RC_HOOK}"
     printf 'DIVERGÊNCIA (saude-pg): Falha de consulta SQL ao verificar FKs órfãs\n' >> "${DIVERGENCES_FILE}"
     FK_ORPHANS_CNT_RAW=999
 }
@@ -2215,6 +2384,8 @@ fi
 
 # Teste 2: Consistência de auth.users (sem e-mails duplicados)
 USERS_DUP_COUNT_RAW="$(exec_lab_sql "SELECT count(*) FROM (SELECT lower(email), count(*) FROM auth.users GROUP BY lower(email) HAVING count(*) > 1) d;")" || {
+    SQL_RC_HOOK=$?
+    note_query_record_failure_rc "${SQL_RC_HOOK}"
     printf 'DIVERGÊNCIA (saude-pg): Falha de consulta SQL ao checar duplicidades em auth.users\n' >> "${DIVERGENCES_FILE}"
     USERS_DUP_COUNT_RAW=999
 }
@@ -2227,6 +2398,8 @@ case "${USERS_DUP_COUNT}" in
 esac
 
 USERS_TOTAL_RAW="$(exec_lab_sql "SELECT count(*) FROM auth.users")" || {
+    SQL_RC_HOOK=$?
+    note_query_record_failure_rc "${SQL_RC_HOOK}"
     printf 'DIVERGÊNCIA (saude-pg): Falha de consulta SQL ao contar auth.users\n' >> "${DIVERGENCES_FILE}"
     USERS_TOTAL_RAW=0
 }
@@ -2251,10 +2424,12 @@ for q in \
     "SELECT id, title, case_number, status FROM public.cases ORDER BY created_at DESC LIMIT 50" \
     "SELECT id, title, due_date, status FROM public.tasks ORDER BY due_date ASC LIMIT 50" \
     "SELECT id, title, start_time FROM public.appointments ORDER BY start_time ASC LIMIT 50"; do
-    if ! exec_lab_sql "EXPLAIN ${q}" >>"${LOG_FILE}" 2>&1; then
+    exec_lab_sql "EXPLAIN ${q}" >>"${LOG_FILE}" 2>&1 || {
+        SQL_RC_HOOK=$?
+        note_query_record_failure_rc "${SQL_RC_HOOK}"
         EXPLAIN_STATUS="FALHA"
         break
-    fi
+    }
 done
 
 if [ "${EXPLAIN_STATUS}" = "OK" ]; then
@@ -2284,11 +2459,13 @@ if [ -z "${TX_TMP_PERM}" ] || [ "${TX_TMP_PERM}" != "600" ]; then
     die "Permissão efetiva do arquivo SQL temporário inválida (${TX_TMP_PERM})." "${EXIT_FS_FAIL}"
 fi
 
-if ! exec_lab_sql_file "${TX_TMP_FILE}"; then
+if exec_lab_sql_file "${TX_TMP_FILE}"; then
+    printf 'CONFERIDO (saude-pg): Simulação transacional com ROLLBACK concluída com sucesso\n' >> "${CONFERIDOS_FILE}"
+else
+    SQL_RC_HOOK=$?
+    note_query_record_failure_rc "${SQL_RC_HOOK}"
     TX_STATUS="FALHA"
     printf 'DIVERGÊNCIA (saude-pg): Bloco transacional de simulação falhou\n' >> "${DIVERGENCES_FILE}"
-else
-    printf 'CONFERIDO (saude-pg): Simulação transacional com ROLLBACK concluída com sucesso\n' >> "${CONFERIDOS_FILE}"
 fi
 rm -f "${TX_TMP_FILE}" 2>/dev/null || true
 
@@ -2371,6 +2548,22 @@ if [ "${QUERY_FAILURES_UNSIGNABLE:-0}" -ne 0 ]; then
     printf 'DIVERGÊNCIA: Registro de falhas SQL ficou IMPOSSÍVEL de sinalizar em disco durante a sessão (flag em memória) — veredito NUNCA é APROVADO nesta condição\n' >> "${DIVERGENCES_FILE}"
     say_err "Impossibilidade de sinalizar falhas SQL em disco detectada; a auditoria NÃO pode ser aprovada."
     log "FALHA FATAL (registro SQL): QUERY_FAILURES_UNSIGNABLE ativo na consolidação"
+fi
+
+# CORREÇÃO (v2.1.3): canal F — falha de registro PROPAGADA POR CÓDIGO DE RETORNO
+# (QUERY_FAILURES_RC_FATAL). Marcado no PROCESSO PRINCIPAL pelos handlers `||`
+# dos call sites (exit 26 atravessa a subshell $(...) da atribuição) e pelas
+# chamadas diretas a record_query_failure. Estado EM MEMÓRIA do processo
+# principal: NÃO pode ser apagado por sonda mkdir+rmdir posterior bem-sucedida
+# (a ressalva da auditoria v2.1.2 — a sonda não comprova o estado NO MOMENTO da
+# falha — fica coberta: o que não pôde ser provado no momento da falha permanece
+# impeditivo).
+if [ "${QUERY_FAILURES_RC_FATAL:-0}" -ne 0 ]; then
+    QUERY_FAILURES_FATAL=1
+    QUERY_FAILURES_COUNT=999
+    printf 'DIVERGÊNCIA: Falha de registro de falha de consulta SQL PROPAGADA ao processo principal por código de retorno (exit %s) durante a sessão — estado impeditivo não apagável; veredito NUNCA é APROVADO nesta condição\n' "${EXIT_QUERY_REC_FAIL}" >> "${DIVERGENCES_FILE}"
+    say_err "Falha de registro de falha de consulta SQL propagada por código de retorno; a auditoria NÃO pode ser aprovada."
+    log "FALHA FATAL (registro SQL): QUERY_FAILURES_RC_FATAL ativo na consolidação"
 fi
 
 CRIT_A="FALHA"
@@ -2477,7 +2670,7 @@ cat <<EOF > "${REPORT_FILE}"
    Total de divergências impeditivas: ${DIVERGENCES_COUNT}
    Total de diferenças de contagem inconclusivas: ${TEMPORAL_DIFFS_COUNT}
    Total de falhas de consulta SQL: ${QUERY_FAILURES_COUNT}
-   Falha fatal de registro SQL (sinal independente, consulta verificada/fail-closed): ${QUERY_FAILURES_FATAL} (0 = canal íntegro e sem sinal; >0 = escrita no registro comprometida OU canal de sinalização inacessível — aprovação impossível)
+   Falha fatal de registro SQL (sinal independente, consulta verificada/fail-closed, incl. propagação por código de retorno v2.1.3): ${QUERY_FAILURES_FATAL} (0 = canal íntegro e sem sinal; >0 = escrita no registro comprometida OU canal de sinalização inacessível OU falha propagada por exit code — aprovação impossível)
 EOF
 
 if [ -s "${DIVERGENCES_FILE}" ]; then
