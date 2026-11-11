@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur / SBJur — Auditoria Independente de Integridade de Backup
 # Script: docs/vps/20-auditar-backup.sh
-# Versão: v1.9.0
+# Versão: v2.0.0
 # Destino de execução: MÁQUINA DE TESTE / WSL2 / DOCKER DESKTOP ISOLADO
 #
 # GUARDA DE SEGURANÇA MÁXIMA (ANTI-VPS) E CONTROLE ESTRITO DE SESSÃO DOCKER:
@@ -58,6 +58,37 @@
 #      pós-restauração; evidências da restauração original e da recuperação assistida
 #      permanecem separadas na seção 2 do relatório.
 #
+# CORREÇÕES v2.0.0 (auditoria externa independente — 8 pontos, correção cirúrgica):
+#   1. QUERY_FAILURES_COUNT contabilizada em ARQUIVO privativo da sessão: falhas
+#      registradas dentro de $(...) não persistem em variáveis do processo Bash
+#      principal; a contagem usada pelo veredito é lida do arquivo na consolidação
+#      (as falhas SQL inline de identidade/pg_get_functiondef também são contadas).
+#   2. Guarda Docker explicita a precedência REAL da CLI (DOCKER_HOST sobrepõe o
+#      endpoint de qualquer contexto ativo; sem DOCKER_HOST vale o contexto ativo,
+#      resolvido pela CLI via DOCKER_CONTEXT e então docker context show) e aborta
+#      com exit 11 quando o endpoint local seguro não é comprovável — ANTES de
+#      qualquer operação que modifique recursos Docker.
+#   3. Conferência estrutural de constraints e funções é BIDIRECIONAL também no
+#      sentido backup restaurado -> inventário: objetos ADICIONAIS presentes no
+#      banco restaurado e ausentes do inventário geram DIVERGÊNCIA (escopo
+#      documentado: schema public).
+#   4. Consulta de identidade de funções SEM delimitador textual colidível: a
+#      identidade é embutida por dollar-quoting com etiqueta única (conteúdo que
+#      contenha a etiqueta é recusado) e a resposta vem como UM ÚNICO documento
+#      JSON decodificado por jq — elimina '|RET:'/'|OID:' e a ambiguidade do sed.
+#   5. Extração de funções e constraints em JSON-lines: campos íntegros (aspas,
+#      quebras de linha e caracteres especiais escapados pelo codificador JSON,
+#      sem colisão de separador), decodificados campo a campo (jq @sh + eval).
+#   6. Estimativas reltuples NÃO são registradas como "CONFERIDO": a extração é
+#      rotulada como informação coletada (não é verificação) e a comparação como
+#      INCONCLUSIVA — aprovação exige contagem exata validada.
+#   7. Consulta de referências órfãs distingue NULL permitido de referência
+#      inválida: conta apenas client_id preenchido (IS NOT NULL) sem
+#      correspondência — NULL legítimo não é mais contado como órfão.
+#   8. Sem "|| true" no chmod do arquivo SQL temporário: sucesso do chmod E
+#      permissão efetiva (stat) são verificados (idem nos arquivos de consulta
+#      de identidade e pg_get_functiondef).
+#
 # POLÍTICA DE AUDITORIA E VEREDITO (v1.5.0):
 #   - O veredito APROVADO é emitido UNICAMENTE se TODOS os critérios técnicos
 #     passarem sem exceção:
@@ -88,7 +119,7 @@
 set -u -o pipefail
 umask 077
 
-SCRIPT_VERSION="v1.9.0"
+SCRIPT_VERSION="v2.0.0"
 
 # ------------------------------------------------------------------------------
 # PONTO 9 E PONTO 10 DA AUDITORIA: GUARDA DE SEGURANÇA MÁXIMA (ANTI-VPS)
@@ -96,63 +127,73 @@ SCRIPT_VERSION="v1.9.0"
 # NENHUMA limpeza, escrita em disco ou chamada Docker é acionada antes disto!
 # ------------------------------------------------------------------------------
 
-# 1. Bloqueio estrito de DOCKER_HOST remoto (Ponto 10)
-if [ -n "${DOCKER_HOST:-}" ]; then
-    case "${DOCKER_HOST}" in
-        tcp://*|ssh://*|http://*|https://*)
-            printf '❌ ERRO CRÍTICO DE SEGURANÇA: DOCKER_HOST aponta para endpoint remoto (%s).\n' "${DOCKER_HOST}" >&2
-            printf '   A auditoria só é permitida contra socket Docker local verificado.\n' >&2
-            exit 11
-            ;;
-        unix://*)
-            # Socket local permitido
-            ;;
-        *)
-            printf '❌ ERRO CRÍTICO DE SEGURANÇA: DOCKER_HOST possui formato não verificado (%s).\n' "${DOCKER_HOST}" >&2
-            exit 11
-            ;;
-    esac
-fi
-
-# 2. Bloqueio estrito de endpoint Docker remoto e não verificável (Ponto 4 da auditoria,
-#    corrigido no Ponto 2 da correção v1.8.0):
-#    A guarda resolve o ENDPOINT EFETIVO da CLI do Docker — DOCKER_HOST quando
-#    definido (já validado acima); caso contrário, o endpoint do contexto ATUAL
-#    obtido via docker context inspect — e decide PELO ENDPOINT, nunca pelo nome
-#    do contexto. Endpoint unix:// só é aceito se o socket existir de fato;
-#    tcp://, ssh://, http(s):// e npipe:// são sempre abortados com exit 11.
+# 1. GUARDA DOCKER COM PRECEDÊNCIA REAL DA CLI (Ponto 4 da auditoria original;
+#    Ponto 2 da correção v2.0.0):
+#    O endpoint efetivo é resolvido na MESMA ordem de precedência da CLI Docker:
+#      (a) DOCKER_HOST, quando definido, SOBREPÕE o endpoint de qualquer contexto
+#          selecionado (flag --context, DOCKER_CONTEXT ou currentContext);
+#      (b) sem DOCKER_HOST, vale o CONTEXTO ATIVO, que a CLI resolve na ordem:
+#          flag --context (não usada por este script) -> variável DOCKER_CONTEXT
+#          -> currentContext do config.json (docker context show).
+#    O endpoint só é aceito se for comprovadamente LOCAL: unix:// com socket
+#    existente. tcp://, ssh://, http(s)://, npipe://, formato desconhecido ou
+#    endpoint não comprovável abortam com exit 11 ANTES de qualquer operação que
+#    modifique recursos Docker (nenhuma criação/remoção existe antes deste ponto).
 if command -v docker >/dev/null 2>&1; then
+    DOCKER_EFFECTIVE_ENDPOINT=""
+    DOCKER_ENDPOINT_ORIGIN=""
+
     if [ -n "${DOCKER_HOST:-}" ]; then
-        DOCKER_EFFECTIVE_ENDPOINT="${DOCKER_HOST}"
-        DOCKER_ENDPOINT_ORIGIN="DOCKER_HOST"
+        case "${DOCKER_HOST}" in
+            tcp://*|ssh://*|http://*|https://*|npipe://*)
+                printf '❌ ERRO CRÍTICO DE SEGURANÇA: DOCKER_HOST aponta para endpoint remoto (%s).\n' "${DOCKER_HOST}" >&2
+                printf '   DOCKER_HOST sobrepõe o endpoint de qualquer contexto ativo; a auditoria só é permitida contra socket local verificado.\n' >&2
+                exit 11
+                ;;
+            unix://*)
+                DOCKER_EFFECTIVE_ENDPOINT="${DOCKER_HOST}"
+                DOCKER_ENDPOINT_ORIGIN="DOCKER_HOST (sobrepõe o contexto ativo${DOCKER_CONTEXT:+ 'DOCKER_CONTEXT=${DOCKER_CONTEXT}'})"
+                ;;
+            *)
+                printf '❌ ERRO CRÍTICO DE SEGURANÇA: DOCKER_HOST possui formato não verificado (%s).\n' "${DOCKER_HOST}" >&2
+                exit 11
+                ;;
+        esac
     else
-        DOCKER_CURRENT_CONTEXT="$(docker context show 2>/dev/null || echo "default")"
-        if [ -z "${DOCKER_CURRENT_CONTEXT}" ]; then
-            printf '❌ ERRO CRÍTICO DE SEGURANÇA: Não foi possível obter o contexto Docker atual.\n' >&2
-            exit 11
+        # Sem DOCKER_HOST: o endpoint vem do CONTEXTO ATIVO da CLI.
+        if [ -n "${DOCKER_CONTEXT:-}" ]; then
+            # DOCKER_CONTEXT tem precedência sobre o currentContext do config.
+            # Falha em inspecionar = endpoint não comprovado = bloqueio
+            # preventivo (NUNCA presumir o contexto "default").
+            DOCKER_CURRENT_CONTEXT="${DOCKER_CONTEXT}"
+            DOCKER_CONTEXT_ORIGIN_KIND="selecionado expressamente pela variável DOCKER_CONTEXT"
+        else
+            DOCKER_CURRENT_CONTEXT="$(docker context show 2>/dev/null)" || DOCKER_CURRENT_CONTEXT=""
+            if [ -z "${DOCKER_CURRENT_CONTEXT}" ]; then
+                printf '❌ ERRO CRÍTICO DE SEGURANÇA: Não foi possível determinar o contexto Docker ativo (docker context show falhou ou retornou vazio).\n' >&2
+                printf '   O endpoint efetivo da CLI não pôde ser comprovado — bloqueio preventivo (exit 11).\n' >&2
+                exit 11
+            fi
+            DOCKER_CONTEXT_ORIGIN_KIND="contexto ativo da CLI (docker context show)"
         fi
 
-        # Correção 1 (v1.9.0): inspecionar o CONTEXTO ATIVO como a CLI do Docker
-        # o resolve (docker context show), SEM presumir socket local padrão:
-        # falha ou host vazio de docker context inspect = endpoint não comprovado
-        # = bloqueio preventivo (exit 11). Endpoint unix:// só é aceito quando o
-        # contexto ativo o declara expressamente (e o socket existe, validado abaixo).
+        # Inspecionar o CONTEXTO ATIVO como a CLI o resolve, SEM presumir socket
+        # local padrão: falha ou host vazio de docker context inspect = endpoint
+        # não comprovado = bloqueio preventivo (exit 11). Endpoint unix:// só é
+        # aceito quando o contexto ativo o declara expressamente (e o socket
+        # existe, validado abaixo).
         DOCKER_CONTEXT_HOST_RC=0
         DOCKER_CONTEXT_HOST="$(docker context inspect "${DOCKER_CURRENT_CONTEXT}" --format '{{.Endpoints.docker.Host}}' 2>/dev/null)" || DOCKER_CONTEXT_HOST_RC=$?
         if [ "${DOCKER_CONTEXT_HOST_RC}" -ne 0 ] || [ -z "${DOCKER_CONTEXT_HOST}" ]; then
-            printf '❌ ERRO CRÍTICO DE SEGURANÇA: Endpoint Docker efetivo NÃO COMPROVADO (falha ou host vazio do docker context inspect para o contexto %s; exit %s).\n' "${DOCKER_CURRENT_CONTEXT}" "${DOCKER_CONTEXT_HOST_RC}" >&2
+            printf '❌ ERRO CRÍTICO DE SEGURANÇA: Endpoint Docker efetivo NÃO COMPROVADO (falha ou host vazio do docker context inspect para o contexto %s, %s; exit %s).\n' "${DOCKER_CURRENT_CONTEXT}" "${DOCKER_CONTEXT_ORIGIN_KIND}" "${DOCKER_CONTEXT_HOST_RC}" >&2
             printf '   A natureza local do endpoint não pôde ser provada — bloqueio preventivo (exit 11).\n' >&2
             exit 11
         fi
         DOCKER_EFFECTIVE_ENDPOINT="${DOCKER_CONTEXT_HOST}"
-        DOCKER_ENDPOINT_ORIGIN="contexto ${DOCKER_CURRENT_CONTEXT}"
+        DOCKER_ENDPOINT_ORIGIN="contexto '${DOCKER_CURRENT_CONTEXT}' (${DOCKER_CONTEXT_ORIGIN_KIND})"
     fi
 
     case "${DOCKER_EFFECTIVE_ENDPOINT}" in
-        tcp://*|ssh://*|http://*|https://*|npipe://*)
-            printf '❌ ERRO CRÍTICO DE SEGURANÇA: Endpoint Docker efetivo remoto ou não verificado (%s; origem: %s).\n' "${DOCKER_EFFECTIVE_ENDPOINT}" "${DOCKER_ENDPOINT_ORIGIN}" >&2
-            exit 11
-            ;;
         unix://*)
             # Socket local UNIX: verificação efetiva de existência do socket
             DOCKER_SOCKET_PATH="${DOCKER_EFFECTIVE_ENDPOINT#unix://}"
@@ -165,7 +206,7 @@ if command -v docker >/dev/null 2>&1; then
             fi
             ;;
         *)
-            printf '❌ ERRO CRÍTICO DE SEGURANÇA: Endpoint Docker efetivo não suportado (%s; origem: %s).\n' "${DOCKER_EFFECTIVE_ENDPOINT}" "${DOCKER_ENDPOINT_ORIGIN}" >&2
+            printf '❌ ERRO CRÍTICO DE SEGURANÇA: Endpoint Docker efetivo não comprovado como local (%s; origem: %s).\n' "${DOCKER_EFFECTIVE_ENDPOINT}" "${DOCKER_ENDPOINT_ORIGIN}" >&2
             exit 11
             ;;
     esac
@@ -251,6 +292,9 @@ LOG_FILE="${DIAG_DIR}/auditoria-${TS_STAMP}-${PID_ATUAL}.log"
 RESTORE_ERRORS_FILE="${DIAG_DIR}/erros-restore-${TS_STAMP}-${PID_ATUAL}.log"
 DIVERGENCES_FILE="${DIAG_DIR}/divergencias-${TS_STAMP}-${PID_ATUAL}.txt"
 CONFERIDOS_FILE="${DIAG_DIR}/conferidos-${TS_STAMP}-${PID_ATUAL}.txt"
+# Ponto 1 da correção v2.0.0: registro privativo das falhas de consulta SQL
+# (a contagem via variável não sobrevive a $(...); o arquivo sim).
+QUERY_FAILURES_FILE="${DIAG_DIR}/falhas-sql-${TS_STAMP}-${PID_ATUAL}.txt"
 TEMPORAL_DIFFS_FILE="${DIAG_DIR}/diferencas-temporais-${TS_STAMP}-${PID_ATUAL}.txt"
 REPORT_FILE="${DIAG_DIR}/relatorio-${TS_STAMP}-${PID_ATUAL}.txt"
 
@@ -434,7 +478,7 @@ if ! chmod 700 "${DIAG_DIR}"; then
 fi
 
 # Inicializar arquivos privados de trabalho sob umask 077 estrito
-for f in "${TRACKED_RESOURCES_FILE}" "${LOG_FILE}" "${RESTORE_ERRORS_FILE}" "${DIVERGENCES_FILE}" "${CONFERIDOS_FILE}" "${TEMPORAL_DIFFS_FILE}" "${REPORT_FILE}"; do
+for f in "${TRACKED_RESOURCES_FILE}" "${LOG_FILE}" "${RESTORE_ERRORS_FILE}" "${DIVERGENCES_FILE}" "${CONFERIDOS_FILE}" "${QUERY_FAILURES_FILE}" "${TEMPORAL_DIFFS_FILE}" "${REPORT_FILE}"; do
     if ! touch "${f}"; then
         printf '❌ Falha ao criar arquivo de trabalho da auditoria: %s\n' "${f}" >&2
         exit "${EXIT_FS_FAIL}"
@@ -542,7 +586,7 @@ exec_lab_sql() {
         rc=$?
     fi
     if [ "${rc}" -ne 0 ]; then
-        QUERY_FAILURES_COUNT=$((QUERY_FAILURES_COUNT + 1))
+        record_query_failure "exec_lab_sql (exit ${rc}): ${sql}"
         log "FALHA SQL (exit ${rc}): ${sql}"
         return "${rc}"
     fi
@@ -560,11 +604,42 @@ exec_lab_sql_file() {
         rc=$?
     fi
     if [ "${rc}" -ne 0 ]; then
-        QUERY_FAILURES_COUNT=$((QUERY_FAILURES_COUNT + 1))
+        record_query_failure "exec_lab_sql_file (exit ${rc}): ${file}"
         log "FALHA SQL FILE (exit ${rc}): ${file}"
         return "${rc}"
     fi
     return 0
+}
+
+# ------------------------------------------------------------------------------
+# PONTO 1 DA CORREÇÃO v2.0.0: CONTABILIZAÇÃO DE FALHAS SQL FORA DE SUBSHELLS
+# Atribuições feitas dentro de $(...) NÃO persistem no processo Bash principal,
+# de modo que um incremento de contador dentro de captura de comando se perde.
+# Cada falha SQL é portanto REGISTRADA EM ARQUIVO privativo da sessão (criado
+# com chmod 600 na inicialização) e a contagem efetiva usada pelo veredito é
+# lida DESTE arquivo na consolidação final — nenhuma falha SQL escapa do
+# veredito. Falhas SQL fora de exec_lab_sql (identidade de funções e
+# pg_get_functiondef) também chamam record_query_failure.
+# ------------------------------------------------------------------------------
+
+record_query_failure() {
+    local desc="$1"
+    if [ -n "${QUERY_FAILURES_FILE:-}" ]; then
+        printf '%s %s\n' "$(date '+%F %T')" "${desc}" >> "${QUERY_FAILURES_FILE}" 2>/dev/null
+    fi
+}
+
+count_query_failures() {
+    local n
+    n="$(wc -l < "${QUERY_FAILURES_FILE}" 2>/dev/null | tr -d '[:space:]')"
+    case "${n}" in
+        ''|*[!0-9]*)
+            # Contagem não confiável é conservadora: valor impossível de zerar,
+            # impedindo qualquer aprovação até que a causa seja explicada.
+            n=999
+            ;;
+    esac
+    printf '%s' "${n}"
 }
 
 # ------------------------------------------------------------------------------
@@ -1134,13 +1209,23 @@ else
                         printf 'DIVERGÊNCIA DE CONTAGEM INCONCLUSIVA: %s."%s" (Backup: %s != Inventário: %s)\n' "${inv_schema}" "${inv_tab}" "${lab_cnt}" "${inv_cnt}" >> "${DIVERGENCES_FILE}"
                     fi
                 else
-                    # Modo estimativa reltuples: validar ordem de grandeza não-zero se inventário possui dados
+                    # Ponto 6 da correção v2.0.0: estimativas reltuples NÃO são
+                    # verificação. reltuples no banco recém-restaurado é estimativa
+                    # estatística (frequentemente -1/0 antes do autovacuum) e o
+                    # inventário também registra estimativa — não existe validação
+                    # correspondente possível aqui. Três categorias DISTINTAS:
+                    #   - informação coletada: linha rotulada NÃO VALIDADO em
+                    #     CONFERIDOS_FILE (coleta de dados, JAMAIS aprovação);
+                    #   - comparação inconclusiva: linha em TEMPORAL_DIFFS_FILE
+                    #     (impede APROVADO enquanto não houver contagem exata);
+                    #   - verificação aprovada: somente contagens "exata" iguais.
                     lab_est_raw="$(exec_lab_sql "SELECT round(reltuples)::bigint FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = '${inv_schema}' AND c.relname = '${inv_tab}'")" || {
                         printf 'DIVERGÊNCIA: Falha de consulta SQL ao estimar tuplas de %s."%s"\n' "${inv_schema}" "${inv_tab}" >> "${DIVERGENCES_FILE}"
                         continue
                     }
                     lab_est="$(printf '%s\n' "${lab_est_raw}" | tr -d '[:space:]')"
-                    printf 'CONFERIDO (estimativa reltuples): %s."%s" (Inv: %s, Lab: %s)\n' "${inv_schema}" "${inv_tab}" "${inv_cnt}" "${lab_est}" >> "${CONFERIDOS_FILE}"
+                    printf 'NÃO VALIDADO (informação coletada): %s."%s" — estimativas reltuples (Inventário: %s, Laboratório: %s); estimativa NÃO é verificação e NÃO comprova integridade\n' "${inv_schema}" "${inv_tab}" "${inv_cnt}" "${lab_est}" >> "${CONFERIDOS_FILE}"
+                    printf 'DIFERENÇA DE CONTAGEM INCONCLUSIVA: %s."%s" comparada apenas por estimativa reltuples (Inventário: %s, Laboratório: %s) — comparação inconclusiva; aprovação exige contagem exata validada\n' "${inv_schema}" "${inv_tab}" "${inv_cnt}" "${lab_est}" >> "${TEMPORAL_DIFFS_FILE}"
                 fi
             done <<< "${INV_TABLES_RAW}"
         fi
@@ -1238,17 +1323,37 @@ else
         CONSTRAINTS_DIFF_FOUND=0
         CONSTRAINTS_EXTRACTED=0
         # Correção 3 (v1.9.0): extração jq das constraints com código de saída
-        # verificado (sem process substitution às cegas); separador \u001F
-        # (a definição DDL pode conter '|'); exit 1 de -e é array vazio legítimo.
+        # verificado (sem process substitution às cegas); exit 1 de -e é array
+        # vazio legítimo.
+        # Ponto 5 da correção v2.0.0: extração em JSON-lines (UM objeto JSON por
+        # linha): aspas, quebras de linha, \u001F e caracteres especiais dentro
+        # dos campos ficam ESCAPADOS pelo codificador JSON — não há separador
+        # textual que possa colidir com o conteúdo e nenhum campo é truncado. Os
+        # campos são decodificados INDIVIDUALMENTE (jq @sh + eval, com aspas
+        # seguras), preservando a definição DDL integralmente (a normalização
+        # idêntica dos dois lados ocorre apenas na comparação).
         INV_CONSTRAINTS_RAW_RC=0
         INV_CONSTRAINTS_RAW=""
-        INV_CONSTRAINTS_RAW="$(jq -er '.constraints[] | [ (.schema|tostring), (.tabela|tostring), (.nome|tostring), (.definicao|tostring) ] | join("\u001F")' "${INVENTORY_FILE}" 2>>"${LOG_FILE}")" || INV_CONSTRAINTS_RAW_RC=$?
+        INV_CONSTRAINTS_RAW="$(jq -c '.constraints[] | {schema:(.schema|tostring), tabela:(.tabela|tostring), nome:(.nome|tostring), definicao:(.definicao|tostring)}' "${INVENTORY_FILE}" 2>>"${LOG_FILE}")" || INV_CONSTRAINTS_RAW_RC=$?
         if [ "${INV_CONSTRAINTS_RAW_RC}" -ge 2 ]; then
             printf 'DIVERGÊNCIA: Falha de jq ao extrair constraints do inventário (exit %s)\n' "${INV_CONSTRAINTS_RAW_RC}" >> "${DIVERGENCES_FILE}"
             INVENTORY_EXTRACTION_INCOMPLETE=1
         fi
         if [ "${INV_CONSTRAINTS_COUNT}" -gt 0 ]; then
-            while IFS=$'\u001F' read -r c_schema c_tab c_name c_def; do
+            while IFS= read -r c_line; do
+                [ -n "${c_line}" ] || continue
+                CONSTRAINTS_PARSE_RC=0
+                CONSTRAINTS_ASSIGNMENTS="$(jq -r '@sh "c_schema=\(.schema|tostring) c_tab=\(.tabela|tostring) c_name=\(.nome|tostring) c_def=\(.definicao|tostring)"' <<<"${c_line}" 2>>"${LOG_FILE}")" || CONSTRAINTS_PARSE_RC=$?
+                if [ "${CONSTRAINTS_PARSE_RC}" -ne 0 ]; then
+                    printf 'DIVERGÊNCIA: Falha de jq ao decodificar registro de constraint do inventário (JSON-lines) — interpolação SQL recusada\n' >> "${DIVERGENCES_FILE}"
+                    CONSTRAINTS_DIFF_FOUND=$((CONSTRAINTS_DIFF_FOUND + 1))
+                    continue
+                fi
+                eval "${CONSTRAINTS_ASSIGNMENTS}" || {
+                    printf 'DIVERGÊNCIA: Falha ao decodificar campos do registro de constraint do inventário — interpolação SQL recusada\n' >> "${DIVERGENCES_FILE}"
+                    CONSTRAINTS_DIFF_FOUND=$((CONSTRAINTS_DIFF_FOUND + 1))
+                    continue
+                }
                 [ -n "${c_name}" ] || continue
                 CONSTRAINTS_EXTRACTED=$((CONSTRAINTS_EXTRACTED + 1))
 
@@ -1299,15 +1404,34 @@ else
         FUNCTIONS_EXTRACTED=0
         INV_FUNCTIONS_RAW_RC=0
         INV_FUNCTIONS_RAW=""
-        # Correção 3 (v1.9.0): separador \u001F (a definição SQL pode conter '|');
-        # uma SOBRECARGA POR LINHA (sem concatenação); exit code verificado.
-        INV_FUNCTIONS_RAW="$(jq -er '.funcoes[] | [ (.schema|tostring), (.nome|tostring), (.identidade|tostring), (.tipo_retorno|tostring), ((.inclui_corpo // false)|tostring), ((.definicao // "") | gsub("[\\x01\\x1f\\r\\n]"; " ")) ] | join("\u001F")' "${INVENTORY_FILE}" 2>>"${LOG_FILE}")" || INV_FUNCTIONS_RAW_RC=$?
+        # Ponto 5 da correção v2.0.0: extração em JSON-lines (UM objeto JSON por
+        # linha): aspas, quebras de linha, \u001F e caracteres especiais dentro
+        # dos campos ficam ESCAPADOS pelo codificador JSON — não há separador
+        # textual que possa colidir com o conteúdo (a identidade e o corpo podem
+        # conter qualquer caractere) e NENHUM campo é truncado ou reescrito (o
+        # gsub de v1.9.0 sobre a definição foi eliminado; a definição permanece
+        # integral e a normalização idêntica dos dois lados ocorre apenas na
+        # comparação). Decodificação campo a campo (jq @sh + eval, aspas seguras).
+        INV_FUNCTIONS_RAW="$(jq -c '.funcoes[] | {schema:(.schema|tostring), nome:(.nome|tostring), identidade:(.identidade|tostring), retorno:(.tipo_retorno|tostring), corpo:((.inclui_corpo // false)|tostring), definicao:(.definicao // "")}' "${INVENTORY_FILE}" 2>>"${LOG_FILE}")" || INV_FUNCTIONS_RAW_RC=$?
         if [ "${INV_FUNCTIONS_RAW_RC}" -ge 2 ]; then
             printf 'DIVERGÊNCIA: Falha de jq ao extrair funções do inventário (exit %s)\n' "${INV_FUNCTIONS_RAW_RC}" >> "${DIVERGENCES_FILE}"
             INVENTORY_EXTRACTION_INCOMPLETE=1
         fi
         if [ "${INV_FUNCTIONS_COUNT}" -gt 0 ]; then
-            while IFS=$'\u001F' read -r f_schema f_name f_ident f_ret f_corpo f_definicao; do
+            while IFS= read -r f_line; do
+                [ -n "${f_line}" ] || continue
+                FUNCTIONS_PARSE_RC=0
+                FUNCTIONS_ASSIGNMENTS="$(jq -r '@sh "f_schema=\(.schema|tostring) f_name=\(.nome|tostring) f_ident=\(.identidade|tostring) f_ret=\(.retorno|tostring) f_corpo=\(.corpo|tostring) f_definicao=\(.definicao|tostring)"' <<<"${f_line}" 2>>"${LOG_FILE}")" || FUNCTIONS_PARSE_RC=$?
+                if [ "${FUNCTIONS_PARSE_RC}" -ne 0 ]; then
+                    printf 'DIVERGÊNCIA: Falha de jq ao decodificar registro de função do inventário (JSON-lines) — interpolação SQL recusada\n' >> "${DIVERGENCES_FILE}"
+                    FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
+                    continue
+                fi
+                eval "${FUNCTIONS_ASSIGNMENTS}" || {
+                    printf 'DIVERGÊNCIA: Falha ao decodificar campos do registro de função do inventário — interpolação SQL recusada\n' >> "${DIVERGENCES_FILE}"
+                    FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
+                    continue
+                }
                 [ -n "${f_name}" ] || continue
                 FUNCTIONS_EXTRACTED=$((FUNCTIONS_EXTRACTED + 1))
 
@@ -1318,14 +1442,25 @@ else
                     continue
                 fi
 
-                # Correção 2 (v1.9.0): identidade de argumentos do inventário é texto
-                # livre — escapada com dollar-quoting gerado pelo bash, sem apóstrofos
-                # no SQL; sem concatenação de sobrecargas: UMA linha por sobrecarga
-                # homônima, cada uma casada isoladamente contra a identidade esperada.
+                # Ponto 4 da correção v2.0.0: SEM delimitador textual colidível
+                # ('|RET:'/'|OID:' eliminados). A identidade do inventário (texto
+                # livre) é embutida por dollar-quoting com etiqueta única gerada
+                # de PID+aleatório, e o conteúdo é RECUSADO se ele próprio contiver
+                # a etiqueta — nenhuma interferência do inventário na consulta. A
+                # resposta vem como UM ÚNICO documento JSON (codificação
+                # estrutural, não concatenação de texto) decodificado por jq —
+                # sem ambiguidade de separadores/quebras.
+                FUNCOES_IDENT_TAG="dq${PID_ATUAL}x${RANDOM}x${RANDOM}ident"
+                case "${f_ident}" in
+                    *"${FUNCOES_IDENT_TAG}"*)
+                        printf 'DIVERGÊNCIA: Identidade de função do inventário contém a etiqueta de dollar-quoting (%s."%s") — interpolação SQL recusada\n' "${f_schema}" "${f_name}" >> "${DIVERGENCES_FILE}"
+                        FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
+                        continue
+                        ;;
+                esac
                 FUNCOES_IDENT_QUERY_TMP="${DIAG_DIR}/ident-funcoes-${TS_STAMP}-$$.txt"
-                FUNCOES_IDENT_TAG="dq${RANDOM}${RANDOM}"
                 cat > "${FUNCOES_IDENT_QUERY_TMP}" <<SQL
-SELECT pg_get_function_identity_arguments(p.oid) || '|RET:' || pg_get_function_result(p.oid) || '|OID:' || p.oid::text
+SELECT coalesce(json_agg(json_build_object('oid', p.oid::text, 'retorno', pg_get_function_result(p.oid)))::text, '[]')
 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE n.nspname = '${f_schema}' AND p.proname = '${f_name}'
   AND pg_get_function_identity_arguments(p.oid) = \$${FUNCOES_IDENT_TAG}\$${f_ident}\$${FUNCOES_IDENT_TAG}\$;
@@ -1336,10 +1471,15 @@ SQL
                     rm -f "${FUNCOES_IDENT_QUERY_TMP}" 2>/dev/null || true
                     continue
                 fi
-                FUNCOES_IDENT_ENCONTRADAS=0
-                FUNCOES_IDENT_CASADA=0
-                FUNCOES_IDENT_CASADA_RET=""
-                FUNCOES_IDENT_MATCHING_OID=""
+                # Ponto 8 da correção v2.0.0: permissão efetiva verificada (chmod
+                # bem-sucedido não é prova de permissão final).
+                FUNCOES_IDENT_PERM="$(stat -c '%a' "${FUNCOES_IDENT_QUERY_TMP}" 2>/dev/null || stat -f '%Lp' "${FUNCOES_IDENT_QUERY_TMP}" 2>/dev/null || echo "")"
+                if [ -z "${FUNCOES_IDENT_PERM}" ] || [ "${FUNCOES_IDENT_PERM}" != "600" ]; then
+                    printf 'DIVERGÊNCIA: Permissão efetiva inválida (%s) no arquivo de consulta de identidade de funções\n' "${FUNCOES_IDENT_PERM}" >> "${DIVERGENCES_FILE}"
+                    FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
+                    rm -f "${FUNCOES_IDENT_QUERY_TMP}" 2>/dev/null || true
+                    continue
+                fi
                 # Correção 3 (v1.9.0): UMA execução, exit code explícito (sem
                 # mascarar falha com "|| var=''"); -i obrigatório para psql -f -
                 FUNCOES_IDENT_RC=0
@@ -1350,30 +1490,50 @@ SQL
                 fi
                 rm -f "${FUNCOES_IDENT_QUERY_TMP}" 2>/dev/null || true
                 if [ "${FUNCOES_IDENT_RC}" -ne 0 ]; then
+                    record_query_failure "consulta de identidade de funções ${f_schema}.${f_name} (exit ${FUNCOES_IDENT_RC})"
                     printf 'DIVERGÊNCIA: Falha de consulta SQL ao recuperar identidades de %s."%s" (exit %s)\n' "${f_schema}" "${f_name}" "${FUNCOES_IDENT_RC}" >> "${DIVERGENCES_FILE}"
                     FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
                     continue
                 fi
-                while IFS= read -r lab_ident_line; do
-                    [ -n "${lab_ident_line}" ] || continue
-                    FUNCOES_IDENT_ENCONTRADAS=$((FUNCOES_IDENT_ENCONTRADAS + 1))
-                    case "${lab_ident_line}" in
-                        "${f_ident}|RET:"*"|OID:"[0-9]*)
-                            FUNCOES_IDENT_CASADA=1
-                            FUNCOES_IDENT_CASADA_RET="$(printf '%s' "${lab_ident_line}" | sed -n 's/^.*|RET:\(.*\)|OID:[0-9][0-9]*$/\1/p')"
-                            FUNCOES_IDENT_MATCHING_OID="$(printf '%s' "${lab_ident_line}" | sed -n 's/.*|OID:\([0-9][0-9]*\)$/\1/p')"
-                            break
-                            ;;
-                    esac
-                done <<< "${FUNCOES_IDENT_OUT}"
 
-                if [ "${FUNCOES_IDENT_ENCONTRADAS}" -eq 0 ]; then
-                    printf 'DIVERGÊNCIA ESTRUTURAL (funcao ausente): %s."%s" ausente no banco restaurado\n' "${f_schema}" "${f_name}" >> "${DIVERGENCES_FILE}"
+                # Interpretação da resposta em JSON (nunca por separadores de texto)
+                FUNCOES_IDENT_JQ_RC=0
+                FUNCOES_IDENT_JSON="$(printf '%s' "${FUNCOES_IDENT_OUT}" | jq -ce '.' 2>>"${LOG_FILE}")" || FUNCOES_IDENT_JQ_RC=$?
+                if [ "${FUNCOES_IDENT_JQ_RC}" -ne 0 ] || [ -z "${FUNCOES_IDENT_JSON}" ]; then
+                    record_query_failure "interpretação jq da identidade de funções ${f_schema}.${f_name} (exit ${FUNCOES_IDENT_JQ_RC})"
+                    printf 'DIVERGÊNCIA: Resposta da consulta de identidade de %s."%s" não é JSON interpretável (jq exit %s)\n' "${f_schema}" "${f_name}" "${FUNCOES_IDENT_JQ_RC}" >> "${DIVERGENCES_FILE}"
+                    FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
+                    continue
+                fi
+                FUNCOES_IDENT_MATCHES="$(jq -e 'length' <<<"${FUNCOES_IDENT_JSON}" 2>>"${LOG_FILE}")" || FUNCOES_IDENT_MATCHES=0
+                case "${FUNCOES_IDENT_MATCHES}" in
+                    ''|*[!0-9]*) FUNCOES_IDENT_MATCHES=0 ;;
+                esac
+                FUNCOES_IDENT_CASADA=0
+                FUNCOES_IDENT_CASADA_RET=""
+                FUNCOES_IDENT_MATCHING_OID=""
+                if [ "${FUNCOES_IDENT_MATCHES}" -ge 1 ]; then
+                    FUNCOES_IDENT_MATCHING_OID="$(jq -er '.[0].oid // empty' <<<"${FUNCOES_IDENT_JSON}" 2>>"${LOG_FILE}")" || FUNCOES_IDENT_MATCHING_OID=""
+                    FUNCOES_IDENT_CASADA_RET="$(jq -er '.[0].retorno // empty' <<<"${FUNCOES_IDENT_JSON}" 2>>"${LOG_FILE}")" || FUNCOES_IDENT_CASADA_RET=""
+                    if [ -n "${FUNCOES_IDENT_MATCHING_OID}" ]; then
+                        FUNCOES_IDENT_CASADA=1
+                    fi
+                fi
+                if [ "${FUNCOES_IDENT_MATCHES}" -ge 2 ]; then
+                    # Defensivo: a igualdade de identidade de argumentos deveria
+                    # casar no máximo uma sobrecarga; ambiguidade é RECUSADA
+                    # (nunca presumida).
+                    printf 'DIVERGÊNCIA: %s sobrecargas de %s."%s" casaram com a identidade esperada — resultado ambíguo recusado\n' "${FUNCOES_IDENT_MATCHES}" "${f_schema}" "${f_name}" >> "${DIVERGENCES_FILE}"
+                    FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
+                    continue
+                fi
+                if [ "${FUNCOES_IDENT_MATCHES}" -eq 0 ]; then
+                    printf 'DIVERGÊNCIA ESTRUTURAL (funcao ausente): %s."%s" ausente no banco restaurado (nenhuma sobrecarga com a identidade esperada)\n' "${f_schema}" "${f_name}" >> "${DIVERGENCES_FILE}"
                     FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
                     continue
                 fi
                 if [ "${FUNCOES_IDENT_CASADA}" -ne 1 ]; then
-                    printf 'DIVERGÊNCIA ESTRUTURAL (sobrecarga funcao): %s."%s" — nenhuma sobrecarga com a identidade esperada (Inv: "%s"; encontradas: %s)\n' "${f_schema}" "${f_name}" "${f_ident}" "${FUNCOES_IDENT_ENCONTRADAS}" >> "${DIVERGENCES_FILE}"
+                    printf 'DIVERGÊNCIA ESTRUTURAL (sobrecarga funcao): %s."%s" — sobrecarga com a identidade esperada não retornou OID utilizável (Inv: "%s")\n' "${f_schema}" "${f_name}" "${f_ident}" >> "${DIVERGENCES_FILE}"
                     FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
                     continue
                 fi
@@ -1412,6 +1572,14 @@ SQL
                             rm -f "${FUNCOES_FDEF_QUERY_TMP}" 2>/dev/null || true
                             continue
                         fi
+                        # Ponto 8 da correção v2.0.0: permissão efetiva verificada
+                        FUNCOES_FDEF_PERM="$(stat -c '%a' "${FUNCOES_FDEF_QUERY_TMP}" 2>/dev/null || stat -f '%Lp' "${FUNCOES_FDEF_QUERY_TMP}" 2>/dev/null || echo "")"
+                        if [ -z "${FUNCOES_FDEF_PERM}" ] || [ "${FUNCOES_FDEF_PERM}" != "600" ]; then
+                            printf 'DIVERGÊNCIA: Permissão efetiva inválida (%s) no arquivo de consulta pg_get_functiondef\n' "${FUNCOES_FDEF_PERM}" >> "${DIVERGENCES_FILE}"
+                            FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
+                            rm -f "${FUNCOES_FDEF_QUERY_TMP}" 2>/dev/null || true
+                            continue
+                        fi
                         # Correção 3 (v1.9.0): UMA execução, exit code explícito
                         FUNCOES_FDEF_RC=0
                         if command -v timeout >/dev/null 2>&1; then
@@ -1420,6 +1588,9 @@ SQL
                             lab_fdef_raw="$(docker exec -i "${LAB_NAME}" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -t -A -f - < "${FUNCOES_FDEF_QUERY_TMP}" 2>>"${LOG_FILE}")" || FUNCOES_FDEF_RC=$?
                         fi
                         rm -f "${FUNCOES_FDEF_QUERY_TMP}" 2>/dev/null || true
+                        if [ "${FUNCOES_FDEF_RC}" -ne 0 ]; then
+                            record_query_failure "pg_get_functiondef de ${f_schema}.${f_name} (exit ${FUNCOES_FDEF_RC})"
+                        fi
                         if [ "${FUNCOES_FDEF_RC}" -ne 0 ] || [ -z "${lab_fdef_raw}" ]; then
                             printf 'DIVERGÊNCIA ESTRUTURAL (corpo funcao): %s."%s" sem definição recuperável via pg_get_functiondef no laboratório\n' "${f_schema}" "${f_name}" >> "${DIVERGENCES_FILE}"
                             FUNCTIONS_DIFF_FOUND=$((FUNCTIONS_DIFF_FOUND + 1))
@@ -1441,9 +1612,7 @@ SQL
                         fi
                     fi
                 fi
-            done <<FUNCOES_INPUT
-$(printf '%s\n' "${INV_FUNCTIONS_RAW}")
-FUNCOES_INPUT
+            done <<< "${INV_FUNCTIONS_RAW}"
             # Correção 3 (v1.9.0): erro real de jq (>=2) na extração das funções
             # impede INVENTORY_COMPARISON_VALID=SIM; exit 1 de -e é legítimo.
             if [ "${INV_FUNCTIONS_RAW_RC}" -ge 2 ]; then
@@ -1457,6 +1626,101 @@ FUNCOES_INPUT
             if [ "${FUNCTIONS_DIFF_FOUND}" -eq 0 ] && [ "${INVENTORY_EXTRACTION_INCOMPLETE}" -eq 0 ]; then
                 printf 'CONFERIDO ESTRUTURAL: Todas as %s funcoes conferidas integralmente por identidade, assinatura e corpo (quando disponível no inventário)\n' "${INV_FUNCTIONS_COUNT}" >> "${CONFERIDOS_FILE}"
             fi
+        fi
+
+        # PONTO 3 DA CORREÇÃO v2.0.0: CONFERÊNCIA ESTRUTURAL BIDIRECIONAL
+        # (sentido 2: banco restaurado -> inventário). Detecta objetos ADICIONAIS
+        # presentes no banco restaurado e ausentes do inventário, respeitando o
+        # escopo documentado (schema public). A listagem do lado do laboratório
+        # vem como UM ÚNICO documento JSON (sem separador textual colidível) e
+        # cada campo é decodificado individualmente (jq @sh + eval).
+        say "   Verificando sentido 2: Constraints e funções do backup restaurado -> presentes no inventário oficial..."
+        BIDIRECTIONAL_INCOMPLETE=0
+
+        # --- Constraints do banco restaurado (schema public)
+        LAB_CONSTRAINTS_JSON_RC=0
+        LAB_CONSTRAINTS_JSON="$(exec_lab_sql "SELECT coalesce(json_agg(json_build_object('schema', table_schema, 'tabela', table_name, 'nome', constraint_name))::text, '[]') FROM information_schema.table_constraints WHERE table_schema = 'public'")" || LAB_CONSTRAINTS_JSON_RC=$?
+        LAB_CONSTRAINTS_ITEMS=""
+        if [ "${LAB_CONSTRAINTS_JSON_RC}" -ne 0 ] || [ -z "${LAB_CONSTRAINTS_JSON}" ]; then
+            printf 'DIVERGÊNCIA: Falha ao listar constraints do banco restaurado para conferência bidirecional (exit %s)\n' "${LAB_CONSTRAINTS_JSON_RC}" >> "${DIVERGENCES_FILE}"
+            BIDIRECTIONAL_INCOMPLETE=1
+        else
+            LAB_CONSTRAINTS_ITEMS_RC=0
+            LAB_CONSTRAINTS_ITEMS="$(jq -c '.[]' <<<"${LAB_CONSTRAINTS_JSON}" 2>>"${LOG_FILE}")" || LAB_CONSTRAINTS_ITEMS_RC=$?
+            if [ "${LAB_CONSTRAINTS_ITEMS_RC}" -ne 0 ]; then
+                printf 'DIVERGÊNCIA: Listagem de constraints do laboratório não é JSON interpretável (jq exit %s)\n' "${LAB_CONSTRAINTS_ITEMS_RC}" >> "${DIVERGENCES_FILE}"
+                BIDIRECTIONAL_INCOMPLETE=1
+            fi
+            while IFS= read -r lc_obj; do
+                [ -n "${lc_obj}" ] || continue
+                LAB_CONSTRAINTS_PARSE_RC=0
+                LAB_CONSTRAINTS_ASSIGNMENTS="$(jq -r '@sh "lc_schema=\(.schema|tostring) lc_tab=\(.tabela|tostring) lc_name=\(.nome|tostring)"' <<<"${lc_obj}" 2>>"${LOG_FILE}")" || LAB_CONSTRAINTS_PARSE_RC=$?
+                if [ "${LAB_CONSTRAINTS_PARSE_RC}" -ne 0 ]; then
+                    printf 'DIVERGÊNCIA: Registro de constraint do laboratório indecifrável na conferência bidirecional\n' >> "${DIVERGENCES_FILE}"
+                    BIDIRECTIONAL_INCOMPLETE=1
+                    continue
+                fi
+                eval "${LAB_CONSTRAINTS_ASSIGNMENTS}" || {
+                    printf 'DIVERGÊNCIA: Falha ao decodificar constraint do laboratório na conferência bidirecional\n' >> "${DIVERGENCES_FILE}"
+                    BIDIRECTIONAL_INCOMPLETE=1
+                    continue
+                }
+                LC_IN_INV_RC=0
+                lc_in_inv="$(jq --arg s "${lc_schema}" --arg t "${lc_tab}" --arg n "${lc_name}" 'any(.constraints[]; .schema == $s and .tabela == $t and .nome == $n)' "${INVENTORY_FILE}" 2>>"${LOG_FILE}")" || LC_IN_INV_RC=$?
+                if [ "${LC_IN_INV_RC}" -ge 2 ]; then
+                    printf 'DIVERGÊNCIA: Falha de jq ao verificar constraint %s."%s"."%s" no inventário (exit %s)\n' "${lc_schema}" "${lc_tab}" "${lc_name}" "${LC_IN_INV_RC}" >> "${DIVERGENCES_FILE}"
+                    BIDIRECTIONAL_INCOMPLETE=1
+                    continue
+                fi
+                if [ "${lc_in_inv}" != "true" ]; then
+                    printf 'DIVERGÊNCIA BIDIRECIONAL (constraint extra): constraint %s."%s"."%s" existe no banco restaurado mas NÃO CONSTA no inventário oficial\n' "${lc_schema}" "${lc_tab}" "${lc_name}" >> "${DIVERGENCES_FILE}"
+                else
+                    printf 'CONFERIDO BIDIRECIONAL: Constraint %s."%s"."%s" localizada em ambos os lados\n' "${lc_schema}" "${lc_tab}" "${lc_name}" >> "${CONFERIDOS_FILE}"
+                fi
+            done <<<"${LAB_CONSTRAINTS_ITEMS}"
+        fi
+
+        # --- Funções do banco restaurado (schema public, por sobrecarga)
+        LAB_FUNCOES_JSON_RC=0
+        LAB_FUNCOES_JSON="$(exec_lab_sql "SELECT coalesce(json_agg(json_build_object('schema', n.nspname, 'nome', p.proname, 'identidade', pg_get_function_identity_arguments(p.oid)))::text, '[]') FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public'")" || LAB_FUNCOES_JSON_RC=$?
+        LAB_FUNCOES_ITEMS=""
+        if [ "${LAB_FUNCOES_JSON_RC}" -ne 0 ] || [ -z "${LAB_FUNCOES_JSON}" ]; then
+            printf 'DIVERGÊNCIA: Falha ao listar funções do banco restaurado para conferência bidirecional (exit %s)\n' "${LAB_FUNCOES_JSON_RC}" >> "${DIVERGENCES_FILE}"
+            BIDIRECTIONAL_INCOMPLETE=1
+        else
+            LAB_FUNCOES_ITEMS_RC=0
+            LAB_FUNCOES_ITEMS="$(jq -c '.[]' <<<"${LAB_FUNCOES_JSON}" 2>>"${LOG_FILE}")" || LAB_FUNCOES_ITEMS_RC=$?
+            if [ "${LAB_FUNCOES_ITEMS_RC}" -ne 0 ]; then
+                printf 'DIVERGÊNCIA: Listagem de funções do laboratório não é JSON interpretável (jq exit %s)\n' "${LAB_FUNCOES_ITEMS_RC}" >> "${DIVERGENCES_FILE}"
+                BIDIRECTIONAL_INCOMPLETE=1
+            fi
+            while IFS= read -r lf_obj; do
+                [ -n "${lf_obj}" ] || continue
+                LAB_FUNCOES_PARSE_RC=0
+                LAB_FUNCOES_ASSIGNMENTS="$(jq -r '@sh "lf_schema=\(.schema|tostring) lf_name=\(.nome|tostring) lf_ident=\(.identidade|tostring)"' <<<"${lf_obj}" 2>>"${LOG_FILE}")" || LAB_FUNCOES_PARSE_RC=$?
+                if [ "${LAB_FUNCOES_PARSE_RC}" -ne 0 ]; then
+                    printf 'DIVERGÊNCIA: Registro de função do laboratório indecifrável na conferência bidirecional\n' >> "${DIVERGENCES_FILE}"
+                    BIDIRECTIONAL_INCOMPLETE=1
+                    continue
+                fi
+                eval "${LAB_FUNCOES_ASSIGNMENTS}" || {
+                    printf 'DIVERGÊNCIA: Falha ao decodificar função do laboratório na conferência bidirecional\n' >> "${DIVERGENCES_FILE}"
+                    BIDIRECTIONAL_INCOMPLETE=1
+                    continue
+                }
+                LF_IN_INV_RC=0
+                lf_in_inv="$(jq --arg s "${lf_schema}" --arg n "${lf_name}" --arg i "${lf_ident}" 'any(.funcoes[]; .schema == $s and .nome == $n and .identidade == $i)' "${INVENTORY_FILE}" 2>>"${LOG_FILE}")" || LF_IN_INV_RC=$?
+                if [ "${LF_IN_INV_RC}" -ge 2 ]; then
+                    printf 'DIVERGÊNCIA: Falha de jq ao verificar função %s."%s" no inventário (exit %s)\n' "${lf_schema}" "${lf_name}" "${LF_IN_INV_RC}" >> "${DIVERGENCES_FILE}"
+                    BIDIRECTIONAL_INCOMPLETE=1
+                    continue
+                fi
+                if [ "${lf_in_inv}" != "true" ]; then
+                    printf 'DIVERGÊNCIA BIDIRECIONAL (funcao extra): função %s."%s" (identidade: "%s") existe no banco restaurado mas NÃO CONSTA no inventário oficial\n' "${lf_schema}" "${lf_name}" "${lf_ident}" >> "${DIVERGENCES_FILE}"
+                else
+                    printf 'CONFERIDO BIDIRECIONAL: Função %s."%s" (identidade casada) localizada em ambos os lados\n' "${lf_schema}" "${lf_name}" >> "${CONFERIDOS_FILE}"
+                fi
+            done <<<"${LAB_FUNCOES_ITEMS}"
         fi
 
         # Ponto 5 da correção v1.8.0: SIM somente se NADA ficou pendente —
@@ -1476,6 +1740,7 @@ FUNCOES_INPUT
         if [ "${INV_SCHEMA_VALID}" -eq 1 ] \
             && [ "${CONSTRAINTS_DIFF_FOUND}" -eq 0 ] \
             && [ "${FUNCTIONS_DIFF_FOUND}" -eq 0 ] \
+            && [ "${BIDIRECTIONAL_INCOMPLETE}" -eq 0 ] \
             && [ "${INVENTORY_EXTRACTION_INCOMPLETE}" -eq 0 ] \
             && [ "${INVENTORY_STAGE_DIVERGED}" -eq 0 ] \
             && [ ! -s "${DIVERGENCES_FILE}" ]; then
@@ -1502,11 +1767,14 @@ say "🛡️  Executando as 4 verificações de integridade do banco PostgreSQL 
 OP_CRITERION_STATUS="PENDENTE"
 
 # Teste 1: Integridade referencial básica (FKs órfãs)
+# Ponto 7 da correção v2.0.0: NULL permitido NÃO é referência órfã. Somente
+# referências EFETIVAMENTE inválidas (client_id preenchido sem correspondência)
+# são contadas — NULL legítimo de coluna nullable não é mais falso positivo.
 FK_ORPHANS_CNT_RAW="$(exec_lab_sql "
 SELECT (
-    (SELECT count(*) FROM public.cases c LEFT JOIN public.clients cl ON cl.id = c.client_id WHERE cl.id IS NULL) +
-    (SELECT count(*) FROM public.tasks t LEFT JOIN public.clients cl ON cl.id = t.client_id WHERE cl.id IS NULL) +
-    (SELECT count(*) FROM public.appointments a LEFT JOIN public.clients cl ON cl.id = a.client_id WHERE cl.id IS NULL)
+    (SELECT count(*) FROM public.cases c LEFT JOIN public.clients cl ON cl.id = c.client_id WHERE c.client_id IS NOT NULL AND cl.id IS NULL) +
+    (SELECT count(*) FROM public.tasks t LEFT JOIN public.clients cl ON cl.id = t.client_id WHERE t.client_id IS NOT NULL AND cl.id IS NULL) +
+    (SELECT count(*) FROM public.appointments a LEFT JOIN public.clients cl ON cl.id = a.client_id WHERE a.client_id IS NOT NULL AND cl.id IS NULL)
 ) as total_orfãos;
 ")" || {
     printf 'DIVERGÊNCIA (saude-pg): Falha de consulta SQL ao verificar FKs órfãs\n' >> "${DIVERGENCES_FILE}"
@@ -1521,9 +1789,9 @@ case "${FK_ORPHANS_CNT}" in
 esac
 
 if [ "${FK_ORPHANS_CNT}" -eq 0 ]; then
-    printf 'CONFERIDO (saude-pg): Nenhuma FK órfã detectada nas entidades centrais (cases, tasks, appointments)\n' >> "${CONFERIDOS_FILE}"
+    printf 'CONFERIDO (saude-pg): Nenhuma referência inválida detectada nas entidades centrais (cases, tasks, appointments) — valores NULL permitidos pelas colunas não são contados como órfãos\n' >> "${CONFERIDOS_FILE}"
 else
-    printf 'DIVERGÊNCIA (saude-pg): Encontrados %s registros órfãos violando integridade referencial básica\n' "${FK_ORPHANS_CNT}" >> "${DIVERGENCES_FILE}"
+    printf 'DIVERGÊNCIA (saude-pg): Encontradas %s referências inválidas (client_id preenchido sem cliente correspondente) violando a integridade referencial básica\n' "${FK_ORPHANS_CNT}" >> "${DIVERGENCES_FILE}"
 fi
 
 # Teste 2: Consistência de auth.users (sem e-mails duplicados)
@@ -1587,7 +1855,15 @@ SELECT count(*) FROM public.tasks;
 SELECT count(*) FROM public.appointments;
 ROLLBACK;
 EOF
-chmod 600 "${TX_TMP_FILE}" 2>/dev/null || true
+# Ponto 8 da correção v2.0.0: sem "|| true" — sucesso do chmod E permissão
+# efetiva (stat) são verificados; falha em qualquer um aborta a execução.
+if ! chmod 600 "${TX_TMP_FILE}"; then
+    die "Falha ao ajustar permissões (600) do arquivo SQL temporário de simulação transacional." "${EXIT_FS_FAIL}"
+fi
+TX_TMP_PERM="$(stat -c '%a' "${TX_TMP_FILE}" 2>/dev/null || stat -f '%Lp' "${TX_TMP_FILE}" 2>/dev/null || echo "")"
+if [ -z "${TX_TMP_PERM}" ] || [ "${TX_TMP_PERM}" != "600" ]; then
+    die "Permissão efetiva do arquivo SQL temporário inválida (${TX_TMP_PERM})." "${EXIT_FS_FAIL}"
+fi
 
 if ! exec_lab_sql_file "${TX_TMP_FILE}"; then
     TX_STATUS="FALHA"
@@ -1615,6 +1891,12 @@ fi
 DIVERGENCES_COUNT="$(wc -l < "${DIVERGENCES_FILE}" 2>/dev/null || echo 0)"
 CONFERIDOS_COUNT="$(wc -l < "${CONFERIDOS_FILE}" 2>/dev/null || echo 0)"
 TEMPORAL_DIFFS_COUNT="$(wc -l < "${TEMPORAL_DIFFS_FILE}" 2>/dev/null || echo 0)"
+
+# Ponto 1 da correção v2.0.0: a contagem efetiva de falhas SQL vem do ARQUIVO
+# de registro da sessão (incrementos dentro de $(...) não persistem no processo
+# principal). 999 = contagem não confiável (conservador: impede aprovação).
+QUERY_FAILURES_COUNT="$(count_query_failures)"
+log "Falhas de consulta SQL registradas nesta sessão: ${QUERY_FAILURES_COUNT}"
 
 CRIT_A="FALHA"
 if [ "${RESTORE_ORIGINAL_STATUS}" = "OK" ] && [ "${GZIP_EXIT}" -eq 0 ] && [ "${PSQL_EXIT}" -eq 0 ] && [ "${RESTORE_RAW_ERRORS_COUNT}" -eq 0 ]; then
