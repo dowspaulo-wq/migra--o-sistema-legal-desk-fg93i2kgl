@@ -2,7 +2,7 @@
 # ==============================================================================
 # DPSjur / SBJur — Auditoria Independente de Integridade de Backup
 # Script: docs/vps/20-auditar-backup.sh
-# Versão: v2.1.0
+# Versão: v2.1.1
 # Destino de execução: MÁQUINA DE TESTE / WSL2 / DOCKER DESKTOP ISOLADO
 #
 # GUARDA DE SEGURANÇA MÁXIMA (ANTI-VPS) E CONTROLE ESTRITO DE SESSÃO DOCKER:
@@ -118,6 +118,32 @@
 #      valor vazio). Disponibilidade de base64 verificada na inicialização;
 #      ausência é falha de ambiente impeditiva.
 #
+# CORREÇÕES v2.1.1 (auditoria externa independente — 4 pontos, correção cirúrgica):
+#   1. Guarda Docker: DOCKER_HOST e DOCKER_CONTEXT definidos e não vazios
+#      SIMULTANEAMENTE abortam com exit 11 (política conservadora do auditor:
+#      NENHUMA precedência é presumida entre as duas variáveis). Documentado
+#      que um socket Unix, ISOLADAMENTE, não comprova que o daemon é local nem
+#      que pertence ao laboratório — o que se comprova é o ENDPOINT (origem +
+#      formato unix:// + socket existente), e a fixação da v2.1.0 garante que
+#      toda invocação docker subsequente usa EXATAMENTE esse endpoint.
+#   2. jq_field_decode endurecido: cada campo obrigatório deve EXISTIR no objeto
+#      JSON e ser EFETIVAMENTE do tipo string; campo ausente, nulo ou de outro
+#      tipo gera falha explícita impeditiva (nunca conversão silenciosa no texto
+#      "null"). A extração JSON-lines deixa de usar tostring nos campos de
+#      identidade, preservando o tipo original para que a checagem de tipo seja
+#      real; strings vazias legítimas permanecem preservadas; sem eval.
+#   3. record_query_failure: toda falha de escrita no registro de falhas SQL é
+#      detectada imediatamente, produz diagnóstico claro em stderr e ativa um
+#      SINAL FATAL em arquivo próprio (QUERY_FAILURES_FATAL_FLAG) — mecanismo
+#      INDEPENDENTE do próprio arquivo cuja escrita falhou; a existência do
+#      sinal é checada na consolidação e impede QUALQUER veredito APROVADO,
+#      inclusive quando a contagem via arquivo não for confiável.
+#   4. Contagens informativas de constraints e funções do laboratório usam o
+#      MESMO critério de escopo de schemas da comparação bidirecional
+#      (pg_constraint/pg_proc com n.nspname NOT LIKE 'pg\_%' AND n.nspname <>
+#      'information_schema' — TODOS os schemas de usuário); sem misturar
+#      contagens restritas a public com comparações de escopo completo.
+#
 # POLÍTICA DE AUDITORIA E VEREDITO (v1.5.0):
 #   - O veredito APROVADO é emitido UNICAMENTE se TODOS os critérios técnicos
 #     passarem sem exceção:
@@ -148,7 +174,7 @@
 set -u -o pipefail
 umask 077
 
-SCRIPT_VERSION="v2.1.0"
+SCRIPT_VERSION="v2.1.1"
 
 # ------------------------------------------------------------------------------
 # PONTO 9 E PONTO 10 DA AUDITORIA: GUARDA DE SEGURANÇA MÁXIMA (ANTI-VPS)
@@ -168,6 +194,24 @@ SCRIPT_VERSION="v2.1.0"
 #    existente. tcp://, ssh://, http(s)://, npipe://, formato desconhecido ou
 #    endpoint não comprovável abortam com exit 11 ANTES de qualquer operação que
 #    modifique recursos Docker (nenhuma criação/remoção existe antes deste ponto).
+#
+#    CORREÇÃO 1 (v2.1.1) — EXCLUSÃO MÚTUA CONSERVADORA: DOCKER_HOST e
+#    DOCKER_CONTEXT definidos e não vazios SIMULTANEAMENTE abortam com exit 11
+#    IMEDIATAMENTE, antes de qualquer operação Docker, criação de diretório ou
+#    escrita em disco. Fundamento: embora a CLI documente que DOCKER_HOST
+#    sobrepõe o contexto ativo, o auditor determinou que NENHUMA precedência é
+#    presumida neste script diante da configuração simultânea das duas
+#    variáveis (configuração ambígua e inusualmente defensável); abortar é a
+#    única resposta aceitável. Com a exclusão mútua, a resolução do endpoint
+#    abaixo opera sempre com UMA ÚNICA origem definida, e a fixação (Correção 1
+#    da v2.1.0, logo após a guarda) assegura que nenhum endpoint é validado
+#    enquanto as chamadas docker subsequentes utilizam outro.
+if [ -n "${DOCKER_HOST:-}" ] && [ -n "${DOCKER_CONTEXT:-}" ]; then
+    printf '❌ ERRO CRÍTICO DE SEGURANÇA: DOCKER_HOST e DOCKER_CONTEXT definidos e não vazios simultaneamente (%s / %s).\n' "${DOCKER_HOST}" "${DOCKER_CONTEXT}" >&2
+    printf '   Política conservadora: nenhuma precedência é presumida entre as duas variáveis — abortando imediatamente (exit 11), antes de qualquer operação Docker.\n' >&2
+    exit 11
+fi
+
 if command -v docker >/dev/null 2>&1; then
     DOCKER_EFFECTIVE_ENDPOINT=""
     DOCKER_ENDPOINT_ORIGIN=""
@@ -181,7 +225,9 @@ if command -v docker >/dev/null 2>&1; then
                 ;;
             unix://*)
                 DOCKER_EFFECTIVE_ENDPOINT="${DOCKER_HOST}"
-                DOCKER_ENDPOINT_ORIGIN="DOCKER_HOST (sobrepõe o contexto ativo${DOCKER_CONTEXT:+ 'DOCKER_CONTEXT=${DOCKER_CONTEXT}'})"
+                # DOCKER_CONTEXT é impossível aqui: a exclusão mútua (Correção 1
+                # da v2.1.1) já abortou com exit 11 se ele estivesse definido.
+                DOCKER_ENDPOINT_ORIGIN="DOCKER_HOST (sobrepõe o contexto ativo; DOCKER_CONTEXT vazio garantido pela exclusão mútua)"
                 ;;
             *)
                 printf '❌ ERRO CRÍTICO DE SEGURANÇA: DOCKER_HOST possui formato não verificado (%s).\n' "${DOCKER_HOST}" >&2
@@ -224,7 +270,15 @@ if command -v docker >/dev/null 2>&1; then
 
     case "${DOCKER_EFFECTIVE_ENDPOINT}" in
         unix://*)
-            # Socket local UNIX: verificação efetiva de existência do socket
+            # Socket local UNIX: verificação efetiva de existência do socket.
+            # CORREÇÃO 1 (v2.1.1) — ADVERTÊNCIA DOCUMENTADA: um socket Unix,
+            # ISOLADAMENTE, NÃO comprova que o daemon é local nem que pertence
+            # ao laboratório (um socket pode encaminhar a outro host via proxy
+            # ou apontar para daemon remoto montado localmente). O que a guarda
+            # comprova é o ENDPOINT EFETIVO (origem declarada + formato unix:// +
+            # socket existente); a fixação da v2.1.0 abaixo garante que toda
+            # invocação docker posterior do script usa EXATAMENTE este endpoint
+            # (sem re-resolução implícita, sem janela TOCTOU).
             DOCKER_SOCKET_PATH="${DOCKER_EFFECTIVE_ENDPOINT#unix://}"
             if [ -z "${DOCKER_SOCKET_PATH}" ]; then
                 DOCKER_SOCKET_PATH="/var/run/docker.sock"
@@ -254,7 +308,7 @@ fi
 # consultado. O bloqueio preventivo com exit 11 acima permanece intacto; a
 # fixação NÃO presume que socket Unix comprova isolamento — a comprovação do
 # endpoint pelo contexto/ambiente continua exigida pela guarda.
-if command -v docker >/dev/null 2>&1 && [ -n "${DOCKER_EFFECTIVE_ENDPOINT}" ]; then
+if command -v docker >/dev/null 2>&1 && [ -n "${DOCKER_EFFECTIVE_ENDPOINT:-}" ]; then
     export DOCKER_HOST="${DOCKER_EFFECTIVE_ENDPOINT}"
     unset DOCKER_CONTEXT
 fi
@@ -342,6 +396,12 @@ CONFERIDOS_FILE="${DIAG_DIR}/conferidos-${TS_STAMP}-${PID_ATUAL}.txt"
 # Ponto 1 da correção v2.0.0: registro privativo das falhas de consulta SQL
 # (a contagem via variável não sobrevive a $(...); o arquivo sim).
 QUERY_FAILURES_FILE="${DIAG_DIR}/falhas-sql-${TS_STAMP}-${PID_ATUAL}.txt"
+# CORREÇÃO 3 (v2.1.1): sinal FATAL de registro INDEPENDENTE do arquivo de
+# registro. A EXISTÊNCIA deste arquivo indica falha de escrita no registro de
+# falhas SQL (ou impossibilidade de registrar a própria falha fatal). NÃO é
+# criado na inicialização (e por isso NÃO entra no loop de touch/chmod 600
+# abaixo): o sinal é a própria existência do arquivo.
+QUERY_FAILURES_FATAL_FLAG="${DIAG_DIR}/falha-fatal-registro-sql-${TS_STAMP}-${PID_ATUAL}.flag"
 TEMPORAL_DIFFS_FILE="${DIAG_DIR}/diferencas-temporais-${TS_STAMP}-${PID_ATUAL}.txt"
 REPORT_FILE="${DIAG_DIR}/relatorio-${TS_STAMP}-${PID_ATUAL}.txt"
 
@@ -676,13 +736,34 @@ exec_lab_sql_file() {
 # lida DESTE arquivo na consolidação final — nenhuma falha SQL escapa do
 # veredito. Falhas SQL fora de exec_lab_sql (identidade de funções e
 # pg_get_functiondef) também chamam record_query_failure.
+#
+# CORREÇÃO 3 (v2.1.1): toda falha de escrita no registro é detectada
+# IMEDIATAMENTE (o "2>/dev/null" que mascarava a falha foi removido e o código
+# de saída do append é verificado), produz diagnóstico claro em stderr e é
+# refletida em mecanismo que NÃO depende do próprio arquivo cuja escrita
+# falhou: o sinal fatal QUERY_FAILURES_FATAL_FLAG (arquivo criado na hora, com
+# umask 077). Por ser baseada em ARQUIVO, a flag sobrevive ao retorno de
+# subshells $(...) ao processo principal (idem ao arquivo de registro) e é
+# checada na consolidação do veredito; presença = aprovação impossível.
 # ------------------------------------------------------------------------------
 
 record_query_failure() {
     local desc="$1"
-    if [ -n "${QUERY_FAILURES_FILE:-}" ]; then
-        printf '%s %s\n' "$(date '+%F %T')" "${desc}" >> "${QUERY_FAILURES_FILE}" 2>/dev/null
+    if [ -z "${QUERY_FAILURES_FILE:-}" ]; then
+        printf '❌ FALHA FATAL (registro SQL): QUERY_FAILURES_FILE não configurado — impossível registrar a falha de consulta (%s).\n' "${desc}" >&2
+        if ! printf '%s Falha fatal de registro SQL (arquivo de registro não configurado): %s\n' "$(date '+%F %T')" "${desc}" >> "${QUERY_FAILURES_FATAL_FLAG}" 2>/dev/null; then
+            printf '❌ FALHA FATAL GRAVE (registro SQL): impossível ativar o sinal fatal em %s — verifique o sistema de arquivos.\n' "${QUERY_FAILURES_FATAL_FLAG}" >&2
+        fi
+        return 1
     fi
+    if ! printf '%s %s\n' "$(date '+%F %T')" "${desc}" >> "${QUERY_FAILURES_FILE}"; then
+        printf '❌ FALHA FATAL (registro SQL): escrita no arquivo de registro de falhas SQL falhou (%s) ao registrar: %s\n' "${QUERY_FAILURES_FILE}" "${desc}" >&2
+        if ! printf '%s Falha fatal de registro SQL (falha de escrita no arquivo %s): %s\n' "$(date '+%F %T')" "${QUERY_FAILURES_FILE}" "${desc}" >> "${QUERY_FAILURES_FATAL_FLAG}" 2>/dev/null; then
+            printf '❌ FALHA FATAL GRAVE (registro SQL): impossível ativar o sinal fatal em %s — verifique o sistema de arquivos.\n' "${QUERY_FAILURES_FATAL_FLAG}" >&2
+        fi
+        return 1
+    fi
+    return 0
 }
 
 count_query_failures() {
@@ -737,16 +818,28 @@ is_safe_identifier() {
 # tr '\n' ' '; colapso de espaços) antes de comparadas, mantendo a comparação
 # simétrica. Valores vazios legítimos (ex.: identidade vazia de função sem
 # argumentos) são decodificados corretamente (base64 de "" é "", exit 0).
+#
+# CORREÇÃO 2 (v2.1.1): campo obrigatório deve EXISTIR no objeto JSON e ser
+# EFETIVAMENTE do tipo string. O filtro exige type == "string" ANTES do
+# @base64: campo ausente (produz null), nulo, booleano, número ou objeto gera
+# error() do jq (exit != 0) e portanto return 1 — NUNCA a codificação
+# silenciosa do texto "null" que @base64 produziria sobre um valor nulo. O
+# tipo real só é verificável porque a extração JSON-lines deixa de usar
+# tostring (ver os pontos de extração de constraints e funções). String vazia
+# legítima continua decodificável ("" -> "" , exit 0 em ambas as etapas).
+# Segue SEM eval: decodificação por jq @base64 + base64 -d somente.
 # ------------------------------------------------------------------------------
 
 jq_field_decode() {
     local filter="$1" json="$2" b64 rc
-    b64="$(jq -r "${filter} | @base64" <<<"${json}" 2>>"${LOG_FILE}")"
+    b64="$(jq -r "${filter} | if type == \"string\" then @base64 else error(\"campo ausente, nulo ou não string\") end" <<<"${json}" 2>>"${LOG_FILE}")"
     rc=$?
     if [ "${rc}" -ne 0 ]; then
         return 1
     fi
-    base64 -d <<<"${b64}" 2>>"${LOG_FILE}"
+    if ! base64 -d <<<"${b64}" 2>>"${LOG_FILE}"; then
+        return 1
+    fi
 }
 
 # ------------------------------------------------------------------------------
@@ -994,13 +1087,23 @@ case "${TOTAL_TABELAS_AUTH_LAB}" in
         ;;
 esac
 
-TOTAL_CONSTRAINTS_LAB_RAW="$(exec_lab_sql "SELECT count(*) FROM information_schema.table_constraints WHERE table_schema = 'public'")" || {
+# CORREÇÃO 4 (v2.1.1): contagens informativas com o MESMO critério de escopo da
+# comparação bidirecional (Correção 2 da v2.1.0): catálogos pg_constraint e
+# pg_proc com n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema'
+# — TODOS os schemas de usuário. Schemas internos do PostgreSQL (pg_%) e o
+# information_schema permanecem EXCLUÍDOS em ambos os usos. Antes: contagens
+# restritas a 'public' via information_schema.table_constraints/routines, que
+# não contemplavam constraints EXCLUDE (contype 'x') nem objetos fora de
+# public — escopo inconsistente com a comparação bidirecional de escopo
+# completo (nunca misturar contagens de escopo público com comparações
+# abrangendo todos os schemas de usuário).
+TOTAL_CONSTRAINTS_LAB_RAW="$(exec_lab_sql "SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace WHERE n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema'")" || {
     printf 'DIVERGÊNCIA: Falha de consulta SQL ao contar constraints\n' >> "${DIVERGENCES_FILE}"
     TOTAL_CONSTRAINTS_LAB_RAW=0
 }
 TOTAL_CONSTRAINTS_LAB="$(printf '%s\n' "${TOTAL_CONSTRAINTS_LAB_RAW}" | tr -d '[:space:]')"
 
-TOTAL_FUNCOES_LAB_RAW="$(exec_lab_sql "SELECT count(*) FROM information_schema.routines WHERE routine_schema = 'public'")" || {
+TOTAL_FUNCOES_LAB_RAW="$(exec_lab_sql "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema'")" || {
     printf 'DIVERGÊNCIA: Falha de consulta SQL ao contar funções public\n' >> "${DIVERGENCES_FILE}"
     TOTAL_FUNCOES_LAB_RAW=0
 }
@@ -1020,8 +1123,8 @@ TOTAL_EXTENSOES_LAB="$(printf '%s\n' "${TOTAL_EXTENSOES_LAB_RAW}" | tr -d '[:spa
 
 say "   Tabelas no schema public ...: ${TOTAL_TABELAS_LAB}"
 say "   Tabelas no schema auth .....: ${TOTAL_TABELAS_AUTH_LAB}"
-say "   Constraints no public ......: ${TOTAL_CONSTRAINTS_LAB}"
-say "   Funções no public ..........: ${TOTAL_FUNCOES_LAB}"
+say "   Constraints (schemas de usuário): ${TOTAL_CONSTRAINTS_LAB}"
+say "   Funções (schemas de usuário) ....: ${TOTAL_FUNCOES_LAB}"
 say "   Triggers no public .........: ${TOTAL_TRIGGERS_LAB}"
 say "   Extensões instaladas .......: ${TOTAL_EXTENSOES_LAB}"
 
@@ -1418,7 +1521,11 @@ else
         # comparação).
         INV_CONSTRAINTS_RAW_RC=0
         INV_CONSTRAINTS_RAW=""
-        INV_CONSTRAINTS_RAW="$(jq -c '.constraints[] | {schema:(.schema|tostring), tabela:(.tabela|tostring), nome:(.nome|tostring), definicao:(.definicao|tostring)}' "${INVENTORY_FILE}" 2>>"${LOG_FILE}")" || INV_CONSTRAINTS_RAW_RC=$?
+        # CORREÇÃO 2 (v2.1.1): campos extraídos SEM tostring — o tipo original
+        # é preservado para que jq_field_decode exija efetivamente string;
+        # campo ausente, nulo ou não string vira falha explícita na
+        # decodificação (nunca o texto "null").
+        INV_CONSTRAINTS_RAW="$(jq -c '.constraints[] | {schema:.schema, tabela:.tabela, nome:.nome, definicao:.definicao}' "${INVENTORY_FILE}" 2>>"${LOG_FILE}")" || INV_CONSTRAINTS_RAW_RC=$?
         if [ "${INV_CONSTRAINTS_RAW_RC}" -ge 2 ]; then
             printf 'DIVERGÊNCIA: Falha de jq ao extrair constraints do inventário (exit %s)\n' "${INV_CONSTRAINTS_RAW_RC}" >> "${DIVERGENCES_FILE}"
             INVENTORY_EXTRACTION_INCOMPLETE=1
@@ -1499,7 +1606,14 @@ else
         # integral e a normalização idêntica dos dois lados ocorre apenas na
         # comparação). Decodificação campo a campo SEM eval (CORREÇÃO 3 da
         # v2.1.0: jq @base64 + base64 -d, helper jq_field_decode).
-        INV_FUNCTIONS_RAW="$(jq -c '.funcoes[] | {schema:(.schema|tostring), nome:(.nome|tostring), identidade:(.identidade|tostring), retorno:(.tipo_retorno|tostring), corpo:((.inclui_corpo // false)|tostring), definicao:(.definicao // "")}' "${INVENTORY_FILE}" 2>>"${LOG_FILE}")" || INV_FUNCTIONS_RAW_RC=$?
+        # CORREÇÃO 2 (v2.1.1): campos de identidade extraídos SEM tostring (tipo
+        # original preservado; ausente/nulo/não-string = falha explícita na
+        # decodificação). Exceções SEMÂNTICAS preservadas: corpo é a conversão
+        # intencional do booleano inclui_corpo (padrão false) em "true"/"false";
+        # definicao usa padrão "" (definição ausente é legítima quando
+        # inclui_corpo=false; com corpo exigido, ausência é DIVERGÊNCIA
+        # explícita mais adiante).
+        INV_FUNCTIONS_RAW="$(jq -c '.funcoes[] | {schema:.schema, nome:.nome, identidade:.identidade, retorno:.tipo_retorno, corpo:((.inclui_corpo // false)|tostring), definicao:(.definicao // "")}' "${INVENTORY_FILE}" 2>>"${LOG_FILE}")" || INV_FUNCTIONS_RAW_RC=$?
         if [ "${INV_FUNCTIONS_RAW_RC}" -ge 2 ]; then
             printf 'DIVERGÊNCIA: Falha de jq ao extrair funções do inventário (exit %s)\n' "${INV_FUNCTIONS_RAW_RC}" >> "${DIVERGENCES_FILE}"
             INVENTORY_EXTRACTION_INCOMPLETE=1
@@ -2012,6 +2126,21 @@ TEMPORAL_DIFFS_COUNT="$(wc -l < "${TEMPORAL_DIFFS_FILE}" 2>/dev/null || echo 0)"
 QUERY_FAILURES_COUNT="$(count_query_failures)"
 log "Falhas de consulta SQL registradas nesta sessão: ${QUERY_FAILURES_COUNT}"
 
+# CORREÇÃO 3 (v2.1.1): a existência do sinal fatal é checada na consolidação —
+# mecanismo INDEPENDENTE do arquivo cuja escrita pode ter falhado. Presença do
+# sinal = falha de escrita no registro (ou impossibilidade de registrar a
+# falha): contagem forçada ao valor conservador 999 e aprovação impossível,
+# MESMO que o arquivo de registro esteja vazio ou ilegível (count_query_failures
+# não é a única fonte de bloqueio).
+QUERY_FAILURES_FATAL=0
+if [ -f "${QUERY_FAILURES_FATAL_FLAG}" ]; then
+    QUERY_FAILURES_FATAL=1
+    QUERY_FAILURES_COUNT=999
+    printf 'DIVERGÊNCIA: Falha de escrita no registro de falhas SQL detectada (sinal fatal presente em %s) — veredito NUNCA é APROVADO nesta condição\n' "${QUERY_FAILURES_FATAL_FLAG}" >> "${DIVERGENCES_FILE}"
+    say_err "Falha de escrita no registro de falhas SQL detectada (sinal fatal presente); a auditoria NÃO pode ser aprovada."
+    log "FALHA FATAL (registro SQL): sinal fatal presente: ${QUERY_FAILURES_FATAL_FLAG}"
+fi
+
 CRIT_A="FALHA"
 if [ "${RESTORE_ORIGINAL_STATUS}" = "OK" ] && [ "${GZIP_EXIT}" -eq 0 ] && [ "${PSQL_EXIT}" -eq 0 ] && [ "${RESTORE_RAW_ERRORS_COUNT}" -eq 0 ]; then
     CRIT_A="OK"
@@ -2036,6 +2165,7 @@ CRIT_D_OK=0
 if [ "${INVENTORY_COMPARISON_VALID}" = "SIM" ] \
     && [ "${INVENTORY_BIDIRECTIONAL_CHECK_PASSED}" -eq 1 ] \
     && [ "${QUERY_FAILURES_COUNT}" -eq 0 ] \
+    && [ "${QUERY_FAILURES_FATAL}" -eq 0 ] \
     && [ "${TEMPORAL_DIFFS_COUNT}" -eq 0 ]; then
     CRIT_D_OK=1
 fi
@@ -2049,12 +2179,13 @@ fi
 if [ "${CRIT_A}" = "OK" ] && [ "${CRIT_B}" = "OK" ] && [ "${CRIT_C}" = "OK" ] \
     && [ "${CRIT_D_OK}" -eq 1 ] && [ "${OP_CRITERION_STATUS}" = "CONFORME" ] \
     && [ "${DIVERGENCES_COUNT}" -eq 0 ] && [ "${TEMPORAL_DIFFS_COUNT}" -eq 0 ] \
-    && [ "${QUERY_FAILURES_COUNT}" -eq 0 ] && [ "${INVENTORY_COMPARISON_VALID}" = "SIM" ]; then
+    && [ "${QUERY_FAILURES_COUNT}" -eq 0 ] && [ "${QUERY_FAILURES_FATAL}" -eq 0 ] \
+    && [ "${INVENTORY_COMPARISON_VALID}" = "SIM" ]; then
     VEREDITO="APROVADO"
     MOTIVO_VEREDITO="Todos os critérios técnicos passaram sem exceção (restauração física original, pg_graphql, estrutural exaustivo, comparação bidirecional integral jq, integridade parcial do PostgreSQL e zero divergências/falhas de consulta)."
 else
     VEREDITO="REPROVADO"
-    MOTIVO_VEREDITO="O backup apresentou divergências ou falhas técnicas não resolvidas (CRIT_A_ORIGINAL: ${CRIT_A}, CRIT_B: ${CRIT_B}, GRAPQHL_FINAL: ${GRAPHQL_FINAL_STATUS}, RECUPERACAO: ${GRAPHQL_REC_STATUS}, DEPENDENCIA_POS_RESTORE: ${GRAPHQL_DEP_NOTE}, CRIT_D_OK: ${CRIT_D_OK}, DIVERGÊNCIAS: ${DIVERGENCES_COUNT}, INCONCLUSIVAS: ${TEMPORAL_DIFFS_COUNT}, QUERIES_FALHAS: ${QUERY_FAILURES_COUNT}, COMPARAÇÃO_VÁLIDA: ${INVENTORY_COMPARISON_VALID})."
+    MOTIVO_VEREDITO="O backup apresentou divergências ou falhas técnicas não resolvidas (CRIT_A_ORIGINAL: ${CRIT_A}, CRIT_B: ${CRIT_B}, GRAPQHL_FINAL: ${GRAPHQL_FINAL_STATUS}, RECUPERACAO: ${GRAPHQL_REC_STATUS}, DEPENDENCIA_POS_RESTORE: ${GRAPHQL_DEP_NOTE}, CRIT_D_OK: ${CRIT_D_OK}, DIVERGÊNCIAS: ${DIVERGENCES_COUNT}, INCONCLUSIVAS: ${TEMPORAL_DIFFS_COUNT}, QUERIES_FALHAS: ${QUERY_FAILURES_COUNT}, FALHA_REGISTRO_SQL: ${QUERY_FAILURES_FATAL}, COMPARAÇÃO_VÁLIDA: ${INVENTORY_COMPARISON_VALID})."
 fi
 
 # ------------------------------------------------------------------------------
@@ -2114,6 +2245,7 @@ cat <<EOF > "${REPORT_FILE}"
    Total de divergências impeditivas: ${DIVERGENCES_COUNT}
    Total de diferenças de contagem inconclusivas: ${TEMPORAL_DIFFS_COUNT}
    Total de falhas de consulta SQL: ${QUERY_FAILURES_COUNT}
+   Falha fatal de registro SQL (sinal independente): ${QUERY_FAILURES_FATAL} (0 = nenhum; >0 = escrita no registro comprometida, aprovação impossível)
 EOF
 
 if [ -s "${DIVERGENCES_FILE}" ]; then
