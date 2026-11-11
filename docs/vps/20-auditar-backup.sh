@@ -172,7 +172,8 @@
 #      inclusive quando a função é chamada dentro de $(...).
 #      TODAS as chamadas de record_query_failure verificam o retorno da função
 #      e propagam a falha (DIVERGÊNCIA impeditiva registrada ou return não
-#      zero ao chamador imediato).
+#      zero ao chamador imediato). Rodada v2.1.2 (reaplicação idempotente da
+#      implementação completa, confirmando os 5 call sites verificados).
 #
 # POLÍTICA DE AUDITORIA E VEREDITO (v1.5.0):
 #   - O veredito APROVADO é emitido UNICAMENTE se TODOS os critérios técnicos
