@@ -249,6 +249,29 @@ docker network rm "dpsjur-b-net-${TS}"
   Banco A. Para o Banco B, a validação é a lista de verificações da seção 6.2
   — status PENDENTE DE VALIDAÇÃO até ser executada em laboratório.
 
+## 6.4 Validação de restauração (pós-desastre) — kit pronto em docs/vps/restore-validacao/
+
+Procedimento completo para validar um backup `.sql.gz` (ex.: o diário do
+Banco A) num PostgreSQL limpo **na máquina LOCAL** (Windows + Docker Desktop +
+WSL2), em 3 etapas — detalhe e blocos de comando prontos no
+`docs/vps/restore-validacao/README.md`:
+
+1. **Diagnóstico** (`01-diagnostico-backup.sh`): leitura do próprio `.sql.gz`
+   (versões de origem, extensões, papéis, `pgrst_drop_watch`, tabelas com
+   dados) — sem banco, sem restauração.
+2. **Restauração limpa** (`02-restaurar-limpo.sh`): contêiner NOVO a partir de
+   `supabase/postgres:15.8.1.085`, papéis/extensões preparados, restore como
+   `supabase_admin` com `ON_ERROR_STOP=0` (lista completa de erros). Nunca
+   reutilizar contêiner parcial (ex.: `dpsjur-restore-supabase`).
+3. **Validação** (`03-validar-restauracao.sh`): somente leitura sobre o banco
+   restaurado — tabelas/registros/sequências/funções/RLS/extensões/papéis,
+   comparado com o diagnóstico do passo 1. Grava log + resumo em arquivo.
+
+O arquivo de log de cada etapa é **colado de volta na conversa** para análise;
+a restauração só sai de PENDENTE DE VALIDAÇÃO depois disso. A restauração é
+SEMPRE em contêiner isolado na máquina local — **NUNCA na VPS** (nem no
+EasyPanel, nem tocando a rotina das 03h).
+
 ## 7. Testes de sintaxe e análise estática
 
 Nesta rodada (plataforma de desenvolvimento SEM Bash):
