@@ -75,12 +75,17 @@ Guarde o caminho dele — a ETAPA 3 usa este arquivo na comparação.
 
 ## ETAPA 2 — Restauração LIMPA (contêiner NOVO)
 
-**Script:** `02-restaurar-limpo.sh` · **Finalidade:** criar o contêiner
+**Script:** `02-restaurar-limpo.sh` (v1.0.1) · **Finalidade:** criar o contêiner
 `dpsjur-restore-final` (imagem `supabase/postgres:15.8.1.085`, porta local
 15433 vinculada a 127.0.0.1), criar papéis e extensões, copiar o dump e
 restaurar como `supabase_admin` com `ON_ERROR_STOP=0` — o objetivo é a LISTA
 COMPLETA de erros, não parar no primeiro. O script ABORTA se o nome do
 contêiner já existir (não reutiliza, não remove).
+
+Na restauração, o `.sql.gz` é descomprimido pelo `gunzip` e o SQL é lido pelo
+`psql` da entrada padrão (`gunzip -c /tmp/backup.sql.gz | psql ...`, sem `-f`
+sobre o arquivo comprimido); os heredocs de preparação (papéis, extensões)
+usam `docker exec -i` para o stdin chegar ao `psql`.
 
 **Resultado esperado:** terminal mostra os 6 passos (`[1/6]` a `[6/6]`), um
 resumo de erros do log (alguns `ERRO` de objetos de sistema Supabase são

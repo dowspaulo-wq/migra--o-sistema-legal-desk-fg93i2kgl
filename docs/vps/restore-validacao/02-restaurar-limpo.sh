@@ -2,7 +2,9 @@
 # ==============================================================================
 # DPSjur — VALIDAÇÃO DE RESTAURAÇÃO · PASSO 2
 # Script: docs/vps/restore-validacao/02-restaurar-limpo.sh
-# Versão: v1.0.0
+# Versão: v1.0.1
+# v1.0.1: correção crítica — o psql agora recebe o SQL DESCOMPRIMIDO pelo stdin
+# (gunzip | psql, sem -f sobre o .sql.gz) e os heredocs de psql usam docker exec -i.
 #
 # FINALIDADE: criar um contêiner NOVO e LIMPO a partir da imagem
 # supabase/postgres:15.8.1.085, preparar papéis/extensões e restaurar o dump
@@ -41,7 +43,7 @@ set -o pipefail
 umask 077
 
 readonly SCRIPT_NAME="02-restaurar-limpo.sh"
-readonly SCRIPT_VERSION="v1.0.0"
+readonly SCRIPT_VERSION="v1.0.1"
 readonly IMAGE="supabase/postgres:15.8.1.085"
 readonly DEFAULT_CONTAINER="dpsjur-restore-final"
 readonly HOST_PORT="${SUPABASE_RESTORE_PORT:-15433}"
@@ -165,7 +167,7 @@ printf '[3/6] Preparando papéis e extensões (idempotente)...\n'
 # Papel principal: supabase_admin SUPERUSUÁRIO (comprovado que é ele quem possui
 # o event trigger pgrst_drop_watch na origem — restaurar como postgres falha com
 # "must be owner of event trigger pgrst_drop_watch").
-docker exec "${CONTAINER}" psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=0 <<SQL
+docker exec -i "${CONTAINER}" psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=0 <<SQL
 -- Papéis donos (idempotente)
 DO \$\$
 BEGIN
@@ -198,7 +200,7 @@ done
 
 # Extensões frequentemente exigidas por dumps Supabase (idempotente; pg_net é a
 # que faltou na Tentativa 1). ON_ERROR_STOP=0: erro aqui não aborta — fica no log.
-docker exec "${CONTAINER}" psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=0 <<'SQL'
+docker exec -i "${CONTAINER}" psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=0 <<'SQL'
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_net;
 CREATE EXTENSION IF NOT EXISTS pgjwt;
@@ -225,8 +227,10 @@ PGPASS
 # Restauração: psql -v ON_ERROR_STOP=0 (continua e registra todos os erros).
 # Saída completa em LOG_FILE; erros também resumidos ao final.
 set +o errexit
+# O .sql.gz é DESCOMPRIMIDO pelo gunzip e o SQL alimentado ao psql pelo stdin
+# (sem -f sobre o .sql.gz). PSQL_RC captura o código do fim do pipeline (psql).
 docker exec "${CONTAINER}" bash -lc \
-  'PGPASSFILE=/tmp/.pgpass-restore psql -h 127.0.0.1 -p 5432 -U supabase_admin -d postgres -v ON_ERROR_STOP=0 -f /tmp/backup.sql.gz 2>&1 | gunzip -c /tmp/backup.sql.gz' \
+  'gunzip -c /tmp/backup.sql.gz | PGPASSFILE=/tmp/.pgpass-restore psql -h 127.0.0.1 -p 5432 -U supabase_admin -d postgres -v ON_ERROR_STOP=0' \
   > "${LOG_FILE}" 2>&1
 PSQL_RC=$?
 set -o errexit
