@@ -103,6 +103,18 @@ O sistema SBJur/DPSjur opera em infraestrutura própria no VPS Hostinger via Eas
   - Sincronização de cobranças e clientes com a API oficial do Asaas.
 - **Fase 4 — Migração Supabase Self-Hosted (`docs/migracao-fase4/`):**
   - DDL, políticas RLS, credenciais GoTrue e importação de dados.
+- **Validação de Restauração de Desastre (`docs/vps/restore-validacao/`):**
+  - Kit de validação da restauração dos backups PostgreSQL, em 4 passos numerados (somente leitura):
+    - `01-diagnostico-backup.sh` — diagnóstico do .sql.gz SEM abrir banco nem restaurar;
+    - `02-restaurar-limpo.sh` — restauração em banco limpo/isolado;
+    - `03-validar-restauracao.sh` — conferência catálogo/RLS/extensões pós-restauração;
+    - `04-hash-validacao.sh` — calcula o SHA-256 do blob Git e da cópia de trabalho de
+      `01-diagnostico-backup.sh` no commit `b19a532` ("0.0.692"), com verificação do
+      último commit que alterou o arquivo e conferência dupla blob × worktree; o hash
+      (hex, 64 caracteres, minúsculas) serve para embedar num bloco PowerShell que
+      valida o download do arquivo via GitHub raw naquele commit.
+  - ⚠ Todos os scripts NÃO VALIDADOS: sem Bash nesta plataforma — rodar `bash -n`,
+    ShellCheck e execução real no WSL2 de Douglas antes de confiar nos resultados.
 
 ## 🎨 Componentes UI
 
