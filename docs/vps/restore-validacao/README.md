@@ -71,6 +71,27 @@ wsl -e bash -lc "cd /mnt/c/Users/dowsp/DPSJUR-Backup-Teste && bash /mnt/c/Users/
 **Ao terminar:** cole o conteúdo do `diagnostico-backup-*.txt` na conversa.
 Guarde o caminho dele — a ETAPA 3 usa este arquivo na comparação.
 
+### Etapa 1 via DPSJUR-Etapa1.ps1 (automático, Windows PowerShell 5.1)
+
+Alternativa aos blocos acima: o arquivo `DPSJUR-Etapa1.ps1` faz a ETAPA 1
+inteira sem copiar comandos.
+
+- Arquivo: `docs/vps/restore-validacao/DPSJUR-Etapa1.ps1`
+- Baixe do commit fixado (raw):
+  `https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/<commit>/docs/vps/restore-validacao/DPSJUR-Etapa1.ps1`
+- Execute (o bypass vale só para esta invocação):
+
+  ```powershell
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\DPSJUR-Etapa1.ps1
+  ```
+
+O próprio `.ps1` baixa `01-diagnostico-backup.sh` pela API do GitHub no commit
+`b19a532bffe6ae0e069ad9f19e0fae4a9d09db07`, confere o identificador de blob Git
+(`884cf88d8bcf1299c5cd81accbde9d92efaacadd`, 8966 bytes) e o SHA-256 contra o
+download bruto, faz `bash -n`, executa o diagnóstico (somente leitura sobre o
+`.sql.gz`), exibe o relatório e o abre no Bloco de Notas. Se alguma verificação
+falhar, ele para sem executar nada e pede para colar a saída no chat.
+
 ---
 
 ## ETAPA 2 — Restauração LIMPA (contêiner NOVO)
