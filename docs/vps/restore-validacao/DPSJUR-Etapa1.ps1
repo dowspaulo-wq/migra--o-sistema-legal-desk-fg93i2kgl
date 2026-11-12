@@ -1,7 +1,16 @@
 # ==============================================================================
 # DPSjur - VALIDACAO DE RESTAURACAO - ETAPA 1 (DIAGNOSTICO DO BACKUP)
 # Arquivo: docs/vps/restore-validacao/DPSJUR-Etapa1.ps1
-# Versao: v1.0.0 (Windows PowerShell 5.1)
+# Versao: v1.1.0 (Windows PowerShell 5.1)
+#
+# v1.1.0: corrige a falha "Nao e possivel localizar uma sobrecarga para
+# 'FromBase64String' e a contagem de argumentos: '2'" reportada na etapa [2/5]
+# em Windows PowerShell 5.1. Causa: a API do GitHub devolve o campo "content"
+# em base64 COM quebras de linha, e o desserializador JSON do PowerShell 5.1
+# pode entrega-lo como ARRAY de strings; o "-replace" sobre array devolve
+# array, e FromBase64String recebe 2 "argumentos". O campo agora e sempre
+# normalizado para UMA string antes do Base64. Nenhuma verificacao de
+# integridade foi removida ou afrouxada.
 #
 # FINALIDADE: executar a ETAPA 1 do README desta pasta (diagnostico somente
 # leitura do backup .sql.gz) num unico comando, sem copiar blocos de comandos.
@@ -85,6 +94,25 @@ function Test-SameBytes([byte[]]$a, [byte[]]$b) {
     return $true
 }
 
+# Normaliza um campo de resposta JSON para UMA string unica.
+# No Windows PowerShell 5.1, ConvertFrom-Json/Invoke-RestMethod podem entregar
+# strings longas com quebras de linha (ex.: o campo "content" em base64 da API
+# do GitHub) como ARRAY de strings. Aplicar -replace sobre array devolve array
+# e quebra metodos .NET que esperam 1 argumento. Isto junta tudo em uma string,
+# tolerando array, colecao de 1 elemento, $null e string simples.
+function Get-SingleString($value) {
+    if ($null -eq $value) { return '' }
+    if ($value -is [System.Array]) { return (@($value) -join '') }
+    return [string]$value
+}
+
+# Garante caminho ABSOLUTO para metodos .NET ([IO.File]::*): no PowerShell 5.1
+# o diretorio corrente do .NET pode diferir do do PowerShell quando o script e
+# invocado com caminho relativo.
+function Get-AbsolutePath([string]$p) {
+    return $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($p)
+}
+
 # Roda um comando bash dentro do WSL e devolve o codigo de saida.
 # Os comandos passados usam apenas aspas simples (sem aspas duplas), para o
 # Windows PowerShell 5.1 repassar os argumentos sem corromper.
@@ -134,17 +162,25 @@ try {
     } catch {
         Fail ('Nao foi possivel consultar a API do GitHub no commit fixado. Verifique a conexao. Detalhe: ' + $_.Exception.Message)
     }
-    if ($meta.encoding -ne 'base64') {
-        Fail ('Resposta inesperada da API do GitHub (encoding: ' + $meta.encoding + ').')
+    if ((Get-SingleString $meta.encoding) -ne 'base64') {
+        Fail ('Resposta inesperada da API do GitHub (encoding: ' + (Get-SingleString $meta.encoding) + ').')
     }
-    if ([int]$meta.size -ne $blobSize) {
-        Fail ('Tamanho informado pela API (' + $meta.size + ') difere do fixado (' + $blobSize + ' bytes).')
+    if ([int](Get-SingleString $meta.size) -ne $blobSize) {
+        Fail ('Tamanho informado pela API (' + (Get-SingleString $meta.size) + ') difere do fixado (' + $blobSize + ' bytes).')
     }
-    if ($meta.sha -ne $blobId) {
-        Fail ('Identificador de blob informado pela API (' + $meta.sha + ') difere do fixado (' + $blobId + ').')
+    if ((Get-SingleString $meta.sha) -ne $blobId) {
+        Fail ('Identificador de blob informado pela API (' + (Get-SingleString $meta.sha) + ') difere do fixado (' + $blobId + ').')
     }
 
-    $versioned = [System.Convert]::FromBase64String(([string]$meta.content) -replace '\s', '')
+    # CORRECAO v1.1.0: o campo "content" (base64 com quebras de linha) pode
+    # chegar como ARRAY de strings no PowerShell 5.1; normaliza para UMA
+    # string ANTES de limpar espacos e converter para bytes.
+    $contentRaw  = Get-SingleString $meta.content
+    $contentB64  = ($contentRaw -replace '\s', '')
+    if ([string]::IsNullOrEmpty($contentB64)) {
+        Fail 'A API do GitHub nao devolveu o conteudo base64 esperado (campo content vazio).'
+    }
+    $versioned = [System.Convert]::FromBase64String($contentB64)
     if ($versioned.Length -ne $blobSize) {
         Fail ('Conteudo decodificado com ' + $versioned.Length + ' bytes; o esperado e ' + $blobSize + '.')
     }
@@ -187,7 +223,8 @@ try {
     $downloaded = $null
     Write-Host '  Download bruto  : confere byte a byte com o conteudo versionado' -ForegroundColor Green
 
-    [System.IO.File]::WriteAllBytes($sh, $versioned)
+    $shAbs = Get-AbsolutePath $sh
+    [System.IO.File]::WriteAllBytes($shAbs, $versioned)
     Write-Host ('  Script validado gravado em: ' + $sh)
 
     # --------------------------------------------------------------------------

@@ -76,14 +76,38 @@ Guarde o caminho dele — a ETAPA 3 usa este arquivo na comparação.
 Alternativa aos blocos acima: o arquivo `DPSJUR-Etapa1.ps1` faz a ETAPA 1
 inteira sem copiar comandos.
 
-- Arquivo: `docs/vps/restore-validacao/DPSJUR-Etapa1.ps1`
-- Baixe do commit fixado (raw):
-  `https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/<commit>/docs/vps/restore-validacao/DPSJUR-Etapa1.ps1`
-- Execute (o bypass vale só para esta invocação):
+- Arquivo: `docs/vps/restore-validacao/DPSJUR-Etapa1.ps1` — **versão atual:
+  v1.1.0** (corrige a falha "Não é possível localizar uma sobrecarga para
+  'FromBase64String' e a contagem de argumentos: '2'" na etapa [2/5], que
+  ocorria no PowerShell 5.1 quando o campo base64 da API do GitHub chegava
+  como array de strings; nenhuma verificação de integridade foi removida).
 
-  ```powershell
-  powershell -NoProfile -ExecutionPolicy Bypass -File .\DPSJUR-Etapa1.ps1
-  ```
+#### SUBSTITUIR a versão anterior (v1.0.0) — obrigatório antes de reexecutar
+
+Se você já tem `DPSJUR-Etapa1.ps1` em
+`C:\Users\dowsp\DPSJUR-Backup-Teste\`, substitua o arquivo **por cima** (não
+precisa apagar nem editar nada):
+
+1. Baixe a nova versão do commit fixado (raw), salvando **como**
+   `DPSJUR-Etapa1.ps1` **em cima do arquivo existente** em
+   `C:\Users\dowsp\DPSJUR-Backup-Teste\DPSJUR-Etapa1.ps1`:
+   `https://raw.githubusercontent.com/dowspaulo-wq/migra--o-sistema-legal-desk-fg93i2kgl/<commit>/docs/vps/restore-validacao/DPSJUR-Etapa1.ps1`
+   (no navegador: Ctrl+S e escolha essa pasta e esse nome; confirme a
+   substituição quando o Windows perguntar).
+2. Confira no topo do arquivo baixado: deve dizer `Versao: v1.1.0`.
+3. Reexecute **o mesmo comando único de sempre** (o bypass vale só para esta
+   invocação):
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\DPSJUR-Etapa1.ps1
+   ```
+
+   (rode com a pasta `C:\Users\dowsp\DPSJUR-Backup-Teste` como atual, como da
+   primeira vez; nada mais muda).
+
+Nenhuma edição manual de código é necessária — só baixar por cima e rodar.
+
+#### O que o .ps1 faz
 
 O próprio `.ps1` baixa `01-diagnostico-backup.sh` pela API do GitHub no commit
 `b19a532bffe6ae0e069ad9f19e0fae4a9d09db07`, confere o identificador de blob Git
