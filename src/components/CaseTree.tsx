@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight, Star } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import useLegalStore from '@/stores/useLegalStore'
-import { formatSafeLocalDate } from '@/lib/utils'
+import { CaseFeeBadge } from '@/components/CaseFeeBadge'
 
 export interface CaseNode {
   id: string
@@ -23,6 +23,12 @@ interface CaseTreeProps {
 
 const MAX_DEPTH = 12
 
+/**
+ * Árvore de subprocessos em LINHAS (sublinhas em cascata): cada filho aparece
+ * como uma linha indentada abaixo do pai, com guia vertical + conector
+ * horizontal (linha de árvore), sem caixas aninhadas. Profundidade ilimitada
+ * na prática (limite alto de segurança), expandida chevron por chevron.
+ */
 export function CaseTree({ roots, allCases, depth = 0 }: CaseTreeProps) {
   const { state } = useLegalStore()
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
@@ -46,127 +52,111 @@ export function CaseTree({ roots, allCases, depth = 0 }: CaseTreeProps) {
   const toggle = (caseId: string) => setExpanded((prev) => ({ ...prev, [caseId]: !prev[caseId] }))
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1">
       {roots.map((c) => {
         const children = childrenOf[c.id] || []
         const hasChildren = children.length > 0
         const isOpen = !!expanded[c.id]
         const canExpand = hasChildren && depth < MAX_DEPTH
+        const resp = state.users?.find((u: any) => u.id === c.responsibleId)
 
         return (
-          <div key={c.id} className="space-y-2">
+          <div key={c.id} className="relative">
+            {/* conector horizontal ligando esta linha ao guia vertical do pai */}
+            {depth > 0 && <span className="absolute -left-4 top-[13px] w-4 h-px bg-slate-300" />}
+
             <div
-              className={cn(
-                'border p-4 rounded-md hover:border-primary/50 transition-colors bg-white shadow-sm relative',
-                depth > 0 && 'bg-slate-50/60',
-              )}
+              className="flex items-center gap-1.5 flex-wrap py-0.5 min-w-0"
               data-native-system-icon="true"
             >
-              {depth > 0 && (
-                <>
-                  <span className="absolute top-0 -left-3 w-px h-full bg-slate-200" />
-                  <span className="absolute top-1/2 -left-3 w-3 h-px bg-slate-200" />
-                </>
+              {canExpand ? (
+                <button
+                  type="button"
+                  onClick={() => toggle(c.id)}
+                  className="shrink-0 p-0.5 rounded hover:bg-slate-100 text-slate-500 hover:text-primary transition-colors"
+                  aria-expanded={isOpen}
+                  aria-label={isOpen ? 'Recolher subprocessos' : 'Expandir subprocessos'}
+                  title={isOpen ? 'Recolher subprocessos' : 'Expandir subprocessos'}
+                >
+                  {isOpen ? (
+                    <ChevronDown className={depth === 0 ? 'h-4 w-4' : 'h-3.5 w-3.5'} />
+                  ) : (
+                    <ChevronRight className={depth === 0 ? 'h-4 w-4' : 'h-3.5 w-3.5'} />
+                  )}
+                </button>
+              ) : (
+                <span className="w-[18px] shrink-0" aria-hidden="true" />
               )}
-
-              <div className="flex justify-between items-start mb-3 gap-2">
-                <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                  {canExpand ? (
-                    <button
-                      type="button"
-                      onClick={() => toggle(c.id)}
-                      className="shrink-0 p-0.5 rounded hover:bg-slate-100 text-slate-500 hover:text-primary transition-colors"
-                      aria-expanded={isOpen}
-                      aria-label={isOpen ? 'Recolher subprocessos' : 'Expandir subprocessos'}
-                      title={isOpen ? 'Recolher subprocessos' : 'Expandir subprocessos'}
-                    >
-                      {isOpen ? (
-                        <ChevronDown className="h-4 w-4" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4" />
-                      )}
-                    </button>
-                  ) : null}
-                  {(() => {
-                    const sys = state.caseSystems?.find((s: any) => s.name === c.system)
-                    if (sys?.image_url) {
-                      return (
-                        <img
-                          src={sys.image_url}
-                          alt={sys.name}
-                          className="w-5 h-5 object-contain shrink-0"
-                          title={sys.name}
-                        />
-                      )
-                    }
-                    return null
-                  })()}
-                  <Link
-                    to={`/processos/${c.id}`}
-                    className="font-bold text-base text-primary hover:underline"
-                  >
-                    {c.number}
-                  </Link>
-                  {c.status && (
-                    <Badge variant="outline" className="bg-slate-50">
-                      {c.status}
-                    </Badge>
-                  )}
-                  {c.type && (
-                    <Badge variant="secondary" className="text-[10px]">
-                      {c.type}
-                    </Badge>
-                  )}
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {c.noFees && (
-                    <span className="text-base leading-none" title="Não gera honorários">
-                      🚫
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 text-xs text-slate-700">
-                <div>
-                  <span className="font-semibold block text-slate-500 mb-0.5">Tipo</span>
-                  {c.type || '—'}
-                </div>
-                <div>
-                  <span className="font-semibold block text-slate-500 mb-0.5">Tribunal/Vara</span>
-                  {c.court || '—'}
-                </div>
-                <div>
-                  <span className="font-semibold block text-slate-500 mb-0.5">Comarca/UF</span>
-                  {c.comarca
-                    ? `${String(c.comarca).toUpperCase()}${c.state ? ` - ${String(c.state).toUpperCase()}` : ''}`
-                    : '—'}
-                </div>
-                <div>
-                  <span className="font-semibold block text-slate-500 mb-0.5">Parte Adversa</span>
-                  <span className="truncate block" title={c.adverseParty || ''}>
-                    {c.adverseParty || '—'}
-                  </span>
-                </div>
-                <div>
-                  <span className="font-semibold block text-slate-500 mb-0.5">Sistema</span>
-                  {c.system || '—'}
-                </div>
-                <div>
-                  <span className="font-semibold block text-slate-500 mb-0.5">Valor da Causa</span>
-                  {c.value != null
-                    ? `R$ ${Number(c.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-                    : '—'}
-                </div>
-                <div>
-                  <span className="font-semibold block text-slate-500 mb-0.5">Data de Início</span>
-                  {c.startDate ? formatSafeLocalDate(c.startDate) : '—'}
-                </div>
-              </div>
+              {(() => {
+                const sys = state.caseSystems?.find((s: any) => s.name === c.system)
+                if (sys?.image_url) {
+                  return (
+                    <img
+                      src={sys.image_url}
+                      alt={sys.name}
+                      className="w-4 h-4 object-contain shrink-0"
+                      title={sys.name}
+                    />
+                  )
+                }
+                return null
+              })()}
+              <Link
+                to={`/processos/${c.id}`}
+                className={cn(
+                  'font-bold text-primary hover:underline shrink-0',
+                  depth === 0 ? 'text-base' : 'text-sm',
+                )}
+              >
+                {c.number}
+              </Link>
+              <CaseFeeBadge hasFees={(c as any).hasFees} noFees={(c as any).noFees} />
+              {(c as any).isSpecial && (
+                <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400 shrink-0" />
+              )}
+              {(c as any).isProblematic && (
+                <span className="text-sm leading-none shrink-0" title="Problemático">
+                  💩
+                </span>
+              )}
+              {(c as any).isRestricted && (
+                <span
+                  className="text-sm leading-none shrink-0"
+                  title="Visibilidade Interna Restrita"
+                >
+                  🔒
+                </span>
+              )}
+              {c.status && (
+                <Badge variant="outline" className="text-[10px] bg-slate-50">
+                  {c.status}
+                </Badge>
+              )}
+              {c.type && (
+                <Badge variant="secondary" className="text-[10px]">
+                  {c.type}
+                </Badge>
+              )}
+              <span className="text-[11px] text-muted-foreground truncate max-w-[24rem]">
+                {(c as any).position || 'Autor'}
+                {(c as any).adverseParty ? ` x ${(c as any).adverseParty}` : ''}
+              </span>
+              {resp && (
+                <span
+                  className="ml-auto px-2 py-0.5 rounded-full font-medium text-[10px] shrink-0"
+                  style={{
+                    backgroundColor: `${resp.color}20`,
+                    color: resp.color,
+                    border: `1px solid ${resp.color}40`,
+                  }}
+                >
+                  Resp: {resp.name.split(' ')[0]}
+                </span>
+              )}
             </div>
 
             {canExpand && isOpen && (
-              <div className="pl-6 relative before:absolute before:inset-y-0 before:left-3 before:w-px before:bg-slate-200">
+              <div className="relative ml-2 pl-6 before:absolute before:left-2 before:top-0 before:bottom-0 before:w-px before:bg-slate-300">
                 <CaseTree roots={children} allCases={allCases} depth={depth + 1} />
               </div>
             )}
