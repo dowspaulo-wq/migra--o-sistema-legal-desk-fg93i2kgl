@@ -76,6 +76,7 @@ import { useClientFeesFormStore } from '@/stores/useClientFeesFormStore'
 import { buildCasesWithFeesSet, CaseFeeBadge, isFeeCategory } from '@/components/CaseFeeBadge'
 import { isSuccessFeeType } from '@/lib/fee-types'
 import { useFinancePermissions } from '@/hooks/use-finance-permissions'
+import { CaseTree } from '@/components/CaseTree'
 
 export default function ClientDetail() {
   const { id } = useParams<{ id: string }>()
@@ -1186,6 +1187,7 @@ export default function ClientDetail() {
 
                     {subCases.length > 0 && (
                       <div className="pl-6 space-y-2 relative before:absolute before:inset-y-0 before:left-3 before:w-px before:bg-slate-200">
+                        {/* filhos de nível 2+ (subprocesso dentro de subprocesso) expandem via CaseTree */}
                         {subCases.map((sub) => {
                           const subResp = state.users.find((u) => u.id === sub.responsibleId)
                           const subTypeColor = getCaseTypeColor(
@@ -1367,6 +1369,19 @@ export default function ClientDetail() {
                                   </AlertDialog>
                                 )}
                               </div>
+                              {(() => {
+                                const subSubCases = allCases.filter((s) => s.parentId === sub.id)
+                                if (subSubCases.length === 0) return null
+                                return (
+                                  <div className="mt-2 -mx-1">
+                                    <CaseTree
+                                      roots={subSubCases as any}
+                                      allCases={allCases as any}
+                                      depth={2}
+                                    />
+                                  </div>
+                                )
+                              })()}
                             </div>
                           )
                         })}

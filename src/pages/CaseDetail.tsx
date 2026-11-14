@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -49,6 +49,7 @@ import {
 } from 'lucide-react'
 import { SectionErrorBoundary } from '@/components/SectionErrorBoundary'
 import { CaseOnboardingCard } from '@/components/CaseOnboardingCard'
+import { CaseTree } from '@/components/CaseTree'
 import useLegalStore from '@/stores/useLegalStore'
 import { toast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
@@ -157,6 +158,7 @@ export default function CaseDetail() {
   const subcases = state.cases.filter(
     (sc) => sc.parentId === id && (state.currentUser?.role === 'Admin' || !sc.isRestricted),
   )
+
   const processAppointments = state.appointments
     .filter((a) => a.processId === id)
     .sort((a: any, b: any) => {
@@ -765,94 +767,7 @@ export default function CaseDetail() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3 mt-2">
-                  {subcases.map((sc) => (
-                    <div
-                      key={sc.id}
-                      className="border p-4 rounded-md hover:border-primary/50 transition-colors bg-white shadow-sm"
-                      data-native-system-icon="true"
-                    >
-                      <div className="flex justify-between items-start mb-3">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {(() => {
-                            const sys = state.caseSystems?.find((s) => s.name === sc.system)
-                            if (sys?.image_url) {
-                              return (
-                                <img
-                                  src={sys.image_url}
-                                  alt={sys.name}
-                                  className="w-5 h-5 object-contain shrink-0"
-                                  title={sys.name}
-                                />
-                              )
-                            }
-                            return null
-                          })()}
-                          <Link
-                            to={`/processos/${sc.id}`}
-                            className="font-bold text-base text-primary hover:underline"
-                          >
-                            {sc.number}
-                          </Link>
-                        </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {sc.noFees && (
-                            <span className="text-base leading-none" title="Não gera honorários">
-                              🚫
-                            </span>
-                          )}
-                          <Badge variant="outline" className="bg-slate-50">
-                            {sc.status}
-                          </Badge>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 text-xs text-slate-700">
-                        <div>
-                          <span className="font-semibold block text-slate-500 mb-0.5">Tipo</span>
-                          {sc.type || '—'}
-                        </div>
-                        <div>
-                          <span className="font-semibold block text-slate-500 mb-0.5">
-                            Tribunal/Vara
-                          </span>
-                          {sc.court || '—'}
-                        </div>
-                        <div>
-                          <span className="font-semibold block text-slate-500 mb-0.5">
-                            Comarca/UF
-                          </span>
-                          {sc.comarca
-                            ? `${sc.comarca.toUpperCase()}${sc.state ? ` - ${sc.state.toUpperCase()}` : ''}`
-                            : '—'}
-                        </div>
-                        <div>
-                          <span className="font-semibold block text-slate-500 mb-0.5">
-                            Parte Adversa
-                          </span>
-                          <span className="truncate block" title={sc.adverseParty || ''}>
-                            {sc.adverseParty || '—'}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="font-semibold block text-slate-500 mb-0.5">Sistema</span>
-                          {sc.system || '—'}
-                        </div>
-                        <div>
-                          <span className="font-semibold block text-slate-500 mb-0.5">
-                            Valor da Causa
-                          </span>
-                          {sc.value != null
-                            ? `R$ ${Number(sc.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-                            : '—'}
-                        </div>
-                        <div>
-                          <span className="font-semibold block text-slate-500 mb-0.5">
-                            Data de Início
-                          </span>
-                          {sc.startDate ? formatSafeLocalDate(sc.startDate) : '—'}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                  <CaseTree roots={subcases as any} allCases={state.cases as any} />
                   {subcases.length === 0 && (
                     <p className="text-sm text-muted-foreground text-center py-6 bg-muted/20 border border-dashed rounded">
                       Nenhum subprocesso vinculado (ex: Recursos, Cartas Precatórias).
