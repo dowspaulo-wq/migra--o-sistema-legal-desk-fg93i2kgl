@@ -2,13 +2,13 @@
 # ==============================================================================
 # DPSjur / SBJur - Fase 6: Sistema de Backup Automático no VPS (Hostinger KVM 1)
 # Script: docs/backup-fase6/01-instalar-backup.sh
-# Versão: v1.1.0
+# Versão: v1.2.0
 # Destinatário padrão: advdouglaspsantos@gmail.com
 # ==============================================================================
 
 set -u
 
-SCRIPT_VERSION="v1.1.0"
+SCRIPT_VERSION="v1.2.0"
 WORK_DIR="/root/sbjur-backups"
 CONFIG_DIR="${WORK_DIR}/config"
 LOGS_DIR="${WORK_DIR}/logs"
@@ -188,17 +188,15 @@ echo ""
 
 # 3. Localizar contêiner PostgreSQL
 echo "🔍 3. Localizando contêiner PostgreSQL do Supabase..."
-DB_CONTAINER="${DB_CONTAINER:-}"
-
-if [ -z "${DB_CONTAINER}" ]; then
-    DB_CONTAINER=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E 'supa?base.*db|supa?base-db' | head -n 1 || true)
-fi
-if [ -z "${DB_CONTAINER}" ]; then
-    DB_CONTAINER=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E 'postgres|db' | grep -v -E 'dpsjur-web|web|frontend|traefik|redis' | head -n 1 || true)
+# Somente o nome exato é aceito (sem fallback genérico)
+DB_CONTAINER_ESPERADO="sbjur-local_supabase-db-1"
+DB_CONTAINER=""
+if docker ps --format '{{.Names}}' 2>/dev/null | grep -Fxq "${DB_CONTAINER_ESPERADO}"; then
+    DB_CONTAINER="${DB_CONTAINER_ESPERADO}"
 fi
 
 if [ -z "${DB_CONTAINER}" ]; then
-    echo "❌ Erro: Não foi possível localizar o contêiner do PostgreSQL via docker ps!"
+    echo "❌ Erro: contêiner '${DB_CONTAINER_ESPERADO}' não encontrado via docker ps!"
     echo "Contêineres ativos:"
     docker ps --format 'table {{.Names}}\t{{.Status}}' 2>/dev/null || true
     exit 1
@@ -342,6 +340,11 @@ echo ""
 # 6. Gerar o script principal de execução diária: /root/sbjur-backups/backup.sh
 echo "⚙️  6. Gerando script mestre de backup: ${BACKUP_SCRIPT}..."
 
+# Guarda a versão anterior do backup.sh para rollback manual (backup.sh.bak)
+if [ -f "${BACKUP_SCRIPT}" ]; then
+    cp -f "${BACKUP_SCRIPT}" "${BACKUP_SCRIPT}.bak" 2>/dev/null && echo "ℹ️  Versão anterior salva em ${BACKUP_SCRIPT}.bak (rollback)."
+fi
+
 cat <<'MASTER_BACKUP_EOF' > "${BACKUP_SCRIPT}"
 #!/usr/bin/env bash
 # ==============================================================================
@@ -379,47 +382,94 @@ log "====================================================================="
 log "Iniciando rotina de backup SBJur (PostgreSQL Supabase + Google Drive)"
 log "====================================================================="
 
-# 1. Localizar contêiner PostgreSQL
-DB_CONTAINER=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E 'supa?base.*db|supa?base-db' | head -n 1 || true)
-if [ -z "${DB_CONTAINER}" ]; then
-    DB_CONTAINER=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E 'postgres|db' | grep -v -E 'dpsjur-web|web|frontend|traefik|redis' | head -n 1 || true)
-fi
-
-if [ -z "${DB_CONTAINER}" ]; then
-    log "❌ Erro crítico: Contêiner do banco PostgreSQL não encontrado via docker ps!"
-    STATUS_BACKUP="FALHA"
-    ERRO_DETALHE="Contêiner do PostgreSQL não encontrado no Docker."
+# 1. Localizar contêiner PostgreSQL: SOMENTE o nome exato abaixo (sem fallback genérico)
+DB_CONTAINER_ESPERADO="sbjur-local_supabase-db-1"
+DB_CONTAINER=""
+CONTAINERS_PRESENTES=$(docker ps --format '{{.Names}}' 2>/dev/null | tr '\n' ' ' || true)
+if docker ps --format '{{.Names}}' 2>/dev/null | grep -Fxq "${DB_CONTAINER_ESPERADO}"; then
+    DB_CONTAINER="${DB_CONTAINER_ESPERADO}"
 fi
 
 FILE_NAME="sbjur_backup_${DATE_STAMP}.sql.gz"
 DAILY_PATH="${WORK_DIR}/diario/${FILE_NAME}"
+TMP_PATH="${DAILY_PATH}.tmp"
+PG_ERR_LOG="${LOGS_DIR}/pg_dump-ultimo-erro.log"
 STATUS_BACKUP="INICIADO"
 ERRO_DETALHE=""
 DUMP_SIZE="0"
 TOTAL_TABELAS=0
 TOTAL_REGISTROS=0
 
+if [ -z "${DB_CONTAINER}" ]; then
+    log "❌ Erro crítico: contêiner '${DB_CONTAINER_ESPERADO}' não encontrado via docker ps. Nenhum outro contêiner será usado."
+    log "Contêineres em execução: ${CONTAINERS_PRESENTES:-nenhum}"
+    STATUS_BACKUP="FALHA"
+    ERRO_DETALHE="Contêiner ${DB_CONTAINER_ESPERADO} não encontrado no Docker."
+fi
+
+# Últimas linhas do log de erro do pg_dump, sem linhas com termos de credencial
+ultimas_linhas_erro() {
+    local trecho=""
+    if [ -s "${PG_ERR_LOG}" ]; then
+        trecho=$(tail -n 5 "${PG_ERR_LOG}" 2>/dev/null | grep -v -i -E 'password|senha|passwd|secret|token|api[_-]?key' | cut -c1-200 | tr '\n' ' ' || true)
+    fi
+    echo "${trecho:-sem detalhes no log}"
+}
+
+# Validação do dump TEMPORÁRIO antes de promover: tamanho, gzip -t e header do pg_dump
+validar_dump_temporario() {
+    local bytes
+    bytes=$(stat -c%s "${TMP_PATH}" 2>/dev/null || echo 0)
+    if [ "${bytes}" -le 1000 ]; then
+        ERRO_DETALHE="Dump gerado muito pequeno (${bytes} bytes), possível falha no pg_dump."
+        return 1
+    fi
+    if ! gzip -t "${TMP_PATH}" 2>/dev/null; then
+        ERRO_DETALHE="Integridade GZIP do dump falhou (gzip -t)."
+        return 1
+    fi
+    if ! zcat "${TMP_PATH}" 2>/dev/null | grep -m1 -q '^-- Dumped by pg_dump version'; then
+        ERRO_DETALHE="Cabeçalho '-- Dumped by pg_dump' não encontrado no dump."
+        return 1
+    fi
+    return 0
+}
+
 # 2. Executar pg_dump se contêiner foi localizado
 if [ -n "${DB_CONTAINER}" ]; then
-    log "Executando pg_dump no contêiner '${DB_CONTAINER}'..."
+    log "Executando pg_dump no contêiner '${DB_CONTAINER}' (gravando em arquivo temporário, ainda não validado)..."
 
-    # Execução do pg_dump comprimido com gzip
-    if docker exec -i "${DB_CONTAINER}" pg_dump -U postgres -d postgres --clean --if-exists | gzip -9 > "${DAILY_PATH}"; then
-        # Verificar se arquivo gerado não está vazio
-        DUMP_BYTES=$(stat -c%s "${DAILY_PATH}" 2>/dev/null || echo 0)
-        if [ "${DUMP_BYTES}" -gt 1000 ]; then
+    # Log de erros do pg_dump com permissão restrita (600); nunca é enviado inteiro
+    : > "${PG_ERR_LOG}" 2>/dev/null || true
+    chmod 600 "${PG_ERR_LOG}" 2>/dev/null || true
+
+    # pg_dump -> gzip -> arquivo TEMPORÁRIO. Exit codes capturados via PIPESTATUS:
+    # [0] = docker exec/pg_dump, [1] = gzip.
+    docker exec -i "${DB_CONTAINER}" pg_dump -U postgres -d postgres --clean --if-exists 2>> "${PG_ERR_LOG}" | gzip -9 > "${TMP_PATH}"
+    PG_RC=${PIPESTATUS[0]}
+    GZ_RC=${PIPESTATUS[1]}
+
+    if [ "${PG_RC}" -ne 0 ] || [ "${GZ_RC}" -ne 0 ]; then
+        log "❌ Erro na execução do pg_dump (código ${PG_RC}) ou da compressão (código ${GZ_RC})!"
+        STATUS_BACKUP="FALHA"
+        ERRO_DETALHE="pg_dump retornou código ${PG_RC} (gzip: ${GZ_RC}). Últimas linhas do erro: $(ultimas_linhas_erro)"
+    elif validar_dump_temporario; then
+        # Promoção atômica (mesmo diretório) somente após todas as validações
+        if mv -f "${TMP_PATH}" "${DAILY_PATH}" 2>/dev/null; then
+            DUMP_BYTES=$(stat -c%s "${DAILY_PATH}" 2>/dev/null || echo 0)
             DUMP_SIZE=$(du -h "${DAILY_PATH}" 2>/dev/null | awk '{print $1}' || echo "N/A")
-            log "✅ Dump concluído com sucesso: ${DAILY_PATH} (${DUMP_SIZE}, ${DUMP_BYTES} bytes)"
+            log "✅ Dump validado e promovido: ${DAILY_PATH} (${DUMP_SIZE}, ${DUMP_BYTES} bytes)"
+            log "Validação: gzip OK + header pg_dump presente (não substitui teste de restauração)"
             STATUS_BACKUP="SUCESSO"
         else
-            log "❌ Erro: Arquivo de dump gerado possui tamanho insignificante (${DUMP_BYTES} bytes)!"
+            log "❌ Não foi possível promover o dump temporário para o destino final."
             STATUS_BACKUP="FALHA"
-            ERRO_DETALHE="Dump gerado muito pequeno (${DUMP_BYTES} bytes), possível falha no pg_dump."
+            ERRO_DETALHE="Falha ao mover o arquivo temporário para o destino final."
         fi
     else
-        log "❌ Erro na execução do pg_dump dentro do contêiner!"
+        log "❌ Validação do dump falhou: ${ERRO_DETALHE}"
+        log "Arquivo temporário mantido e NÃO promovido: ${TMP_PATH}"
         STATUS_BACKUP="FALHA"
-        ERRO_DETALHE="Comando pg_dump retornou erro no PostgreSQL."
     fi
 
     # Coleta de contagens rápidas para o relatório
@@ -542,6 +592,7 @@ Tamanho: ${DUMP_SIZE}
 Status Local: Sucesso (/root/sbjur-backups/diario)
 Google Drive: ${UPLOAD_DRIVE_STATUS} (pasta SBJur-Backups/diario)
 Conteudo do Banco: ${CONTAGENS_RESUMO:-OK}
+Validacao: gzip OK + header pg_dump presente (nao substitui teste de restauracao)
 ---------------------------------------------------------------------
 
 Politica de Retencao Aplicada:
